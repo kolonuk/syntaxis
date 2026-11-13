@@ -116,20 +116,13 @@ func TestLiveBenchmarkInGVisor(t *testing.T) {
 	if window == 0 {
 		window = 32768
 	}
-	rctx, cancel := context.WithTimeout(ctx, 12*time.Minute)
+	rctx, cancel := context.WithTimeout(ctx, 55*time.Minute)
 	defer cancel()
-	tasks := Suite()
-	if os.Getenv("SYNTAXIS_LIVE_HARD") == "1" {
-		tasks = []Task{hardTask()}
-	}
+	tasks := Suite() // quick checks + the hard multi-language projects, always
 	rep := Run(rctx, Env{Model: model, Window: window, Chat: p.Chat,
 		Exec: func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
 			return m.Exec(c, "live-bench", cid, e)
 		}}, tasks)
-	if os.Getenv("SYNTAXIS_LIVE_HARD") == "1" {
-		r, _ := m.Exec(ctx, "live-bench", cid, sandbox.ExecSpec{Cmd: []string{"sh", "-c", "cd /workspace && find . -maxdepth 3 -not -path './.go*' | head -30; echo ---; cat go.mod 2>&1 | head -5"}, Timeout: 20 * time.Second})
-		t.Logf("workspace after run:\n%s", r.Stdout)
-	}
 	t.Logf("model=%s window=%d pass_rate=%.0f%% tok/s=%.1f ttft=%.0fms tool_fail=%.0f%% peak_prompt=%d", model, window, rep.PassRate*100, rep.TokensPerSec, rep.TTFTMillis, rep.ToolFailRate*100, rep.MaxPromptUsed)
 	for _, tr := range rep.Tasks {
 		t.Logf("  %-18s passed=%-5v status=%-9s turns=%d calls=%d fails=%d %.1fs  %s", tr.ID, tr.Passed, tr.Status, tr.Turns, tr.ToolCalls, tr.ToolFails, tr.Seconds, tr.Detail)
@@ -137,17 +130,4 @@ func TestLiveBenchmarkInGVisor(t *testing.T) {
 	if len(rep.Tasks) == 0 {
 		t.Fatal("no tasks ran")
 	}
-}
-
-// hardTask is a realistic mini-project: write code and tests, run them, fix failures.
-func hardTask() Task {
-	return Task{ID: "go-project", Category: "multi-step",
-		Prompt: "In /workspace create a Go module named example.com/slug with slug.go exposing func Slugify(s string) string " +
-			"(lowercase, spaces and underscores become single hyphens, drop all characters except a-z, 0-9 and hyphen, trim leading/trailing hyphens) " +
-			"and slug_test.go with a table test of at least 4 cases. Run `go test ./...` and make sure it passes. Then reply 'done'.",
-		Check: func(ctx context.Context, ex ExecFunc, _ string) (bool, string) {
-			r, err := ex(ctx, sandbox.ExecSpec{Cmd: []string{"sh", "-c", "cd /workspace && go test ./... 2>&1 | tail -5"}, Timeout: 3 * time.Minute})
-			out := strings.TrimSpace(r.Stdout)
-			return err == nil && strings.Contains(out, "ok"), "go test: " + strings.ReplaceAll(out, "\n", " | ")
-		}}
 }

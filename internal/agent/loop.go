@@ -251,6 +251,15 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 			req.Tools = ToolDefs(cfg.SkillsEnabled)
 		}
 		chat, err := a.Deps.Chat(ctx, req, func(d string) { a.emit(EvDelta, "text", a.redact(d)) })
+		// Some servers fail the whole request when the model emits a malformed
+		// tool call (for example an XML syntax error). That is a model slip, not
+		// an outage: retry with a short corrective note instead of ending the run.
+		for try := 0; err != nil && malformedReply(err) && try < 2 && ctx.Err() == nil; try++ {
+			a.emit(EvNotice, "message", "The model produced a malformed tool call; asking it to try again.")
+			retry := req
+			retry.Messages = append(append([]provider.Message(nil), req.Messages...), provider.Message{Role: "user", Content: "Your last reply could not be parsed (malformed tool call). Call exactly one tool with valid arguments, or reply in plain text."})
+			chat, err = a.Deps.Chat(ctx, retry, func(d string) { a.emit(EvDelta, "text", a.redact(d)) })
+		}
 		res.Turns++
 		if err != nil {
 			if ctx.Err() != nil {
@@ -444,3 +453,14 @@ func firstLine(s string, n int) string {
 
 // ErrNoModel is returned when no chat function is configured.
 var ErrNoModel = errors.New("agent: no model configured")
+
+// malformedReply reports provider errors caused by unparseable model output.
+func malformedReply(err error) bool {
+	m := strings.ToLower(err.Error())
+	for _, k := range []string{"syntax error", "unexpected eof", "invalid character", "cannot unmarshal", "failed to parse", "error parsing tool call", "unexpected end of json"} {
+		if strings.Contains(m, k) {
+			return true
+		}
+	}
+	return false
+}

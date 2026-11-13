@@ -88,7 +88,7 @@ func env(t *testing.T, chat func(context.Context, provider.ChatRequest, func(str
 
 func TestSuiteWithCompetentModelPasses(t *testing.T) {
 	e, _ := env(t, goodModel(t))
-	rep := Run(context.Background(), e, Suite())
+	rep := Run(context.Background(), e, QuickSuite())
 	for _, tr := range rep.Tasks {
 		if !tr.Passed {
 			t.Errorf("task %s failed: %s (%s)", tr.ID, tr.Detail, tr.Status)
@@ -109,7 +109,7 @@ func TestIncompetentModelFails(t *testing.T) {
 	e, _ := env(t, func(context.Context, provider.ChatRequest, func(string)) (*provider.ChatResult, error) {
 		return &provider.ChatResult{Content: "I think the answer is 42.", Usage: provider.Usage{PromptTokens: 10, CompletionTokens: 5, Reported: true}}, nil
 	})
-	rep := Run(context.Background(), e, Suite())
+	rep := Run(context.Background(), e, QuickSuite())
 	if rep.PassRate != 0 {
 		t.Fatalf("a model that does nothing must not pass: %+v", rep)
 	}
@@ -124,7 +124,7 @@ func TestToolFailureRateCounted(t *testing.T) {
 		}
 		return &provider.ChatResult{Content: "gave up"}, nil
 	})
-	rep := Run(context.Background(), e, Suite()[:1])
+	rep := Run(context.Background(), e, QuickSuite()[:1])
 	if rep.ToolFailRate != 1 {
 		t.Fatalf("a rejected tool call is a tool failure: %+v", rep)
 	}
@@ -132,7 +132,7 @@ func TestToolFailureRateCounted(t *testing.T) {
 
 func TestSetupFilesCreated(t *testing.T) {
 	e, m := env(t, goodModel(t))
-	Run(context.Background(), e, Suite()[1:2])
+	Run(context.Background(), e, QuickSuite()[1:2])
 	if !strings.Contains(m.f["/workspace/config.txt"], "port=9090") {
 		t.Fatalf("%v", m.f)
 	}
@@ -149,5 +149,23 @@ func TestCompareDetectsRegression(t *testing.T) {
 	}
 	if len(Compare(prev, prev)) != 0 {
 		t.Fatal("false regression")
+	}
+}
+
+func TestSuiteDefinitions(t *testing.T) {
+	seen := map[string]bool{}
+	for _, tk := range Suite() {
+		if tk.ID == "" || tk.Prompt == "" || tk.Check == nil || tk.Category == "" || seen[tk.ID] {
+			t.Errorf("bad or duplicate task %+v", tk.ID)
+		}
+		seen[tk.ID] = true
+	}
+	for _, want := range []string{"go-project", "python-project", "node-project", "c-project", "python-bugfix", "git-workflow", "jq-data"} {
+		if !seen[want] {
+			t.Errorf("hard suite missing %s", want)
+		}
+	}
+	if len(HardSuite()) != 7 || len(Suite()) != len(QuickSuite())+7 {
+		t.Fatal("suite composition")
 	}
 }

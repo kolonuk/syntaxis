@@ -623,3 +623,44 @@ func TestContextEventAndConversationPersists(t *testing.T) {
 		t.Fatalf("history not carried across runs: %+v", req)
 	}
 }
+
+func TestMalformedToolCallIsRetried(t *testing.T) {
+	h := newHarness(t)
+	n := 0
+	h.model.fn = func(i int, req provider.ChatRequest) *provider.ChatResult { return nil }
+	h.a.Deps.Chat = func(_ context.Context, req provider.ChatRequest, _ func(string)) (*provider.ChatResult, error) {
+		n++
+		if n <= 2 {
+			return nil, errors.New("provider error: XML syntax error on line 67: unexpected EOF")
+		}
+		last := req.Messages[len(req.Messages)-1]
+		if !strings.Contains(last.Content, "could not be parsed") {
+			t.Errorf("no corrective note on the retry: %q", last.Content)
+		}
+		return &provider.ChatResult{Content: "recovered"}, nil
+	}
+	r := h.a.Run(context.Background(), "x")
+	if r.Status != StatusFinished || r.Final != "recovered" || n != 3 {
+		t.Fatalf("%+v calls=%d", r, n)
+	}
+	// a genuine outage is not retried
+	h2 := newHarness(t)
+	calls := 0
+	h2.a.Deps.Chat = func(context.Context, provider.ChatRequest, func(string)) (*provider.ChatResult, error) {
+		calls++
+		return nil, errors.New("connection refused")
+	}
+	if r := h2.a.Run(context.Background(), "x"); r.Status != StatusError || calls != 1 {
+		t.Fatalf("%+v calls=%d", r, calls)
+	}
+	// after three malformed replies the run ends with the error
+	h3 := newHarness(t)
+	c3 := 0
+	h3.a.Deps.Chat = func(context.Context, provider.ChatRequest, func(string)) (*provider.ChatResult, error) {
+		c3++
+		return nil, errors.New("unexpected EOF")
+	}
+	if r := h3.a.Run(context.Background(), "x"); r.Status != StatusError || c3 != 3 {
+		t.Fatalf("%+v calls=%d", r, c3)
+	}
+}

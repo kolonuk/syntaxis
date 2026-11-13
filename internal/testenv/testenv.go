@@ -22,9 +22,14 @@ func Path() string {
 	return filepath.Join(h, ".config", "syntaxis-test", "env")
 }
 
-// Load returns KEY=VALUE pairs, or skips the test if the file does not exist.
+// Load returns KEY=VALUE pairs. Live tests are opt-in (SYNTAXIS_LIVE=1) so a
+// routine `go test ./...` never touches the local LLM; they also skip when the
+// file does not exist.
 func Load(t testing.TB) map[string]string {
 	t.Helper()
+	if os.Getenv("SYNTAXIS_LIVE") != "1" {
+		t.Skip("live tests are opt-in: set SYNTAXIS_LIVE=1")
+	}
 	f, err := os.Open(Path())
 	if err != nil {
 		t.Skip("no private test environment (" + Path() + ")")

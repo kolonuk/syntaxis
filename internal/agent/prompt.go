@@ -31,7 +31,7 @@ How to work:
 - Run commands with run_shell. Long output is truncated (head and tail); use grep, sed -n or read_file with a line range to look closer.
 - Use git for version control in the user's repository. Make small, meaningful commits. Never include secrets in files or commits; use environment variables.
 - When you are finished, reply with a brief summary of what you changed and anything the user should check. Do not call a tool when you are done.
-- If you are blocked, unsure, or a decision belongs to the user, use ask_user instead of guessing.
+- If you are blocked, unsure, or a decision belongs to the user, use ask_user instead of guessing. Do not use ask_user for information you can work out yourself, and if the task says to reply with a value, just reply with it in plain text.
 `)
 	switch o.Autonomy {
 	case AskAll:

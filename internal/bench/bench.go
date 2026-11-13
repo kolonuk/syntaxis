@@ -25,6 +25,7 @@ type Task struct {
 	Category string // tool-calling | edit | instruction | multi-step
 	Prompt   string
 	Setup    map[string]string // files to create before the run
+	MaxTurns int               // 0 = default (12)
 	Check    func(ctx context.Context, exec ExecFunc, final string) (bool, string)
 }
 
@@ -36,8 +37,12 @@ func readFile(ctx context.Context, exec ExecFunc, p string) (string, bool) {
 	return r.Stdout, err == nil && r.ExitCode == 0
 }
 
-// Suite returns the built-in tasks.
-func Suite() []Task {
+// Suite returns every built-in task: the quick checks followed by the hard
+// multi-language projects.
+func Suite() []Task { return append(QuickSuite(), HardSuite()...) }
+
+// QuickSuite returns the small sanity tasks.
+func QuickSuite() []Task {
 	return []Task{
 		{ID: "write-file", Category: "tool-calling",
 			Prompt: "Create the file /workspace/hello.txt containing exactly the text: hello syntaxis (no trailing text). Then reply 'done'.",
@@ -141,8 +146,8 @@ func Run(ctx context.Context, env Env, tasks []Task) Report {
 			return res, err
 		}
 		a := &agent.Agent{
-			Cfg: agent.Config{Model: env.Model, Window: env.Window, Autonomy: agent.Full, ToolsEnabled: true, MaxTurns: 12, MaxDuration: 5 * time.Minute,
-				System: "You are a coding agent in a sandbox. Workspace: /workspace. Use the tools to do what is asked, then reply briefly."},
+			Cfg: agent.Config{Model: env.Model, Window: env.Window, Autonomy: agent.Full, ToolsEnabled: true, MaxTurns: turnsFor(t), MaxDuration: 8 * time.Minute,
+				System: agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: agent.Full, ToolsEnabled: true})},
 			Deps: agent.Deps{Chat: chat, Tools: &agent.Executor{Exec: env.Exec}, Policy: pol,
 				Emit: func(e agent.Event) {
 					switch e.Kind {
@@ -204,6 +209,13 @@ func Run(ctx context.Context, env Env, tasks []Task) Report {
 		rep.ContextNote = fmt.Sprintf("peak prompt %d of %d tokens", rep.MaxPromptUsed, env.Window)
 	}
 	return rep
+}
+
+func turnsFor(t Task) int {
+	if t.MaxTurns > 0 {
+		return t.MaxTurns
+	}
+	return 12
 }
 
 // JSON serialises a report for storage.
