@@ -40,6 +40,13 @@ func NewFake() *Fake {
 		Networks: map[string]bool{}, Volumes: map[string]map[string]string{}, Containers: map[string]*FakeContainer{}, Now: time.Now}
 }
 
+// Count returns the number of containers (race-safe for tests).
+func (f *Fake) Count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Containers)
+}
+
 // Ping implements Runtime.
 func (f *Fake) Ping(context.Context) error { return nil }
 

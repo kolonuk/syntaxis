@@ -53,6 +53,12 @@ Redaction of tool output is best-effort (known patterns plus the user's own stor
 
 Admins see session metadata (who, when, model, tokens, state), not message content, unless `ALLOW_ADMIN_READ_CONTENT=true`; reads are audited. Egress logs are visible to admins in full and to each user for their own sessions only. Set retention to match your obligations.
 
+## Dependency advisories (govulncheck)
+
+`govulncheck` currently reports advisories in the `github.com/docker/docker` module (AuthZ plugin bypass, plugin privilege validation, `docker cp` races and archive handling). They are bugs in the **Docker daemon/CLI code**, which shares a Go module with the client SDK that Syntaxis links; Syntaxis does not implement or expose those code paths, and no fixed module version exists yet ("Fixed in: N/A"). The mitigation is operational: keep **Docker Engine itself** up to date, and do not enable AuthZ plugins you rely on without patching. CI runs govulncheck on every change so a fixed SDK release is picked up by Dependabot.
+
+`npm audit` is clean for the dependencies that ship in the frontend bundle; remaining advisories are in dev tooling (vite/vitest/esbuild) that is not shipped, and are tracked by Dependabot.
+
 ## Known gaps in this version
 
 - Web Push delivery, the authenticated dev-server preview proxy, interactive PTY terminal, MCP server running, the model benchmark and connection-level egress logging are not implemented yet (see [todo.md](../todo.md)).

@@ -40,7 +40,7 @@ Trivy and `osv-scanner` live in the optional `images/sandbox-security` image and
 
 ## MCP servers
 
-Planned: an admin catalogue (starting from the official MCP Registry) with review → approve → run each server in its own gVisor container. Not implemented yet.
+The admin catalogue (`internal/mcp`) browses the official MCP Registry (`registry.modelcontextprotocol.io`, API verified at build time; the source is pluggable) and shows a review (what it runs as, credentials it needs, capabilities and warnings). Approval is refused unless the version is pinned exactly, the transport is stdio and every required credential is mapped to a secret. An approved server gets a hardened gVisor container spec of its own (no workspace, no host mounts, only the secrets mapped to it, sandbox egress policy). **Not yet implemented:** the admin UI for browsing/approving and the stdio bridge that runs an approved server and exposes its tools to the agent; MCP output will be treated as untrusted and state-changing tools gated.
 
 ## Integrations v2 (design only)
 

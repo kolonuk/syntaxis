@@ -17,10 +17,13 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/syntaxis ./cmd/syntaxis
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/syntaxis ./cmd/syntaxis \
+    && mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/syntaxis /usr/local/bin/syntaxis
+# the data directory must be writable by the non-root user (a named volume inherits this ownership)
+COPY --from=build --chown=65532:65532 /out/data /data
 COPY LICENSE /licenses/LICENSE
 COPY THIRD_PARTY_LICENSES /licenses/THIRD_PARTY_LICENSES
 ENV SYNTAXIS_DATA_DIR=/data SYNTAXIS_LISTEN=0.0.0.0:8080 SYNTAXIS_ADMIN_LISTEN=0.0.0.0:8081

@@ -264,7 +264,10 @@ func TestBenchmarkAdminOnlyAndStoresResult(t *testing.T) {
 	if !strings.Contains(string(raw), `"recommended":true`) || strings.Contains(string(raw), "pass_rate") {
 		t.Fatalf("%s", raw)
 	}
-	if len(fake.Containers) != 0 {
+	for i := 0; i < 100 && fake.Count() != 0; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if fake.Count() != 0 {
 		t.Fatal("throwaway benchmark sandbox was not destroyed")
 	}
 }

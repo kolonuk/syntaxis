@@ -33,7 +33,7 @@ When routing is enabled on Ollama, Syntaxis checks `/api/ps` and refuses a profi
 
 *Health check: `tools.support`*
 
-Not all local models call tools well. Symptoms: malformed arguments, calls described in prose, endless retries. Syntaxis tolerates text-form tool calls, detects loops and stops after repeated failures, but a weak model will still need supervision on harder tasks. Models that report no tool support run **chat-only**. Expect to supervise, use the `ask` autonomy level for new models, and prefer models that do well on tool-calling benchmarks. (A built-in benchmark for admins is planned.)
+Not all local models call tools well. Symptoms: malformed arguments, calls described in prose, endless retries. Syntaxis tolerates text-form tool calls, detects loops and stops after repeated failures, but a weak model will still need supervision on harder tasks. Models that report no tool support run **chat-only**. Expect to supervise, use the `ask` autonomy level for new models, and prefer models that do well on tool-calling benchmarks. Admins can run the built-in benchmark (Providers & models) to compare models; results are admin-only and can be summarised for users as a "recommended for agents" flag.
 
 ## Concurrency and queueing
 
@@ -98,7 +98,7 @@ Cloned repositories, web pages and tool output can contain text that tries to st
 ## Known limitations and unsupported setups
 
 - Not verified on a real gVisor host yet; see [todo.md](../todo.md).
-- Web Push delivery, the dev-server preview proxy, an interactive PTY terminal, MCP servers, the model benchmark, connection-level egress logs and PostgreSQL are not implemented yet.
+- Web Push delivery, an interactive PTY terminal, running MCP servers, a debug bundle, Prometheus metrics, connection-level egress logs and PostgreSQL are not implemented yet.
 - Windows and macOS Docker hosts are unsupported (gVisor requires Linux).
 - IPv6 inside sandboxes is unsupported.
 - Single instance only (no clustering); SQLite is single-writer.
