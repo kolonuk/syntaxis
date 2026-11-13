@@ -98,7 +98,7 @@ Cloned repositories, web pages and tool output can contain text that tries to st
 ## Known limitations and unsupported setups
 
 - Not verified on a real gVisor host yet; see [todo.md](../todo.md).
-- Web Push delivery, an interactive PTY terminal, running MCP servers, a debug bundle, Prometheus metrics, connection-level egress logs and PostgreSQL are not implemented yet.
+- Web Push delivery, running MCP servers, a debug bundle, connection-level egress logs and PostgreSQL are not implemented yet.
 - Windows and macOS Docker hosts are unsupported (gVisor requires Linux).
 - IPv6 inside sandboxes is unsupported.
 - Single instance only (no clustering); SQLite is single-writer.

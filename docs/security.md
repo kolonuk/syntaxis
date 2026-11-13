@@ -61,7 +61,7 @@ Admins see session metadata (who, when, model, tokens, state), not message conte
 
 ## Known gaps in this version
 
-- Web Push delivery, the authenticated dev-server preview proxy, interactive PTY terminal, MCP server running, the model benchmark and connection-level egress logging are not implemented yet (see [todo.md](../todo.md)).
+- Web Push delivery, running MCP servers, a debug bundle and connection-level egress logging are not implemented yet (see [todo.md](../todo.md)).
 - Nothing here has been verified against a real gVisor host; integration and escape-resistance claims await that test.
 - Pinned image digests are not yet set.
 

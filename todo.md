@@ -28,7 +28,7 @@ Self-hosted web app giving a small group of trusted people Jules-style sandboxed
 ## Stack
 
 - Backend Go 1.23+: `net/http` + `chi`, `log/slog`, `Store` interface (SQLite WAL via `modernc.org/sqlite`, pure Go, portable SQL, migrations), Docker Go SDK, `x/crypto/argon2`, `pquerna/otp`, `coder/websocket`. Few deps. Frontend embedded with `go:embed`; one static binary + minimal (distroless/scratch) image.
-- Frontend: TypeScript strict + React + Vite, xterm.js terminal, SSE chat streaming, CSS-variable design system (no heavy UI framework).
+- Frontend: TypeScript strict + React + Vite, SSE chat streaming, CSS-variable design system (no heavy UI framework).
 - DB: SQLite default (WAL, one writer, batched message writes). Keep SQL portable so PostgreSQL can be added v1.1. Document when to move up. No DB server in default compose.
 - Tests: `go test` (unit, API, gVisor integration that skips w/o `runsc`); Vitest; Playwright (a couple of flows).
 - Lint/format: golangci-lint, gofmt, ESLint, Prettier. CI: lint, vet, test, build, image build, govulncheck, npm audit, Trivy.
@@ -124,7 +124,7 @@ Each check: id, severity (info/warning/error), plain explanation, suggested fix,
 
 ## Logging, history, lifecycle
 
-- [~] slog JSON logs with request/session ids, `LOG_LEVEL`, pretty dev; separate app/session/audit logs; audit hash chain + export; admin log viewer + redacted debug bundle; egress logging (admin all, user own); optional Prometheus `/metrics`, `/healthz`; retention/rotation. — _slog JSON, audit chain, admin log viewer limited to audit/egress; debug bundle & metrics not implemented_
+- [~] slog JSON logs with request/session ids, `LOG_LEVEL`, pretty dev; separate app/session/audit logs; audit hash chain + export; admin log viewer + redacted debug bundle; egress logging (admin all, user own); `/healthz`; retention/rotation. — _slog JSON, audit chain, admin log viewer limited to audit/egress; debug bundle not implemented_
 - [x] Session history: persist sessions, messages, tool calls, results, model, tokens, timestamps; list/search/rename/delete/resume; export MD/JSON.
 - [x] Lifecycle: stop idle (30 min), destroy after N days (7), workspace retention (30 days, 0 keep) w/ warning email + keep/export; periodic reaper; admin disk per user + cleanup now. — _workspace export not implemented_
 - [~] Extra security: CSP/secure headers/same-origin CORS; admin IP allowlist; admin notification emails; pinned base digests + SBOM; prompt-injection stance; backup/restore command; optional terminal recording. — _headers/CSP, hash chain, backup done; admin IP allowlist, notification emails, SBOM/pin digests, terminal recording pending_
@@ -132,7 +132,7 @@ Each check: id, severity (info/warning/error), plain explanation, suggested fix,
 ## UI / PWA
 
 - [x] Design system on CSS variables, light/dark + toggle + `prefers-color-scheme`; components: buttons (primary/secondary/danger/ghost/icon/loading), inputs, selects, toggles, cards, badges, tabs, modals, toasts, tooltips, meters, empty states, skeletons, shortcuts.
-- [~] Chat-user screens: login, set-password, forgot/reset, 2FA setup, session list + chat + terminal/files/preview panel, model picker, usage meters, settings. — _login, set/reset password, 2FA, sessions+chat+activity terminal, models, usage, settings done; forgot link via email; side-panel files/preview tabs pending_
+- [~] Chat-user screens: login, set-password, forgot/reset, 2FA setup, session list + chat + output panel, model picker, usage meters, settings. — _login, set/reset password, 2FA, sessions+chat+output panel, models, usage, settings done; forgot link via email; side-panel files/preview tabs pending_
 - [~] Admin screens (separate app): users, quotas, models, providers, sessions metadata, logs, audit, policies, health, kill switch. — _users, providers/models, sessions, audit, egress, health, policies, kill switch done; logs viewer, benchmark UI pending_
 - [x] Responsive to phone; accessible (labels, focus, contrast, reduced motion). — _CSS; unverified on device_
 - [~] PWA: manifest (icons incl. maskable, shortcuts), service worker (app shell, offline page, update prompt), Web Push (VAPID), Badging API, offline message queue + Background Sync fallback, safe-area, no CLS; never cache API user data in shared cache; per-user caches cleared on logout. Lighthouse audit `[!]` needs browser run. — _manifest, SW, offline page, update prompt, badging, offline queue done; Web Push delivery not implemented; Lighthouse [!]_
@@ -196,7 +196,7 @@ Scheduled/triggered runs; devcontainer.json; PostgreSQL; OIDC; multi-instance fa
 **Works and is tested (Go, `go test -race ./...` all green; golangci-lint 0 issues; govulncheck: only server-side Moby advisories, see docs/security.md):** config, vault, scanner, redaction, audit chain, SQLite store+migrations, auth (invites, reset, TOTP, recovery, rotation, lockout, sessions, CSRF), provider adapters (fake-server tests), health engine + live collectors, fair queue, quotas, sandbox spec/validator/manager/reaper/watchdog/kill switch, Docker runtime (compiles; untested live), egress policy + nft generator + DNS resolver, agent loop/tools/approvals/parser/context/compaction, shadow-git checkpoints (real git), rules/skills, secrets, SSH commit signing (verified with real git+ssh-keygen), routing logic, benchmark, MCP catalogue, retention job, preview proxy, HTTP apps, CLI, hygiene guard tests.
 **Frontend:** React/TS (chat+admin), design system, PWA, 32 vitest tests; tsc/eslint/prettier clean; Playwright specs written, not run.
 
-**Stubbed / not implemented:** Web Push delivery, interactive PTY terminal (read-only activity terminal instead), opencode adapter, MCP stdio bridge, debug bundle, Prometheus metrics, workspace export, admin IP allowlist, notification emails for lockouts/kills, connection-level egress logging, periodic provider refresh, SBOM/pinned digests, PostgreSQL, conversation fork on restore + diff viewer UI.
+**Stubbed / not implemented:** Web Push delivery, opencode adapter, MCP stdio bridge, debug bundle, workspace export, admin IP allowlist, notification emails for lockouts/kills, connection-level egress logging, periodic provider refresh, SBOM/pinned digests, PostgreSQL, conversation fork on restore + diff viewer UI.
 
 **Verified locally on the dev machine:** the server Docker image builds and starts (found and fixed a /data ownership bug); the real `syntaxis serve` binary serves both listeners.
 

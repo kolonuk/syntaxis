@@ -123,7 +123,7 @@ func TestExtraPatterns(t *testing.T) {
 }
 
 func TestNeedsApproval(t *testing.T) {
-	risky, safe := Risk{true, "x"}, Risk{}
+	risky, safe := Risk{Risky: true, Reason: "x"}, Risk{}
 	cases := []struct {
 		level Autonomy
 		r     Risk

@@ -528,6 +528,9 @@ func (x *Executor) fetch(ctx context.Context, raw json.RawMessage) Output {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return errOut("only http(s) URLs are supported")
 	}
+	if why := CheckHost(u.Hostname()); why != "" {
+		return errOut("blocked by policy: " + u.Hostname() + " is " + why + ". Sandboxes cannot reach the local network or cloud metadata")
+	}
 	r, err := x.sh(ctx, `curl -sSL --max-time 30 --max-filesize 2000000 -A 'syntaxis-agent' -- "$1"`, 40*time.Second, a.URL)
 	out := x.finish(r, err)
 	out.Untrusted = true

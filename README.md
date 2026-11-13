@@ -23,7 +23,7 @@ Give your friends or team sandboxed AI coding sessions on the models you already
 
 ## Features
 
-- Chat UI (installable PWA, light/dark, phone-friendly) with a live activity terminal, approvals, context meter and offline message queue
+- Chat UI (installable PWA, light/dark, phone-friendly) with live command output, approvals, context meter and offline message queue
 - Built-in agent loop: shell, read/write/patch files, ripgrep, git, fetch, ask-the-user, skills; tolerant of weaker local models
 - Approval gates for risky actions (force push, `terraform apply`, cloud deletes, deploys, paid resources) with three autonomy levels
 - Context management: stays under the model's *real* window, head+tail truncation, compaction at ~75% with a running summary
@@ -63,7 +63,7 @@ More in [docs/architecture.md](docs/architecture.md).
 
 *(placeholders — add real screenshots once you have an instance running)*
 
-| Chat + terminal | Admin health | Mobile |
+| Chat + output | Admin health | Mobile |
 | --- | --- | --- |
 | `docs/img/chat.png` | `docs/img/health.png` | `docs/img/mobile.png` |
 
@@ -107,7 +107,7 @@ Full steps, including firewall rules for the sandbox network: [docs/getting-star
 
 ## Documentation
 
-[Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Security & threat model](docs/security.md) · [Architecture](docs/architecture.md) · [The agent](docs/agent.md) · [Integrations](docs/integrations.md) · [Pitfalls & troubleshooting](docs/pitfalls.md) · [Licensing](docs/licensing.md) · [Contributing](CONTRIBUTING.md) · [Reporting vulnerabilities](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Security & threat model](docs/security.md) · [Architecture](docs/architecture.md) · [The agent](docs/agent.md) · [Integrations](docs/integrations.md) · [Pitfalls & troubleshooting](docs/pitfalls.md) · [Contributing](CONTRIBUTING.md) · [Reporting vulnerabilities](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## Status and roadmap
 
@@ -119,7 +119,7 @@ Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
-GNU General Public License, version 2 or (at your option) any later version (`GPL-2.0-or-later`). See [LICENSE](LICENSE) and [docs/licensing.md](docs/licensing.md).
+GPL-2.0-or-later. See [LICENSE](LICENSE).
 
 ## Security note
 

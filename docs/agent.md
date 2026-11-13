@@ -18,6 +18,21 @@ It runs as a background job: closing the browser does not stop it, and the user 
 
 If a model emits tool calls as text or JSON in its reply instead of the structured API, a tolerant parser recovers them (fenced blocks, `<tool_call>` tags, bare JSON, double-encoded arguments, several naming styles). Only known tool names are accepted. Models without tool support are offered chat-only mode. Repeated identical actions trigger a nudge and then a stop; repeated failures stop the run and hand back to the user.
 
+## Commands run on the server, output shown in the UI
+
+Every command runs through the server inside the sandbox; the UI shows the command and its output as plain text (there is no interactive terminal).
+
+## Network and host protection
+
+Before a command runs it is inspected. These are **blocked outright** (not offered for approval, even in `full` autonomy), the attempt is audited, and the model is told not to retry:
+
+- targets in private/LAN/link-local/CGNAT ranges, cloud metadata, `*.local`/`*.lan`/`*.internal`/single-label hostnames, `host.docker.internal`, including obfuscated forms (decimal, hex, octal addresses) and loops that build addresses like `192.168.1.$i`
+- port scanners and LAN recon (`nmap`, `masscan`, `arp`, `ip neigh`, `nc -z`, packet capture, …)
+- the Docker socket, `--network host`, `--privileged`
+- `fetch_url` to any of the above
+
+The sandbox's own loopback (`localhost`, `127.0.0.1`) stays usable for dev servers. This inspection is a fast first line, not the boundary: a script the agent writes and runs can hide a target, so the egress firewall and DNS resolver enforce the same rules at the network level.
+
 ## Approval gates and autonomy
 
 A **code-level** policy classifies commands (force push, `git reset --hard`, `terraform apply/destroy`, `kubectl delete`, cloud `delete/destroy/deploy/create`, `wrangler deploy`, `curl | sh`, `sudo`, recursive `rm` outside the workspace, publishing packages, and more; admins can add patterns). Autonomy levels per session:

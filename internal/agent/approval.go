@@ -24,8 +24,9 @@ func ValidAutonomy(a Autonomy) bool { return a == AskAll || a == Workspace || a 
 
 // Risk is the classification of a command.
 type Risk struct {
-	Risky  bool
-	Reason string
+	Risky   bool
+	Reason  string
+	Blocked bool // never allowed: not even with approval or full autonomy
 }
 
 type riskRule struct {
@@ -97,13 +98,16 @@ var (
 // Classify reports whether a shell command needs approval.
 func (p *ApprovalPolicy) Classify(command string) Risk {
 	cmd := spaceNorm.ReplaceAllString(strings.TrimSpace(command), " ")
+	if why := CheckCommand(cmd); why != "" {
+		return Risk{Risky: true, Blocked: true, Reason: "blocked by policy: " + why}
+	}
 	for _, r := range p.rules {
 		if r.re.MatchString(cmd) {
-			return Risk{true, r.reason}
+			return Risk{Risky: true, Reason: r.reason}
 		}
 	}
 	if reason, bad := rmOutsideWorkspace(cmd); bad {
-		return Risk{true, reason}
+		return Risk{Risky: true, Reason: reason}
 	}
 	return Risk{}
 }

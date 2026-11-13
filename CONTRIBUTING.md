@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. Syntaxis is GPL-2.0-or-later; by contributing you agree your work is licensed the same way.
+Thanks for helping. By contributing you agree your work is licensed under the project licence (GPL-2.0-or-later).
 
 ## Ground rules
 
@@ -8,7 +8,6 @@ Thanks for helping. Syntaxis is GPL-2.0-or-later; by contributing you agree your
 - **No environment-specific values** anywhere: no real hostnames, IPs, emails, model names or hardware assumptions in code, docs or defaults. Use `example.com`, `llm.internal`, and label illustrative numbers as illustrative.
 - **Never commit secrets.** `.env` is git-ignored; use `.env.example`.
 - Every behaviour change comes with tests. Security-relevant behaviour (isolation, auth, egress, redaction, approvals) must have a test that fails if the protection is removed.
-- Add SPDX headers (`// SPDX-License-Identifier: GPL-2.0-or-later`) to new source files.
 
 ## Development
 

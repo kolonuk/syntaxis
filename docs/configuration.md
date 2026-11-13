@@ -27,7 +27,6 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_WORKSPACE_RETENTION_DAYS` | `30` | Delete a user's workspace after this many days unused (`0` keeps) |
 | `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
 | `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |
-| `SYNTAXIS_METRICS_ENABLED` | `false` | Prometheus `/metrics` |
 | `SYNTAXIS_VAPID_PUBLIC` / `_PRIVATE` | – | Web Push keys (`syntaxis keygen --vapid`) |
 | `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`; remove after use |
 

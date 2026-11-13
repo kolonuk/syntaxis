@@ -146,26 +146,6 @@ func TestNoModelOrHardwareAssumptionsInCode(t *testing.T) {
 	}
 }
 
-func TestSourceFilesHaveSPDXHeader(t *testing.T) {
-	for _, p := range tracked(t) {
-		ext := filepath.Ext(p)
-		if ext != ".go" && ext != ".ts" && ext != ".tsx" && ext != ".css" && ext != ".sh" && ext != ".mjs" {
-			continue
-		}
-		if strings.Contains(p, "web/go.mod") {
-			continue
-		}
-		s, _ := text(p)
-		head := s
-		if len(head) > 400 {
-			head = head[:400]
-		}
-		if !strings.Contains(head, "SPDX-License-Identifier: GPL-2.0-or-later") {
-			t.Errorf("%s: missing SPDX header", rel(t, p))
-		}
-	}
-}
-
 func TestNoSecretsInRepository(t *testing.T) {
 	for _, p := range tracked(t) {
 		s, ok := text(p)

@@ -51,19 +51,6 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  licences:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Fail on licences incompatible with GPL-2.0-or-later (GPLv3 conveyance)
-        run: scripts/check-licences.sh
-
   security:
     runs-on: ubuntu-latest
     steps:

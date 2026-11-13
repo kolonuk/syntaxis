@@ -14,7 +14,6 @@ import {
   TextArea,
   useToast,
 } from "../ui/ui";
-import { ActivityTerminal } from "./Terminal";
 
 interface Msg {
   role: string;
@@ -58,7 +57,7 @@ export function Chat({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
-  const [panel, setPanel] = useState("terminal");
+  const [panel, setPanel] = useState("output");
   const [running, setRunning] = useState(session.state === "running");
   const [notice, setNotice] = useState("");
   const abort = useRef<AbortController | null>(null);
@@ -81,7 +80,7 @@ export function Chat({
           void loadMessages();
           break;
         case "tool_call":
-          setLines((l) => [...l, `\x1b[36m$ ${String(d.summary ?? d.tool)}\x1b[0m`]);
+          setLines((l) => [...l, `$ ${String(d.summary ?? d.tool)}`]);
           break;
         case "tool_result":
           setLines((l) => [...l, String(d.output ?? "").slice(0, 4000)]);
@@ -257,7 +256,7 @@ export function Chat({
           value={panel}
           onChange={setPanel}
         />
-        {panel === "terminal" && <ActivityTerminal lines={lines} />}
+        {panel === "output" && <Output lines={lines} />}
         {panel === "context" && (
           <div className="stack">
             {ctx ? (
@@ -328,5 +327,21 @@ export function Chat({
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Command output as plain text: the server runs every command itself and shows what came back. */
+function Output({ lines }: { lines: string[] }) {
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "end" });
+  }, [lines]);
+  if (lines.length === 0)
+    return <p className="muted">Commands the agent runs and their output appear here.</p>;
+  return (
+    <pre className="output" role="log" aria-label="Command output">
+      {lines.join("\n")}
+      <div ref={end} />
+    </pre>
   );
 }

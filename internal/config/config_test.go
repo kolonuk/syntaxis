@@ -18,7 +18,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.EgressMode != "open" || c.AdminReadMsg || c.Metrics || c.ProxyAuth.Enabled {
+	if c.EgressMode != "open" || c.AdminReadMsg || c.ProxyAuth.Enabled {
 		t.Fatalf("unsafe defaults: %+v", c)
 	}
 	if c.AdminListen != "127.0.0.1:8081" {
@@ -83,7 +83,6 @@ func TestListsAndBools(t *testing.T) {
 	c, err := LoadFrom(env(map[string]string{
 		"SYNTAXIS_EGRESS_ALLOWLIST": " a.example.com, ,b.example.com ",
 		"SYNTAXIS_PROXY_TRUSTED":    "10.0.0.1",
-		"SYNTAXIS_METRICS_ENABLED":  "YES",
 		"SYNTAXIS_BASE_URL":         "https://x.example.com/",
 	}))
 	if err != nil {
@@ -92,7 +91,7 @@ func TestListsAndBools(t *testing.T) {
 	if strings.Join(c.EgressAllow, "|") != "a.example.com|b.example.com" {
 		t.Fatalf("allowlist %v", c.EgressAllow)
 	}
-	if !c.Metrics || c.BaseURL != "https://x.example.com" || len(c.ProxyAuth.Trusted) != 1 {
+	if c.BaseURL != "https://x.example.com" || len(c.ProxyAuth.Trusted) != 1 {
 		t.Fatalf("parsed wrong: %+v", c)
 	}
 }

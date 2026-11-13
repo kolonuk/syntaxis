@@ -29,7 +29,6 @@ type Config struct {
 	EgressAllow  []string
 	AdminReadMsg bool
 	ProxyAuth    ProxyAuth
-	Metrics      bool
 	VAPIDPublic  string
 	VAPIDPrivate string
 
@@ -88,7 +87,6 @@ func LoadFrom(get Getenv) (*Config, error) {
 		EgressMode:   str(get, "SYNTAXIS_EGRESS_MODE", "open"),
 		EgressAllow:  list(get("SYNTAXIS_EGRESS_ALLOWLIST")),
 		AdminReadMsg: boolean(get, "SYNTAXIS_ALLOW_ADMIN_READ_CONTENT", false),
-		Metrics:      boolean(get, "SYNTAXIS_METRICS_ENABLED", false),
 		VAPIDPublic:  get("SYNTAXIS_VAPID_PUBLIC"),
 		VAPIDPrivate: get("SYNTAXIS_VAPID_PRIVATE"),
 

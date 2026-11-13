@@ -345,6 +345,14 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 	cmd, summary := Describe(call.Name, call.Arguments)
 	a.emit(EvToolCall, "id", call.ID, "tool", call.Name, "summary", a.redact(summary))
 
+	// hard blocks: local-network access, scanners, Docker socket. Never asked, never allowed.
+	if cmd != "" && a.Deps.Policy != nil {
+		if r := a.Deps.Policy.Classify(cmd); r.Blocked {
+			a.audit("agent.blocked", fmt.Sprintf("%s: %s", firstLine(cmd, 120), r.Reason))
+			a.emit(EvNotice, "message", "A command was blocked: "+r.Reason)
+			return a.addToolResult(call, "error: "+r.Reason+". Sandboxes cannot reach the local network, the host or cloud metadata. Do not retry; use a different approach or ask the user.", 0), ""
+		}
+	}
 	// approval gate. Policy is code, never prompt text: nothing a tool result,
 	// repo file or model says can change it.
 	risk := Risk{}
