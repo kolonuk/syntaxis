@@ -62,7 +62,7 @@ Admins see session metadata (who, when, model, tokens, state), not message conte
 ## Known gaps in this version
 
 - Web Push delivery, running MCP servers, a debug bundle and connection-level egress logging are not implemented yet (see [todo.md](../todo.md)).
-- Nothing here has been verified against a real gVisor host; integration and escape-resistance claims await that test.
+- Isolation, egress and an agent run are tested against real gVisor (see the integration tests), but gVisor is not a VM and no escape-resistance testing has been done.
 - Pinned image digests are not yet set.
 
 Report vulnerabilities privately: [SECURITY.md](../SECURITY.md).

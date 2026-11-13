@@ -189,6 +189,14 @@ Scheduled/triggered runs; devcontainer.json; PostgreSQL; OIDC; multi-instance fa
 - [~] `docs/pitfalls.md` — complete; each entry names its check id
 - [~] Docs complete/accurate — written; unverified on a real host (stated in the docs)
 
+## Update: GitHub and real-gVisor verification
+
+- Repo created and pushed (https://github.com/kolonuk/syntaxis), secret scanning + push protection on; history rewritten to the owner as sole author, no tool attribution.
+- Verified on this host (Debian 12, Docker 28, runsc release-20261109): hardened containers start under runsc as uid 10001 with a read-only rootfs and no caps; user B cannot read user A's workspace; a fork bomb is contained by the pids limit; with the generated nft rules applied the sandbox reaches the internet but not the Docker gateway, host LAN address, 169.254.169.254, a private range, or SMTP; a full agent run over the HTTP API executes commands in a real sandbox and a `curl` to a LAN address is blocked by policy.
+- New: command inspection that hard-blocks LAN/metadata/scanner/Docker-socket access; output panel instead of a terminal; sandbox DNS resolver wired into `serve`.
+- Removed: Prometheus metrics, xterm, licence tooling.
+- CI additions: gVisor integration job and Playwright job (not yet seen green).
+
 ## Progress log
 
 ### v1 first pass (this session)

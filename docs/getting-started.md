@@ -1,6 +1,6 @@
 # Getting started
 
-> Status: the Docker/gVisor steps below have not yet been verified end to end on a clean host by the author of this draft (the development machine had no `runsc`). Run `syntaxis doctor` after each step; if a step is wrong, please open an issue or PR.
+> Verified on Debian 12 (x86-64) with Docker 28 and gVisor release-20261109: sandbox isolation, fork-bomb containment, the egress firewall and a full agent run are exercised by the integration tests (`go test -run Integration ./internal/...`, also run in CI). Run `syntaxis doctor` after each step.
 
 ## Requirements
 
@@ -68,11 +68,11 @@ Sandboxes join a dedicated Docker network. The egress rules that block the host,
 
 ```sh
 docker network create syntaxis-sandbox --opt com.docker.network.bridge.enable_icc=false   # Syntaxis also creates it on first use
-sh scripts/apply-egress.sh syntaxis-sandbox - 203.0.113.5/32     # last arguments: your LLM server's address(es) as CIDRs
+sh scripts/apply-egress.sh syntaxis-sandbox 172.30.0.2 203.0.113.5/32   # resolver IP from docker-compose.yml, then your LLM server's CIDR(s)
 export SYNTAXIS_NETWORK_RULES_APPLIED=true                        # lets the health check know
 ```
 
-Re-run after changing the egress mode or the LLM server's address, and after a firewall reload/reboot (persist with your distribution's nftables service). See [security.md](security.md#egress).
+Docker Compose already puts Syntaxis on the sandbox network at `172.30.0.2`, where its DNS resolver listens (domain policy, rebinding protection, query log). Set `SYNTAXIS_EGRESS_BLOCK` to your LLM server's CIDR so sandboxes cannot resolve or reach it. Re-run after changing the egress mode or the LLM server's address, and after a firewall reload/reboot (persist with your distribution's nftables service). See [security.md](security.md#egress).
 
 ## Connect your LLM server
 

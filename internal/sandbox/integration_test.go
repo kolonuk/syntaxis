@@ -5,9 +5,15 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"net"
+	"net/netip"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kolonuk/syntaxis/internal/egress"
 )
 
 // Integration tests run against a real Docker host with gVisor registered.
@@ -104,4 +110,69 @@ func TestIntegrationForkBombContainedByPidsLimit(t *testing.T) {
 	if err := m.Stop(ctx, id); err != nil {
 		t.Fatalf("container unmanageable after fork bomb: %v", err)
 	}
+}
+
+// Egress enforcement against the real firewall. Needs nft and passwordless
+// sudo (CI runners and the dev host have both); set SYNTAXIS_IT_EGRESS=1 to run.
+func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
+	if os.Getenv("SYNTAXIS_IT_EGRESS") != "1" {
+		t.Skip("set SYNTAXIS_IT_EGRESS=1 to apply the egress ruleset on this host")
+	}
+	m, d := integrationManager(t)
+	ctx := context.Background()
+	if err := d.EnsureNetwork(ctx, m.Cfg.Network); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("docker", "network", "inspect", m.Cfg.Network, "-f", "{{(index .IPAM.Config 0).Subnet}} {{(index .IPAM.Config 0).Gateway}}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(string(out))
+	subnet, gw := netip.MustParsePrefix(f[0]), netip.MustParseAddr(f[1])
+	rs, err := egress.Nftables("syntaxis_it", subnet, netip.Addr{}, egress.Policy{Mode: egress.ModeOpen, BridgeGateway: gw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply := exec.Command("sudo", "-n", "nft", "-f", "-")
+	apply.Stdin = strings.NewReader(rs.Text)
+	if b, err := apply.CombinedOutput(); err != nil {
+		t.Skipf("cannot apply nft rules (%v): %s", err, b)
+	}
+	t.Cleanup(func() { _ = exec.Command("sudo", "-n", "nft", "delete", "table", "inet", "syntaxis_it").Run() })
+
+	const uid = 910004
+	id, err := m.Create(ctx, uid, "it-egress", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, "it-egress", id); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid)) })
+	reach := func(target string) bool {
+		r, _ := m.Exec(ctx, "it-egress", id, ExecSpec{Cmd: []string{"sh", "-c", "curl -s -m 5 -o /dev/null " + target}, Timeout: 20 * time.Second})
+		return r.ExitCode == 0
+	}
+	if !reach("http://1.1.1.1/") {
+		t.Skip("no internet from the sandbox on this host")
+	}
+	lan := hostLANAddr(t)
+	for name, target := range map[string]string{
+		"docker bridge gateway": "http://" + gw.String() + ":2375/",
+		"host LAN address":      "http://" + lan + ":22/",
+		"cloud metadata":        "http://169.254.169.254/latest/meta-data/",
+		"SMTP to a public host": "telnet://1.1.1.1:25",
+		"private range":         "http://10.255.255.1/",
+	} {
+		if reach(target) {
+			t.Errorf("%s (%s) is reachable from the sandbox", name, target)
+		}
+	}
+}
+
+func hostLANAddr(t *testing.T) string {
+	t.Helper()
+	c, err := net.Dial("udp", "198.51.100.1:9")
+	if err != nil {
+		t.Skip("no route to determine the host LAN address")
+	}
+	defer c.Close()
+	return c.LocalAddr().(*net.UDPAddr).IP.String()
 }

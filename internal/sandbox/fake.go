@@ -269,4 +269,9 @@ func (f *Fake) ContainerIP(_ context.Context, id, _ string) (string, error) {
 	return "", ErrNotFound
 }
 
+// NetworkInfo implements Runtime.
+func (f *Fake) NetworkInfo(context.Context, string) (string, string, error) {
+	return "172.30.0.0/24", "172.30.0.1", nil
+}
+
 var _ Runtime = (*Fake)(nil)

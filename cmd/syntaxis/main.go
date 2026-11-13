@@ -276,6 +276,13 @@ func cmdEgressRules(args []string, out io.Writer) error {
 		}
 	}
 	pol := egress.Policy{Mode: cfg.EgressMode, Allowlist: cfg.EgressAllow, BridgeGateway: gw}
+	for _, c := range cfg.EgressBlock {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return fmt.Errorf("bad SYNTAXIS_EGRESS_BLOCK entry %q: %w", c, err)
+		}
+		pol.ExtraBlocked = append(pol.ExtraBlocked, p)
+	}
 	for _, c := range args[min(3, len(args)):] {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {
@@ -395,18 +402,19 @@ func cmdServe() error {
 	app.Signing = &signing.Service{Store: st, Vault: v}
 	app.Web, app.AdminWeb = webui.Handler("user"), webui.Handler("admin")
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	rt := newRuntime(cfg)
 	if rt != nil {
 		scfg := sandbox.DefaultConfig()
 		scfg.Runtime, scfg.Image, scfg.Network = cfg.Docker.Runtime, cfg.Docker.Image, cfg.Docker.Network
 		app.Sandbox = sandbox.NewManager(rt, scfg, log)
+		startDNS(ctx, cfg, st, app.Sandbox, log)
 	} else {
 		log.Warn("Docker client could not be created; sandboxes are unavailable")
 	}
 	app.RunAgent = app.RunAgentFunc(server.Wiring{})
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	bootstrapAdmin(ctx, cfg, as, st, log)
 

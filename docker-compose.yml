@@ -12,6 +12,10 @@ services:
     env_file: .env
     environment:
       SYNTAXIS_DOCKER_HOST: tcp://docker-socket-proxy:2375
+      # the sandbox DNS resolver (domain policy, rebinding protection, query log) listens on this container's
+      # address on the sandbox network; sandboxes are pointed at it
+      SYNTAXIS_DNS_LISTEN: 172.30.0.2:53
+      SYNTAXIS_SANDBOX_NETWORK: syntaxis-sandbox
     ports:
       - "8080:8080"            # chat app: put it behind a TLS reverse proxy
       - "127.0.0.1:8081:8081"  # admin app: loopback only; use a VPN/LAN address if you need remote admin
@@ -22,8 +26,12 @@ services:
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]   # to bind DNS port 53
     security_opt: ["no-new-privileges:true"]
-    networks: [control]
+    networks:
+      control: {}
+      sandbox:
+        ipv4_address: 172.30.0.2
 
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:latest
@@ -47,6 +55,13 @@ services:
 networks:
   control:
     internal: false
+  sandbox:
+    name: syntaxis-sandbox
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   syntaxis-data:

@@ -346,6 +346,18 @@ func (d *Docker) ContainerIP(ctx context.Context, id, network string) (string, e
 	return "", ErrNotFound
 }
 
+// NetworkInfo implements Runtime.
+func (d *Docker) NetworkInfo(ctx context.Context, name string) (string, string, error) {
+	n, err := d.cli.NetworkInspect(ctx, name, network.InspectOptions{})
+	if err != nil {
+		return "", "", mapNotFound(err)
+	}
+	if len(n.IPAM.Config) == 0 {
+		return "", "", ErrNotFound
+	}
+	return n.IPAM.Config[0].Subnet, n.IPAM.Config[0].Gateway, nil
+}
+
 var _ Runtime = (*Docker)(nil)
 
 // ParseCreated reads the created label as a time (reaper helper).

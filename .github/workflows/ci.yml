@@ -29,8 +29,6 @@ jobs:
           version: latest
       - run: go test -race -coverprofile=coverage.out ./...
       - run: go build -trimpath -o bin/syntaxis ./cmd/syntaxis
-      - name: gVisor integration test (skipped when runsc is absent)
-        run: go test -run Integration -v ./internal/sandbox/...
 
   web:
     runs-on: ubuntu-latest
@@ -103,3 +101,47 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+
+  gvisor:
+    name: gVisor integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install gVisor and register it with Docker
+        run: |
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update && sudo apt-get install -y runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker run --rm --runtime=runsc alpine:3.20 uname -a
+      - name: Build sandbox image
+        run: docker build -t syntaxis-sandbox:latest images/sandbox
+      - name: Isolation and containment tests against real gVisor
+        run: SYNTAXIS_IT_EGRESS=1 go test -count=1 -v -run Integration ./internal/sandbox/... ./internal/server/...
+
+  e2e:
+    name: Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci && npm run build && npx playwright install --with-deps chromium
+      - name: Start Syntaxis
+        run: |
+          go build -o bin/syntaxis ./cmd/syntaxis
+          export SYNTAXIS_MASTER_KEY=$(./bin/syntaxis keygen)
+          export SYNTAXIS_DATA_DIR=$RUNNER_TEMP/data SYNTAXIS_LOG_LEVEL=warn
+          ./bin/syntaxis serve &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 1; done
+      - run: cd web && npm run e2e
