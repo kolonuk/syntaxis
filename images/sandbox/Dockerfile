@@ -21,7 +21,7 @@ RUN groupadd --gid 10001 dev && useradd --uid 10001 --gid 10001 --home-dir /home
     && mkdir -p /workspace && chown 10001:10001 /workspace
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME=/home/dev GOPATH=/workspace/.go GOCACHE=/tmp/go-build GOTOOLCHAIN=local \
-    NPM_CONFIG_CACHE=/tmp/npm PIP_CACHE_DIR=/tmp/pip UV_CACHE_DIR=/tmp/uv
+    NPM_CONFIG_CACHE=/tmp/npm PIP_CACHE_DIR=/tmp/pip UV_CACHE_DIR=/tmp/uv PIP_BREAK_SYSTEM_PACKAGES=1
 USER 10001:10001
 WORKDIR /workspace
 CMD ["sleep", "infinity"]

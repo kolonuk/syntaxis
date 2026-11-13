@@ -81,6 +81,13 @@ func TestAllowedNetworkCommands(t *testing.T) {
 		"curl http://203.0.113.9/",
 		"git push origin main",
 		"nc -l 9000",
+		"curl -s -m 10 -o /dev/null -w '%{http_code}' https://example.com",
+		"curl -o index https://example.com/",
+		"wget -O out.html https://example.com",
+		"ssh -i id_rsa user@github.com",
+		"dig example.com A",
+		"dig example.com MX +short",
+		"ping -c 3 example.com",
 		"echo 192.168.1.1 is a private address > notes.txt && cat notes.txt", // text mention: see below
 	} {
 		r := p.Classify(c)

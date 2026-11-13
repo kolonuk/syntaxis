@@ -39,7 +39,12 @@ var (
 
 var partialRe = regexp.MustCompile(`\b(?:192\.168|169\.254|172\.(?:1[6-9]|2\d|3[01])|10\.\d{1,3})\.[\d$]`)
 
-var hostTools = map[string]bool{"ping": true, "ping6": true, "ssh": true, "scp": true, "sftp": true, "telnet": true, "ftp": true, "traceroute": true, "tracepath": true, "mtr": true, "nslookup": true, "dig": true, "host": true, "nc": true, "ncat": true, "netcat": true, "curl": true, "wget": true, "rsync": true}
+// hostTools take a bare host as a positional argument. curl/wget are handled by
+// the URL and address checks instead: their positional values are often files.
+var hostTools = map[string]bool{"ping": true, "ping6": true, "ssh": true, "scp": true, "sftp": true, "telnet": true, "ftp": true, "traceroute": true, "tracepath": true, "mtr": true, "nslookup": true, "dig": true, "host": true, "nc": true, "ncat": true, "netcat": true}
+
+// userHostTools take user@host arguments where plain words are often options' values (key files).
+var userHostTools = map[string]bool{"ssh": true, "scp": true, "sftp": true}
 
 func isNumber(s string) bool { _, err := strconv.Atoi(s); return err == nil }
 
@@ -88,12 +93,19 @@ func CheckCommand(cmd string) string {
 			continue
 		}
 		for _, a := range f[1:] {
-			if strings.HasPrefix(a, "-") || strings.ContainsAny(a, "=$") {
-				continue
+			if strings.HasPrefix(a, "-") || strings.ContainsAny(a, "=$/%{}'\"+") {
+				continue // options, paths, format strings
 			}
 			h := a
+			hasUser := false
 			if i := strings.LastIndex(h, "@"); i >= 0 {
-				h = h[i+1:]
+				h, hasUser = h[i+1:], true
+			}
+			if userHostTools[f[0]] && !hasUser && !strings.Contains(h, ".") {
+				continue // a bare word after ssh is usually an option value such as a key file
+			}
+			if h == strings.ToUpper(h) && len(h) <= 5 {
+				continue // DNS record types (A, MX, AAAA, ANY...)
 			}
 			if strings.Contains(h, "://") {
 				continue // URLs are checked below

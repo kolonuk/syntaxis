@@ -350,7 +350,7 @@ func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	existing, _ := a.Store.ListChatSessions(r.Context(), u.ID)
 	active := 0
 	for _, s := range existing {
-		if s.State == "running" || s.State == "idle" || s.State == "needs_input" {
+		if s.State == "running" || s.State == "needs_input" { // idle sessions hold no running work
 			active++
 		}
 	}
