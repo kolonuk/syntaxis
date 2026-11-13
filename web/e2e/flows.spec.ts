@@ -18,7 +18,7 @@ test("offline: the app shell still loads from the service worker", async ({ page
   await page.evaluate(() => navigator.serviceWorker.ready);
   await context.setOffline(true);
   await page.reload();
-  await expect(page.locator("body")).toContainText(/Syntaxis|offline/i);
+  await expect(page.locator("body")).toContainText(/Sign in|offline/i);
 });
 
 test("the admin app is a separate login on its own address", async ({ page }) => {
