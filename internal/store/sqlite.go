@@ -357,6 +357,19 @@ func (s *SQLite) ConsumeToken(ctx context.Context, hash, kind string, now time.T
 	return &t, nil
 }
 
+// PeekToken returns a still-valid token without consuming it.
+func (s *SQLite) PeekToken(ctx context.Context, hash, kind string, now time.Time) (*Token, error) {
+	var t Token
+	var exp, used int64
+	err := s.db.QueryRowContext(ctx, `SELECT hash,kind,user_id,expires_at,used_at FROM tokens WHERE hash=? AND kind=? AND used_at=0 AND expires_at>?`, hash, kind, now.Unix()).
+		Scan(&t.Hash, &t.Kind, &t.UserID, &exp, &used)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	t.ExpiresAt, t.UsedAt = fromTS(exp), fromTS(used)
+	return &t, nil
+}
+
 // ---- auth sessions ----
 
 // PutAuthSession stores a login session.

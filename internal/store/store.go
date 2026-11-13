@@ -194,6 +194,7 @@ type Store interface {
 	// single-use tokens
 	PutToken(ctx context.Context, t Token) error
 	ConsumeToken(ctx context.Context, hash, kind string, now time.Time) (*Token, error)
+	PeekToken(ctx context.Context, hash, kind string, now time.Time) (*Token, error)
 
 	// auth sessions
 	PutAuthSession(ctx context.Context, s AuthSession) error
