@@ -16,6 +16,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/rules"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/scanner"
+	"github.com/kolonuk/syntaxis/internal/signing"
 )
 
 // WorkspaceRoot is the sandbox workspace root.
@@ -112,7 +113,10 @@ type Executor struct {
 	ConfirmOverride func(ctx context.Context, d scanner.Decision) (bool, error)
 	Audit           func(action, detail string)
 	Model           string // for the commit trailer
-	MaxOutput       int
+	// Signing: the private key lives on the server; the sandbox never sees it.
+	SigningMode string // off | optional | required
+	Signer      func(ctx context.Context, payload string) (armored string, err error)
+	MaxOutput   int
 }
 
 func (x *Executor) sh(ctx context.Context, script string, timeout time.Duration, args ...string) (sandbox.ExecResult, error) {
@@ -436,7 +440,20 @@ func (x *Executor) git(ctx context.Context, raw json.RawMessage) Output {
 		if x.Model != "" {
 			msg += " (" + x.Model + ")"
 		}
+		if x.SigningMode == "required" && x.Signer == nil {
+			return errOut("commit signing is required but no signing key is available")
+		}
 		r, err := g("commit", "-m", msg)
+		if err != nil || r.ExitCode != 0 || x.Signer == nil || x.SigningMode == "off" || x.SigningMode == "" {
+			return x.finish(r, err)
+		}
+		if serr := x.signHead(ctx, g); serr != nil {
+			if x.SigningMode == "required" {
+				_, _ = g("reset", "--soft", "HEAD~1")
+				return errOut("commit signing failed, commit undone: " + serr.Error())
+			}
+			r.Stdout += "\n(note: commit could not be signed: " + serr.Error() + ")"
+		}
 		return x.finish(r, err)
 	case "push":
 		br := a.Branch
@@ -545,4 +562,33 @@ func (x *Executor) loadSkill(ctx context.Context, raw json.RawMessage) Output {
 		content = content[:24<<10] + "\n[skill file truncated]"
 	}
 	return Output{Text: content, Untrusted: sk.Source != "instance"}
+}
+
+// signHead replaces HEAD with a server-signed copy of the same commit.
+func (x *Executor) signHead(ctx context.Context, g func(args ...string) (sandbox.ExecResult, error)) error {
+	cat, err := g("cat-file", "commit", "HEAD")
+	if err != nil || cat.ExitCode != 0 {
+		return errors.New("cannot read the new commit")
+	}
+	raw := strings.TrimRight(cat.Stdout, "\n") + "\n"
+	payload, err := signing.Payload(raw)
+	if err != nil {
+		return err
+	}
+	armored, err := x.Signer(ctx, payload)
+	if err != nil {
+		return err
+	}
+	signed, err := signing.Embed(raw, armored)
+	if err != nil {
+		return err
+	}
+	h, err := x.Exec(ctx, sandbox.ExecSpec{Cmd: []string{"git", "hash-object", "-t", "commit", "-w", "--stdin"}, Stdin: []byte(signed), Timeout: time.Minute})
+	if err != nil || h.ExitCode != 0 {
+		return errors.New("cannot write the signed commit")
+	}
+	if r, err := g("update-ref", "HEAD", strings.TrimSpace(h.Stdout)); err != nil || r.ExitCode != 0 {
+		return errors.New("cannot update HEAD")
+	}
+	return nil
 }

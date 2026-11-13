@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -388,5 +389,71 @@ func TestSystemPromptContent(t *testing.T) {
 	}
 	if ContextSummaryNote("x") == "" {
 		t.Fatal("note")
+	}
+}
+
+func TestSignedCommitFlowKeepsKeyOutOfSandbox(t *testing.T) {
+	b := newBox()
+	b.run = func(argv []string) (sandbox.ExecResult, bool) {
+		j := strings.Join(argv, " ")
+		switch {
+		case strings.HasPrefix(j, "git diff --cached"):
+			return sandbox.ExecResult{}, true
+		case strings.HasPrefix(j, "git cat-file commit"):
+			return sandbox.ExecResult{Stdout: "tree abc\nauthor a <a@example.com> 1 +0000\ncommitter a <a@example.com> 1 +0000\n\nmsg\n"}, true
+		case strings.HasPrefix(j, "git hash-object"):
+			return sandbox.ExecResult{Stdout: "deadbeef\n"}, true
+		}
+		return sandbox.ExecResult{}, false
+	}
+	var payloads []string
+	x := &Executor{Exec: b.exec, SigningMode: "required", Signer: func(_ context.Context, p string) (string, error) {
+		payloads = append(payloads, p)
+		return "-----BEGIN SSH SIGNATURE-----\nSIG\n-----END SSH SIGNATURE-----\n", nil
+	}}
+	if o := run(x, ToolGit, `{"action":"commit","message":"x"}`); o.IsError {
+		t.Fatalf("%+v", o)
+	}
+	joined := strings.Join(b.cmds, "\n")
+	for _, want := range []string{"git commit", "git cat-file commit HEAD", "git hash-object -t commit -w --stdin", "git update-ref HEAD deadbeef"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing step %q in:\n%s", want, joined)
+		}
+	}
+	if len(payloads) != 1 || strings.Contains(payloads[0], "gpgsig") {
+		t.Fatal("payload")
+	}
+	if strings.Contains(joined, "PRIVATE KEY") {
+		t.Fatal("private key material in a sandbox command")
+	}
+}
+
+func TestSignedCommitRequiredFailureUndoesCommit(t *testing.T) {
+	b := newBox()
+	b.run = func(argv []string) (sandbox.ExecResult, bool) {
+		if strings.HasPrefix(strings.Join(argv, " "), "git cat-file") {
+			return sandbox.ExecResult{Stdout: "tree abc\n\nmsg\n"}, true
+		}
+		return sandbox.ExecResult{}, false
+	}
+	x := &Executor{Exec: b.exec, SigningMode: "required", Signer: func(context.Context, string) (string, error) { return "", errors.New("key unavailable") }}
+	o := run(x, ToolGit, `{"action":"commit","message":"x"}`)
+	if !o.IsError || !strings.Contains(strings.Join(b.cmds, "\n"), "git reset --soft HEAD~1") {
+		t.Fatalf("required mode must not leave an unsigned commit: %+v %v", o, b.cmds)
+	}
+	// required with no signer at all refuses before committing
+	b2 := newBox()
+	if o := run(&Executor{Exec: b2.exec, SigningMode: "required"}, ToolGit, `{"action":"commit","message":"x"}`); !o.IsError {
+		t.Fatal("required without signer allowed")
+	}
+	for _, c := range b2.cmds {
+		if strings.HasPrefix(c, "git commit") {
+			t.Fatal("committed")
+		}
+	}
+	// optional mode: sign failure is a note, commit stays
+	x2 := &Executor{Exec: b.exec, SigningMode: "optional", Signer: func(context.Context, string) (string, error) { return "", errors.New("nope") }}
+	if o := run(x2, ToolGit, `{"action":"commit","message":"x"}`); o.IsError || !strings.Contains(o.Text, "could not be signed") {
+		t.Fatalf("%+v", o)
 	}
 }
