@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/config"
 	"github.com/kolonuk/syntaxis/internal/doctor"
+	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/mail"
 	"github.com/kolonuk/syntaxis/internal/provider"
@@ -51,6 +53,7 @@ Usage:
   syntaxis doctor                      check Docker, gVisor, providers, SMTP and configuration
   syntaxis backup <dest.db>            write a consistent database backup
   syntaxis rotate-key <old-key-file> <new-key-file>   re-encrypt all secrets under a new master key
+  syntaxis egress-rules <subnet> [resolver-ip] [gateway-ip] [llm-cidr...]   print the nftables ruleset for the sandbox network (apply as root on the Docker host with nft -f -)
   syntaxis version
 `
 
@@ -85,6 +88,8 @@ func run(args []string, out, errw io.Writer) error {
 		return cmdBackup(args[1:], out)
 	case "rotate-key":
 		return cmdRotate(args[1:], out)
+	case "egress-rules":
+		return cmdEgressRules(args[1:], out)
 	}
 	fmt.Fprintf(errw, usage, version)
 	return fmt.Errorf("unknown command %q", args[0])
@@ -243,6 +248,45 @@ func cmdRotate(args []string, out io.Writer) error {
 		return fmt.Errorf("rotation stopped after %d secrets (restore from backup before retrying): %w", n, err)
 	}
 	fmt.Fprintf(out, "re-encrypted %d secrets. Provider keys, TOTP secrets and signing keys are rotated by re-saving them; restart with the new key.\n", n)
+	return nil
+}
+
+func cmdEgressRules(args []string, out io.Writer) error {
+	if len(args) < 1 {
+		return errors.New("usage: syntaxis egress-rules <subnet> [resolver-ip] [gateway-ip] [llm-cidr...]")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	subnet, err := netip.ParsePrefix(args[0])
+	if err != nil {
+		return fmt.Errorf("bad subnet: %w", err)
+	}
+	var resolver, gw netip.Addr
+	if len(args) > 1 && args[1] != "-" {
+		if resolver, err = netip.ParseAddr(args[1]); err != nil {
+			return fmt.Errorf("bad resolver ip: %w", err)
+		}
+	}
+	if len(args) > 2 && args[2] != "-" {
+		if gw, err = netip.ParseAddr(args[2]); err != nil {
+			return fmt.Errorf("bad gateway ip: %w", err)
+		}
+	}
+	pol := egress.Policy{Mode: cfg.EgressMode, Allowlist: cfg.EgressAllow, BridgeGateway: gw}
+	for _, c := range args[min(3, len(args)):] {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return fmt.Errorf("bad CIDR %q: %w", c, err)
+		}
+		pol.ExtraBlocked = append(pol.ExtraBlocked, p)
+	}
+	rs, err := egress.Nftables(cfg.Docker.Network, subnet, resolver, pol)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(out, rs.Text)
 	return nil
 }
 

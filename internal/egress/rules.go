@@ -51,9 +51,13 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s udp dport 53 accept\n", subnet, resolverIP)
 		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s tcp dport 53 accept\n", subnet, resolverIP)
 	}
-	// block direct DNS to anywhere else so the resolver cannot be bypassed
-	fmt.Fprintf(&b, "    ip saddr %s udp dport 53 counter drop\n", subnet)
-	fmt.Fprintf(&b, "    ip saddr %s tcp dport { 53, 853 } counter drop\n", subnet)
+	// block direct DNS to anywhere else so the resolver cannot be bypassed.
+	// Without a Syntaxis resolver this is skipped (sandboxes keep working, but
+	// domain policy and DNS logging are unavailable: documented limitation).
+	if resolverIP.IsValid() {
+		fmt.Fprintf(&b, "    ip saddr %s udp dport 53 counter drop\n", subnet)
+		fmt.Fprintf(&b, "    ip saddr %s tcp dport { 53, 853 } counter drop\n", subnet)
+	}
 	// SMTP out is blocked in every mode
 	fmt.Fprintf(&b, "    ip saddr %s tcp dport { %s } counter drop\n", subnet, joinInts(BlockedSMTPPorts))
 	// intra-sandbox-network traffic between sandboxes is dropped (isolation between users)

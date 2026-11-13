@@ -4,9 +4,11 @@ go 1.27.4
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.30.1
 	golang.org/x/crypto v0.59.0
+	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -22,7 +24,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/go-chi/chi/v5 v5.5.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect

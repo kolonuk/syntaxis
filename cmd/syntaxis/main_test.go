@@ -104,3 +104,27 @@ func TestRotateKeyCommand(t *testing.T) {
 		t.Fatal("args")
 	}
 }
+
+func TestEgressRulesCommand(t *testing.T) {
+	t.Setenv("SYNTAXIS_EGRESS_MODE", "open")
+	var out bytes.Buffer
+	if err := run([]string{"egress-rules", "172.30.0.0/24", "172.30.0.2", "172.30.0.1", "203.0.113.5/32"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"table inet syntaxis_sandbox", "169.254.0.0/16", "203.0.113.5/32", "tcp dport { 25, 465, 587 }"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if err := run([]string{"egress-rules", "nonsense"}, &out, &out); err == nil {
+		t.Fatal("bad subnet accepted")
+	}
+	if err := run([]string{"egress-rules"}, &out, &out); err == nil {
+		t.Fatal("missing args")
+	}
+	t.Setenv("SYNTAXIS_EGRESS_MODE", "allowlist")
+	t.Setenv("SYNTAXIS_EGRESS_ALLOWLIST", "")
+	if err := run([]string{"egress-rules", "172.30.0.0/24"}, &out, &out); err == nil {
+		t.Fatal("allowlist mode with an empty list must fail")
+	}
+}
