@@ -16,8 +16,8 @@ func healthy() *State {
 	return &State{
 		Providers: []ProviderState{{Name: "p", Kind: "ollama", Reachable: true, Latency: 50 * time.Millisecond, Concurrency: 2,
 			Models: []ModelState{{Name: "m", Enabled: true, ContextAdvert: 32768, ContextLoaded: 32768, ContextUsed: 32768, ContextSource: "api", ToolsSupported: bp(true)}}}},
-		Sandbox:  SandboxState{DockerReachable: true, RunscRegistered: true, SocketProxyUsed: true, SocketProxyReachable: true, NetworkRulesApplied: true, ImagePresent: true, DiskFreePct: 60},
-		Security: SecurityState{AdminCount: 1, AdminsWith2FA: 1, RotationDays: 30, SMTPConfigured: true, MasterKeySet: true, HTTPSDetected: true, DefaultQuotasSet: true, ScanMode: "block", EgressMode: "allowlist"},
+		Sandbox:      SandboxState{DockerReachable: true, RunscRegistered: true, SocketProxyUsed: true, SocketProxyReachable: true, NetworkRulesApplied: true, ImagePresent: true, DiskFreePct: 60},
+		Security:     SecurityState{AdminCount: 1, AdminsWith2FA: 1, RotationDays: 30, SMTPConfigured: true, MasterKeySet: true, HTTPSDetected: true, DefaultQuotasSet: true, ScanMode: "block", EgressMode: "allowlist"},
 		Housekeeping: HousekeepingState{LastBackup: time.Now(), RetentionSet: true, VAPIDSet: true, PushEnabled: true},
 	}
 }

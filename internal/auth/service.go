@@ -203,8 +203,10 @@ type LoginResult struct {
 	PasswordDaysLeft   int  // >=0 when rotation applies and within warning window, else -1
 }
 
-func attemptKeyAccount(kind, email string) string { return "acct:" + kind + ":" + strings.ToLower(email) }
-func attemptKeyIP(ip string) string               { return "ip:" + ip }
+func attemptKeyAccount(kind, email string) string {
+	return "acct:" + kind + ":" + strings.ToLower(email)
+}
+func attemptKeyIP(ip string) string { return "ip:" + ip }
 
 // Login verifies credentials for the given account kind. Admin and chat
 // credentials never cross: kind selects the table.

@@ -27,11 +27,11 @@ func (a Action) String() string {
 
 // WatchdogConfig sets thresholds. Zero values disable the matching check.
 type WatchdogConfig struct {
-	CPUPercentHigh   float64       // e.g. 95% of the CPU cap counts as high
-	MemoryPercentHigh float64      // % of memory limit
-	DiskWriteHigh    float64       // bytes/sec sustained
-	DiskBytesLimit   int64         // workspace size cap
-	PidsPercentHigh  float64       // % of pids limit (fork bomb)
+	CPUPercentHigh    float64 // e.g. 95% of the CPU cap counts as high
+	MemoryPercentHigh float64 // % of memory limit
+	DiskWriteHigh     float64 // bytes/sec sustained
+	DiskBytesLimit    int64   // workspace size cap
+	PidsPercentHigh   float64 // % of pids limit (fork bomb)
 	// escalation windows: how long a breach must persist
 	WarnAfter     time.Duration
 	ThrottleAfter time.Duration

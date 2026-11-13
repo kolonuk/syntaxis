@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,16 @@ func (s *SQLite) migrate() error {
 		return err
 	}
 	return goose.Up(s.db, "migrations")
+}
+
+// Backup writes a consistent copy of the database to dest (VACUUM INTO).
+// dest must not exist.
+func (s *SQLite) Backup(ctx context.Context, dest string) error {
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("backup destination %q already exists", dest)
+	}
+	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, dest)
+	return err
 }
 
 // Close closes the database.

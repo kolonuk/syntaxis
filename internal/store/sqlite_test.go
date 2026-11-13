@@ -430,3 +430,23 @@ func TestMigrationsIdempotent(t *testing.T) {
 	}
 	_ = s2.Close()
 }
+
+func TestBackupRoundTrip(t *testing.T) {
+	s := open(t)
+	_ = s.SetSetting(ctx, "k", "v")
+	dest := filepath.Join(t.TempDir(), "b.db")
+	if err := s.Backup(ctx, dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Backup(ctx, dest); err == nil {
+		t.Fatal("overwrote an existing backup")
+	}
+	r, err := OpenSQLite(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if v, _ := r.GetSetting(ctx, "k", ""); v != "v" {
+		t.Fatal("backup missing data")
+	}
+}
