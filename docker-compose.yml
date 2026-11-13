@@ -17,8 +17,8 @@ services:
       SYNTAXIS_DNS_LISTEN: 172.30.0.2:53
       SYNTAXIS_SANDBOX_NETWORK: syntaxis-sandbox
     ports:
-      - "8080:8080"            # chat app: put it behind a TLS reverse proxy
-      - "127.0.0.1:8081:8081"  # admin app: loopback only; use a VPN/LAN address if you need remote admin
+      - "${SYNTAXIS_CHAT_BIND:-0.0.0.0}:${SYNTAXIS_CHAT_PORT:-8080}:8080"   # chat app: put it behind a TLS reverse proxy
+      - "${SYNTAXIS_ADMIN_BIND:-127.0.0.1}:${SYNTAXIS_ADMIN_PORT:-8081}:8081" # admin app: loopback by default; use a VPN/LAN address for remote admin
     volumes:
       - syntaxis-data:/data
     depends_on:
