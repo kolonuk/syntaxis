@@ -439,3 +439,11 @@ func TestUserBanners(t *testing.T) {
 		}
 	}
 }
+
+func TestCPUOnlyModelIsNotASpill(t *testing.T) {
+	s := healthy()
+	s.Providers[0].Loaded = []provider.LoadedModel{{Name: "cpu-model", SizeBytes: 1000, VRAMBytes: 0}}
+	if find(run(s), CheckCPUSpill) != nil {
+		t.Fatal("a model with no GPU memory at all is CPU-only by design")
+	}
+}

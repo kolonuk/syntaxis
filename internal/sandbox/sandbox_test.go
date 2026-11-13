@@ -32,7 +32,7 @@ func TestBuildSpecIsolationProperties(t *testing.T) {
 		"init reaps zombies":      s.Init,
 		"exactly one mount":       len(s.Mounts) == 1,
 		"workspace is user's vol": s.Mounts[0].Volume == "syntaxis-ws-u7" && s.Mounts[0].Target == "/workspace",
-		"tmpfs /tmp noexec":       strings.Contains(s.Tmpfs["/tmp"], "noexec"),
+		"tmpfs /tmp nosuid":       strings.Contains(s.Tmpfs["/tmp"], "nosuid") && !strings.Contains(s.Tmpfs["/tmp"], "noexec"),
 		"managed label":           s.Labels[LabelManaged] == "true" && s.Labels[LabelUser] == "7" && s.Labels[LabelSession] == "sess-1",
 		"env passthrough":         contains(s.Env, "GH_TOKEN=x"),
 	}

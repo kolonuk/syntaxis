@@ -189,7 +189,7 @@ func checkResidency(s *State, t Thresholds) []Finding {
 			}
 		}
 		for _, l := range p.Loaded {
-			if l.SizeBytes > 0 && l.VRAMBytes < l.SizeBytes {
+			if l.SizeBytes > 0 && l.VRAMBytes > 0 && l.VRAMBytes < l.SizeBytes { // VRAM 0 = a deliberately CPU-only model, not a spill
 				pct := int(100 * float64(l.VRAMBytes) / float64(l.SizeBytes))
 				out = append(out, Finding{CheckID: CheckCPUSpill, Severity: Warning, Subject: p.Name + "/" + l.Name, Detail: d("in_gpu_percent", fmt.Sprint(pct)),
 					Message:     fmt.Sprintf("Only %d%% of this loaded model is in GPU memory; the rest runs from system RAM on the CPU, which is much slower.", pct),

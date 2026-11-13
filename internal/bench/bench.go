@@ -161,6 +161,13 @@ func Run(ctx context.Context, env Env, tasks []Task) Report {
 		tr.Seconds = now().Sub(start).Seconds()
 		if res.Status == agent.StatusFinished || res.Status == agent.StatusCapTurns {
 			tr.Passed, tr.Detail = t.Check(ctx, env.Exec, final)
+			if !tr.Passed {
+				f := strings.TrimSpace(final)
+				if len(f) > 160 {
+					f = f[:160]
+				}
+				tr.Detail += " | final reply: " + f
+			}
 		} else {
 			tr.Detail = "run ended: " + res.Status + " " + res.Reason
 		}

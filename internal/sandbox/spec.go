@@ -126,9 +126,9 @@ func BuildSpec(c Config, userID int64, sessionID string, env map[string]string, 
 		DNS:     c.DNS,
 		Mounts:  []Mount{{Volume: WorkspaceVolume(userID), Target: WorkspacePath}},
 		Tmpfs: map[string]string{
-			"/tmp":      fmt.Sprintf("rw,noexec,nosuid,size=%d", c.Limits.TmpfsBytes),
+			"/tmp":      fmt.Sprintf("rw,exec,nosuid,size=%d", c.Limits.TmpfsBytes), // exec allowed: compilers and test runners run build output from here
 			"/run":      "rw,noexec,nosuid,size=16777216",
-			"/home/dev": fmt.Sprintf("rw,nosuid,size=%d,uid=10001,gid=10001", c.Limits.TmpfsBytes),
+			"/home/dev": fmt.Sprintf("rw,exec,nosuid,size=%d,uid=10001,gid=10001", c.Limits.TmpfsBytes),
 		},
 		ReadOnlyRootFS:  true,
 		CapDrop:         []string{"ALL"},
