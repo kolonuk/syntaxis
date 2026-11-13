@@ -29,6 +29,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/doctor"
 	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/health"
+	"github.com/kolonuk/syntaxis/internal/lifecycle"
 	"github.com/kolonuk/syntaxis/internal/mail"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/quota"
@@ -415,6 +416,14 @@ func cmdServe() error {
 		reap(ctx, app, st, cfg, log) // on boot: clean up orphans
 	}
 	go loop(ctx, time.Hour, func() { _, _ = st.PurgeExpiredAuthSessions(ctx, time.Now()) })
+	if rt != nil {
+		app.Lifecycle = &lifecycle.Job{Store: st, Runtime: rt, Mail: ml, BaseURL: cfg.BaseURL, Policy: lifecycle.Policy{RetentionDays: int(cfg.WorkspaceRetention / (24 * time.Hour)), WarnDays: 3}}
+		go loop(ctx, 6*time.Hour, func() {
+			if res, err := app.Lifecycle.Run(ctx); err == nil && len(res.Deleted)+len(res.Warned) > 0 {
+				log.Info("workspace retention", "warned", len(res.Warned), "deleted", len(res.Deleted))
+			}
+		})
+	}
 
 	userSrv := &http.Server{Addr: cfg.Listen, Handler: app.UserHandler(), ReadHeaderTimeout: 10 * time.Second}
 	adminSrv := &http.Server{Addr: cfg.AdminListen, Handler: app.AdminHandler(), ReadHeaderTimeout: 10 * time.Second}

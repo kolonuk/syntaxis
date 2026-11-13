@@ -77,4 +77,6 @@ type Runtime interface {
 	// List returns containers carrying the managed label.
 	List(ctx context.Context) ([]ContainerInfo, error)
 	Inspect(ctx context.Context, id string) (*ContainerInfo, error)
+	// ContainerIP returns the container's address on the given network.
+	ContainerIP(ctx context.Context, id, network string) (string, error)
 }

@@ -5,6 +5,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -169,5 +172,56 @@ func TestQuotaExhaustionStopsRunBeforeModelCall(t *testing.T) {
 	_, _, raw := u.do("GET", "/api/sessions/"+id+"/events", nil)
 	if !strings.Contains(string(raw), "quota") {
 		t.Fatalf("user not told why: %s", raw)
+	}
+}
+
+func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	var gotCookie, gotPath string
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie, gotPath = r.Header.Get("Cookie"), r.URL.Path
+		http.SetCookie(w, &http.Cookie{Name: "evil", Value: "x"})
+		w.Write([]byte("hello from dev server"))
+	}))
+	defer dev.Close()
+	_, portStr, _ := net.SplitHostPort(dev.Listener.Addr().String())
+	fake := sandbox.NewFake()
+	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
+	alice := e.userSession("alice@example.com")
+	bob := e.userSession("bob@example.com")
+	_, s, _ := alice.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	id := s["id"].(string)
+	cid, _ := e.app.Sandbox.Create(context.Background(), 1, id, nil, false)
+	fake.IPs = map[string]string{cid: "127.0.0.1"}
+	sess, _ := e.st.GetChatSession(context.Background(), id)
+	sess.SandboxID = cid
+	_ = e.st.UpdateChatSession(context.Background(), *sess)
+
+	code, _, raw := alice.do("GET", "/preview/"+id+"/"+portStr+"/app/index.html", nil)
+	if code != 200 || string(raw) != "hello from dev server" || gotPath != "/app/index.html" {
+		t.Fatalf("%d %q path=%q", code, raw, gotPath)
+	}
+	if strings.Contains(gotCookie, "syx_") {
+		t.Fatalf("Syntaxis session cookie forwarded to user code: %q", gotCookie)
+	}
+	if code, _, _ := bob.do("GET", "/preview/"+id+"/"+portStr+"/", nil); code != 404 {
+		t.Fatalf("another user reached the preview: %d", code)
+	}
+	if code, _, _ := alice.do("GET", "/preview/"+id+"/80/", nil); code != 400 {
+		t.Fatalf("privileged port allowed: %d", code)
+	}
+	anon := e.client(e.user.URL)
+	if code, _, _ := anon.do("GET", "/preview/"+id+"/"+portStr+"/", nil); code != 401 {
+		t.Fatalf("unauthenticated preview: %d", code)
+	}
+	req, _ := http.NewRequest("GET", e.user.URL+"/preview/"+id+"/"+portStr+"/", nil)
+	for _, ck := range alice.hc.Jar.Cookies(mustURL(e.user.URL)) {
+		req.AddCookie(ck)
+	}
+	resp, _ := http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.Header.Get("Set-Cookie") != "" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatal("previewed content must be sandboxed and unable to set cookies on our origin")
 	}
 }

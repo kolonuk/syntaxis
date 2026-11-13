@@ -22,6 +22,7 @@ type Fake struct {
 	next       int
 	ExecHook   func(c *FakeContainer, e ExecSpec) (ExecResult, bool)
 	CreateErr  error
+	IPs        map[string]string
 	Now        func() time.Time
 }
 
@@ -246,6 +247,19 @@ func (f *Fake) Inspect(_ context.Context, id string) (*ContainerInfo, error) {
 	}
 	ci := c.Info
 	return &ci, nil
+}
+
+// ContainerIP implements Runtime; tests set IPs[id].
+func (f *Fake) ContainerIP(_ context.Context, id, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, err := f.get(id); err != nil {
+		return "", err
+	}
+	if ip, ok := f.IPs[id]; ok {
+		return ip, nil
+	}
+	return "", ErrNotFound
 }
 
 var _ Runtime = (*Fake)(nil)

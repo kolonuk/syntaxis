@@ -21,6 +21,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/config"
 	"github.com/kolonuk/syntaxis/internal/health"
+	"github.com/kolonuk/syntaxis/internal/lifecycle"
 	"github.com/kolonuk/syntaxis/internal/mail"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/quota"
@@ -53,6 +54,7 @@ type App struct {
 	Web         http.Handler // embedded frontend (may be nil)
 	Now         func() time.Time
 	RunAgent    RunFunc
+	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler
 	NewProvider func(p *store.Provider) (provider.Provider, error)
 

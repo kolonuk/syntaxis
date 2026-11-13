@@ -52,6 +52,7 @@ func (a *App) UserHandler() http.Handler {
 			r.Get("/secrets", a.handleSecretNames)
 			r.Put("/secrets/{name}", a.handleSecretPut)
 			r.Delete("/secrets/{name}", a.handleSecretDelete)
+			r.Post("/workspace/keep", a.handleWorkspaceKeep)
 			r.Get("/sessions", a.handleSessions)
 			r.Post("/sessions", a.handleSessionCreate)
 			r.Route("/sessions/{id}", func(r chi.Router) {
@@ -68,10 +69,38 @@ func (a *App) UserHandler() http.Handler {
 			})
 		})
 	})
+	// authenticated dev-server preview (owner only)
+	r.Group(func(r chi.Router) {
+		r.Use(a.requireAuth(store.KindUser), a.enforceRotation)
+		r.HandleFunc("/preview/{id}/{port}", a.handlePreviewRedirect)
+		r.HandleFunc("/preview/{id}/{port}/*", a.handlePreview)
+	})
 	if a.Web != nil {
 		r.NotFound(a.Web.ServeHTTP)
 	}
 	return r
+}
+
+func (a *App) handlePreviewRedirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+}
+
+func (a *App) handleWorkspaceKeep(w http.ResponseWriter, r *http.Request) {
+	if a.Lifecycle == nil {
+		writeErr(w, http.StatusServiceUnavailable, "retention is not configured")
+		return
+	}
+	var b struct {
+		Keep bool `json:"keep"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	if err := a.Lifecycle.Keep(r.Context(), principal(r).Account.ID, b.Keep); err != nil {
+		writeErr(w, 500, "could not save")
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // enforceRotation blocks everything except changing the password once the
