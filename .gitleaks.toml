@@ -1,0 +1,12 @@
+# Test fixtures and code identifiers trip the generic rules; real secrets are still caught elsewhere.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test fixtures and false positives"
+paths = [
+  '''_test\.go$''',
+  '''internal/store/sqlite\.go$''',
+  '''web/package-lock\.json$''',
+  '''THIRD_PARTY''',
+]
