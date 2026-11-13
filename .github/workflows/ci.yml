@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: 22
       - name: govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+        run: scripts/govulncheck.sh
       - name: npm audit
         run: cd web && npm ci && npm audit --omit=dev --audit-level=high   # shipped dependencies; dev tooling advisories are tracked by Dependabot
       - name: Trivy filesystem scan
