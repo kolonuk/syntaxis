@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -129,7 +130,7 @@ func (a *App) adminInvite(w http.ResponseWriter, r *http.Request) {
 	id, err := a.Auth.InviteUser(r.Context(), a.actorID(r), b.Email, b.Name)
 	if err != nil && id == 0 {
 		code := 400
-		if err == store.ErrConflict {
+		if errors.Is(err, store.ErrConflict) {
 			code = 409
 		}
 		writeErr(w, code, err.Error())
@@ -286,7 +287,7 @@ func (a *App) adminProviderSave(w http.ResponseWriter, r *http.Request) {
 	id, err := a.Store.UpsertProvider(r.Context(), p)
 	if err != nil {
 		code := 500
-		if err == store.ErrConflict {
+		if errors.Is(err, store.ErrConflict) {
 			code = 409
 		}
 		writeErr(w, code, "could not save provider")
@@ -576,7 +577,7 @@ func (a *App) adminBenchmarks(w http.ResponseWriter, r *http.Request) {
 	bs, _ := a.Store.ListBenchmarks(r.Context(), 0)
 	out := []map[string]any{}
 	for _, b := range bs {
-		var rep json.RawMessage = json.RawMessage(b.Result)
+		rep := json.RawMessage(b.Result)
 		out = append(out, map[string]any{"id": b.ID, "model_id": b.ModelID, "time": b.Time, "digest": b.Digest, "report": rep})
 	}
 	writeJSON(w, 200, out)
@@ -602,7 +603,7 @@ func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := a.actor(r)
 	id := "bench-" + newID()
-	go func() {
+	go func() { //nolint:gosec // the benchmark must outlive the HTTP request that started it
 		ctx := context.Background()
 		cid, err := a.Sandbox.Create(ctx, 0, id, nil, false)
 		if err != nil {

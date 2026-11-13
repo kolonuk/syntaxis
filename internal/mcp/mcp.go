@@ -302,7 +302,7 @@ func (a *Approvals) save(ctx context.Context, m map[string]Approval) error {
 func (a *Approvals) Approve(ctx context.Context, admin string, e Entry, pkg int, envSecrets map[string]string) error {
 	rv, err := Summarise(e, pkg)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrNotApprovable, err)
+		return fmt.Errorf("%w: %w", ErrNotApprovable, err)
 	}
 	p := e.Packages[pkg]
 	if !rv.Pinnable || p.Transport != "stdio" || (p.RegistryType != "npm" && p.RegistryType != "pypi" && p.RegistryType != "oci") {

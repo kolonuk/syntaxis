@@ -44,7 +44,7 @@ type Service struct {
 	Vault *vault.Vault
 }
 
-// Instance owner id for the single bot key.
+// InstanceOwner is the owner id of the single instance bot key.
 const InstanceOwner int64 = 0
 
 func aad(owner int64) string { return fmt.Sprintf("signing:%d", owner) }

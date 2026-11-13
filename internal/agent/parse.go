@@ -126,7 +126,7 @@ func extractCalls(s string, known map[string]bool) []ParsedCall {
 	if s == "" {
 		return nil
 	}
-	var raw json.RawMessage = json.RawMessage(s)
+	raw := json.RawMessage(s)
 	if !json.Valid(raw) {
 		return nil
 	}

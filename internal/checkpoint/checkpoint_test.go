@@ -5,6 +5,7 @@ package checkpoint
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ func localRunner(dir string) Runner {
 		var out, errb bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errb
 		if err := cmd.Run(); err != nil {
-			return out.String(), fmt.Errorf("%v: %s", err, errb.String())
+			return out.String(), fmt.Errorf("%w: %s", err, errb.String())
 		}
 		return out.String(), nil
 	}
@@ -234,10 +235,10 @@ func TestPruneByBytes(t *testing.T) {
 
 func TestUnknownCheckpoint(t *testing.T) {
 	m, _ := setup(t)
-	if _, err := m.Diff(ctx, 99); err != ErrNotFound {
+	if _, err := m.Diff(ctx, 99); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("%v", err)
 	}
-	if err := m.Restore(ctx, 99); err != ErrNotFound {
+	if err := m.Restore(ctx, 99); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("%v", err)
 	}
 	if cps, err := m.List(ctx); err != nil || len(cps) != 0 {

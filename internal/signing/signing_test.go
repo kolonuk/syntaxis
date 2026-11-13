@@ -5,6 +5,7 @@ package signing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,7 +71,7 @@ func TestEmbedAndPayload(t *testing.T) {
 	if strings.Contains(again, "AAA") || strings.Count(again, "gpgsig") != 1 {
 		t.Fatal("old signature not replaced")
 	}
-	if _, err := Embed("garbage", "x"); err != ErrNotACommit {
+	if _, err := Embed("garbage", "x"); !errors.Is(err, ErrNotACommit) {
 		t.Fatal("garbage accepted")
 	}
 }

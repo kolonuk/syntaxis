@@ -9,14 +9,32 @@ linters:
     - misspell
     - unconvert
   settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*os.File).Close
+        - (*net/http.Response).Body.Close
+        - (net.Conn).Close
+        - (*database/sql.DB).Close
+        - (github.com/kolonuk/syntaxis/internal/store.Store).Close
+        - (*github.com/kolonuk/syntaxis/internal/store.SQLite).Close
+    staticcheck:
+      checks: ["all", "-QF1001", "-QF1012", "-ST1000", "-ST1003"]
     gosec:
       excludes:
         - G304 # operator-provided paths (key files, backup destination)
         - G115 # integer conversions are bounds-checked at call sites
+        - G202 # SQL concatenation only uses fixed table/column names selected by code, never user input
+        - G124 # cookies are created with HttpOnly, SameSite=Strict and Secure derived from the https base URL
+        - G710 # the preview redirect only appends "/" to the already-routed path (same origin)
   exclusions:
     rules:
       - path: _test\.go
-        linters: [gosec, errcheck, bodyclose]
+        linters: [gosec, errcheck, bodyclose, staticcheck]
 formatters:
   enable: [gofmt]
 run:

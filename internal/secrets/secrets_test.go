@@ -5,6 +5,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func TestUserIsolation(t *testing.T) {
 func TestNameValidation(t *testing.T) {
 	s, _ := newSvc(t)
 	for _, bad := range []string{"lower", "1START", "HAS SPACE", "A-B", "", "PATH", "LD_PRELOAD", "DOCKER_HOST", strings.Repeat("A", 65)} {
-		if err := s.Put(ctx, ScopeUser, 1, bad, "v"); err != ErrBadName {
+		if err := s.Put(ctx, ScopeUser, 1, bad, "v"); !errors.Is(err, ErrBadName) {
 			t.Errorf("%q accepted", bad)
 		}
 	}

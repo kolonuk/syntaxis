@@ -7,6 +7,7 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -63,7 +64,7 @@ func collectProviders(ctx context.Context, d Deps, s *health.State) {
 		cctx, cancel := context.WithTimeout(ctx, d.ProbeTimeout)
 		lat, err := pr.Ping(cctx)
 		switch {
-		case err == provider.ErrAuth:
+		case errors.Is(err, provider.ErrAuth):
 			ps.AuthFailed = true
 		case err != nil:
 			ps.Err = err.Error()

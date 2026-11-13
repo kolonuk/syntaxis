@@ -168,10 +168,10 @@ func (c Config) do(ctx context.Context, method, path string, body []byte) (*http
 	}
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnreachable, err)
+		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, ErrAuth
 	}
 	return resp, nil

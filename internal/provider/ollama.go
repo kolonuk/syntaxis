@@ -25,7 +25,7 @@ func (o *Ollama) Ping(ctx context.Context) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		return 0, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
 	}
@@ -111,7 +111,7 @@ func (o *Ollama) Loaded(ctx context.Context) ([]LoadedModel, bool, error) {
 		return nil, false, err
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, false, nil
 	}
 	var out struct {
@@ -155,7 +155,7 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		if len(m.ToolCalls) > 0 {
 			var tcs []map[string]any
 			for _, tc := range m.ToolCalls {
-				tcs = append(tcs, map[string]any{"function": map[string]any{"name": tc.Name, "arguments": json.RawMessage(orEmptyObj(tc.Arguments))}})
+				tcs = append(tcs, map[string]any{"function": map[string]any{"name": tc.Name, "arguments": orEmptyObj(tc.Arguments)}})
 			}
 			om["tool_calls"] = tcs
 		}
@@ -175,7 +175,7 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 	if len(req.Tools) > 0 {
 		var tools []map[string]any
 		for _, t := range req.Tools {
-			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": json.RawMessage(orEmptyObj(t.Parameters))}})
+			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": orEmptyObj(t.Parameters)}})
 		}
 		payload["tools"] = tools
 	}

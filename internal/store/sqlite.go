@@ -111,7 +111,7 @@ func mapErr(err error) error {
 	return err
 }
 
-func table(kind string) (string, error) {
+func table(kind string) (string, error) { // returns only fixed table names: safe to concatenate
 	switch kind {
 	case KindAdmin:
 		return "admins", nil

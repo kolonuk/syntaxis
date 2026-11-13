@@ -12,13 +12,13 @@ import (
 	"strconv"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
@@ -65,7 +65,7 @@ func (d *Docker) HasRuntime(ctx context.Context, name string) (bool, error) {
 // ImagePresent implements Runtime.
 func (d *Docker) ImagePresent(ctx context.Context, ref string) (bool, error) {
 	_, err := d.cli.ImageInspect(ctx, ref)
-	if errdefs.IsNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return false, nil
 	}
 	return err == nil, err
@@ -102,7 +102,7 @@ func (d *Docker) EnsureVolume(ctx context.Context, name string, labels map[strin
 // RemoveVolume implements Runtime.
 func (d *Docker) RemoveVolume(ctx context.Context, name string) error {
 	err := d.cli.VolumeRemove(ctx, name, false)
-	if errdefs.IsNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return ErrNotFound
 	}
 	return err
@@ -112,7 +112,7 @@ func (d *Docker) RemoveVolume(ctx context.Context, name string) error {
 func (d *Docker) VolumeUsage(ctx context.Context, name string) (int64, error) {
 	v, err := d.cli.VolumeInspect(ctx, name)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			return 0, ErrNotFound
 		}
 		return 0, err
@@ -170,7 +170,7 @@ func (d *Docker) Create(ctx context.Context, s Spec) (string, error) {
 }
 
 func mapNotFound(err error) error {
-	if errdefs.IsNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return ErrNotFound
 	}
 	return err

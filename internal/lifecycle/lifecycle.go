@@ -8,6 +8,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -93,7 +94,7 @@ func (j *Job) Run(ctx context.Context) (Result, error) {
 			if running, _ := j.hasLiveSandbox(ctx, u.ID); running {
 				continue // never delete under a running sandbox
 			}
-			if err := j.Runtime.RemoveVolume(ctx, sandbox.WorkspaceVolume(u.ID)); err != nil && err != sandbox.ErrNotFound {
+			if err := j.Runtime.RemoveVolume(ctx, sandbox.WorkspaceVolume(u.ID)); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
 				continue
 			}
 			_, _ = j.Store.AppendAudit(ctx, "system", "workspace.delete", fmt.Sprintf("user:%d", u.ID), fmt.Sprintf("unused for %d days", int(idle/day)))

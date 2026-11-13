@@ -77,7 +77,7 @@ jobs:
       - name: govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
       - name: npm audit
-        run: cd web && npm ci && npm audit --audit-level=high
+        run: cd web && npm ci && npm audit --omit=dev --audit-level=high   # shipped dependencies; dev tooling advisories are tracked by Dependabot
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@0.28.0
         with:

@@ -25,7 +25,7 @@ func (o *OpenAI) Ping(ctx context.Context) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		return 0, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
 	}
@@ -75,9 +75,9 @@ func (o *OpenAI) ModelDetail(ctx context.Context, name string) (*ModelDetail, er
 					d.ContextLoaded, d.ContextSource = n, "llama.cpp /props n_ctx"
 				}
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		} else if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	case KindLiteLLM:
 		if resp, err := o.cfg.do(ctx, http.MethodGet, "/model/info", nil); err == nil && resp.StatusCode/100 == 2 {
@@ -102,9 +102,9 @@ func (o *OpenAI) ModelDetail(ctx context.Context, name string) (*ModelDetail, er
 					}
 				}
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		} else if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 	return d, nil
@@ -140,7 +140,7 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 	if len(req.Tools) > 0 {
 		var tools []map[string]any
 		for _, t := range req.Tools {
-			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": json.RawMessage(orEmptyObj(t.Parameters))}})
+			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": orEmptyObj(t.Parameters)}})
 		}
 		payload["tools"] = tools
 	}
@@ -244,7 +244,7 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		if id == "" {
 			id = fmt.Sprintf("call_%d", idx)
 		}
-		res.ToolCalls = append(res.ToolCalls, ToolCall{ID: id, Name: p.name, Arguments: json.RawMessage(orEmptyObj(json.RawMessage(p.args.String())))})
+		res.ToolCalls = append(res.ToolCalls, ToolCall{ID: id, Name: p.name, Arguments: orEmptyObj(json.RawMessage(p.args.String()))})
 	}
 	res.Content = content.String()
 	res.Duration = time.Since(start)

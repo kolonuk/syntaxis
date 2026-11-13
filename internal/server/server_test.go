@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -41,7 +40,6 @@ type env struct {
 	user        *httptest.Server
 	admin       *httptest.Server
 	now         time.Time
-	mu          sync.Mutex
 	adminSecret string
 }
 
