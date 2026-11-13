@@ -29,6 +29,7 @@ type Config struct {
 	EgressAllow  []string
 	EgressBlock  []string // extra CIDRs sandboxes must never reach (e.g. the LLM server)
 	DNSListen    string   // address for the sandbox DNS resolver (default: sandbox network gateway :53)
+	DNSFallback  string   // resolver sandboxes use if the Syntaxis resolver cannot run (default 1.1.1.1)
 	DNSUpstream  string   // upstream resolver host:port (default: first nameserver in /etc/resolv.conf)
 	AdminReadMsg bool
 	ProxyAuth    ProxyAuth
@@ -92,6 +93,7 @@ func LoadFrom(get Getenv) (*Config, error) {
 		EgressBlock:  list(get("SYNTAXIS_EGRESS_BLOCK")),
 		DNSListen:    get("SYNTAXIS_DNS_LISTEN"),
 		DNSUpstream:  get("SYNTAXIS_DNS_UPSTREAM"),
+		DNSFallback:  str(get, "SYNTAXIS_DNS_FALLBACK", "1.1.1.1"),
 		AdminReadMsg: boolean(get, "SYNTAXIS_ALLOW_ADMIN_READ_CONTENT", false),
 		VAPIDPublic:  get("SYNTAXIS_VAPID_PUBLIC"),
 		VAPIDPrivate: get("SYNTAXIS_VAPID_PRIVATE"),

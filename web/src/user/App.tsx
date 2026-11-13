@@ -8,6 +8,7 @@ import {
   Banner,
   Button,
   EmptyState,
+  Input,
   Modal,
   Select,
   Skeleton,
@@ -34,6 +35,7 @@ interface ModelOpt {
   name: string;
   provider: string;
   tools: boolean;
+  recommended: boolean;
 }
 
 function NewSession({
@@ -47,19 +49,43 @@ function NewSession({
   const [models, setModels] = useState<ModelOpt[] | null>(null);
   const [model, setModel] = useState("");
   const [autonomy, setAutonomy] = useState("workspace");
+  const [title, setTitle] = useState("");
   useEffect(() => {
     void get<ModelOpt[]>("/models").then((m) => {
-      setModels(m);
-      if (m[0]) setModel(m[0].id);
+      const sorted = [...m].sort(
+        (x, y) =>
+          Number(y.recommended) - Number(x.recommended) ||
+          Number(y.tools) - Number(x.tools) ||
+          x.id.localeCompare(y.id),
+      );
+      setModels(sorted);
+      if (sorted[0]) setModel(sorted[0].id);
     });
   }, []);
   async function create() {
     try {
-      onCreated(await post<Session>("/sessions", { model, autonomy }));
+      onCreated(await post<Session>("/sessions", { model, autonomy, title }));
     } catch (x) {
       toast(errText(x), "error");
     }
   }
+  const levels = [
+    {
+      id: "ask",
+      name: "Ask before running anything",
+      hint: "Every command and file change waits for you.",
+    },
+    {
+      id: "workspace",
+      name: "Automatic in the workspace",
+      hint: "Routine work runs by itself; risky actions ask first. Recommended.",
+    },
+    {
+      id: "full",
+      name: "Fully autonomous",
+      hint: "Runs everything within limits. Risky actions are still logged.",
+    },
+  ];
   return (
     <Modal
       title="New session"
@@ -81,28 +107,39 @@ function NewSession({
         </Banner>
       ) : (
         <>
+          <Input
+            label="Title (optional)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Add pagination to the API"
+          />
           <Select
             label="Model"
             value={model}
             onChange={(e) => setModel(e.target.value)}
             options={models.map((m) => ({
               value: m.id,
-              label: m.id + (m.tools ? "" : " (chat only)"),
+              label:
+                m.id + (m.recommended ? " — recommended" : "") + (m.tools ? "" : " (chat only)"),
             }))}
           />
-          <Select
-            label="Autonomy"
-            value={autonomy}
-            onChange={(e) => setAutonomy(e.target.value)}
-            options={[
-              { value: "ask", label: "Ask before running anything" },
-              {
-                value: "workspace",
-                label: "Automatic in the workspace, ask for risky actions (default)",
-              },
-              { value: "full", label: "Fully autonomous within limits" },
-            ]}
-          />
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontWeight: 600, fontSize: "var(--fs-sm)", marginBottom: 8 }}>
+              How much should it ask you?
+            </legend>
+            {levels.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                className="choice"
+                aria-pressed={autonomy === l.id}
+                onClick={() => setAutonomy(l.id)}
+              >
+                <strong>{l.name}</strong>
+                <small>{l.hint}</small>
+              </button>
+            ))}
+          </fieldset>
         </>
       )}
     </Modal>
@@ -127,6 +164,8 @@ function Shell({
   const [pref, setPref] = useState<ThemePref>(loadPref());
   const [dismissed2fa, setDismissed2fa] = useState(false);
   const [q, setQ] = useState("");
+  const [drawer, setDrawer] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setSessions(await get<Session[]>("/sessions" + (q ? `?q=${encodeURIComponent(q)}` : "")));
@@ -134,6 +173,9 @@ function Shell({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("action") === "new") setCreating(true);
+  }, []);
 
   useShortcuts({
     n: () => setCreating(true),
@@ -155,16 +197,32 @@ function Shell({
     go("/");
   };
   const cur = sessions?.find((s) => s.id === current);
-
-  // sign-in reminder: shown at EVERY login for users without 2FA until set up
   const showReminder = me.remind_2fa && !dismissed2fa;
+  const theme = pref === "dark" ? "☾" : pref === "light" ? "☀" : "◐";
 
   return (
     <div className="shell">
       <header className="topbar">
-        <span className="brand">Syntaxis</span>
-        <Button variant="ghost" onClick={() => setCreating(true)}>
-          New session
+        <Button
+          variant="icon"
+          className="sidebar-toggle"
+          aria-label="Sessions"
+          aria-expanded={drawer}
+          onClick={() => setDrawer(!drawer)}
+        >
+          ☰
+        </Button>
+        <h1 className="brand">Syntaxis</h1>
+        <Button
+          variant="ghost"
+          className="icon-only"
+          aria-label="New session"
+          onClick={() => {
+            setCreating(true);
+            setDrawer(false);
+          }}
+        >
+          ＋<span className="label">&nbsp;New session</span>
         </Button>
         <Button
           variant="icon"
@@ -175,13 +233,22 @@ function Shell({
             applyTheme(n);
           }}
         >
-          {pref === "dark" ? "☾" : pref === "light" ? "☀" : "◐"}
+          {theme}
         </Button>
-        <Button variant="ghost" onClick={() => setView(view === "settings" ? "chat" : "settings")}>
-          {view === "settings" ? "Back" : "Settings"}
+        <Button
+          variant="ghost"
+          className="icon-only"
+          aria-label={view === "settings" ? "Back to sessions" : "Settings"}
+          onClick={() => {
+            setView(view === "settings" ? "chat" : "settings");
+            setDrawer(false);
+          }}
+        >
+          {view === "settings" ? "←" : "⚙"}
+          <span className="label">&nbsp;{view === "settings" ? "Back" : "Settings"}</span>
         </Button>
-        <Button variant="ghost" onClick={logout}>
-          Sign out
+        <Button variant="ghost" className="icon-only" aria-label="Sign out" onClick={logout}>
+          ⎋<span className="label">&nbsp;Sign out</span>
         </Button>
       </header>
       {me.banners?.map((b) => (
@@ -196,7 +263,7 @@ function Shell({
         </Banner>
       )}
       <div className="layout">
-        <nav className="sidebar" aria-label="Sessions">
+        <nav className={`sidebar ${drawer ? "open" : ""}`} aria-label="Sessions">
           <input
             className="input"
             aria-label="Search sessions"
@@ -225,34 +292,51 @@ function Shell({
                 onClick={() => {
                   setCurrent(s.id);
                   setView("chat");
+                  setDrawer(false);
                 }}
               >
                 <div className="row">
                   <strong className="grow">{s.title}</strong>
                   <StatusPill state={s.state} />
                 </div>
-                <div className="muted">
+                <div className="sub">
                   {s.model} · {ago(s.updated_at)}
                 </div>
               </button>
             ))
           )}
         </nav>
-        <div className="main" style={{ padding: view === "chat" && cur ? 0 : undefined }}>
+        <main className="main" style={{ padding: view === "chat" && cur ? 0 : undefined }}>
           {view === "settings" ? (
             <Settings me={me} reload={() => void reload()} onLogout={logout} />
           ) : cur ? (
-            <Chat key={cur.id} session={cur} userKey={me.email} onChanged={() => void refresh()} />
+            <Chat
+              key={cur.id}
+              session={cur}
+              userKey={me.email}
+              onChanged={() => void refresh()}
+              onDeleted={() => {
+                setCurrent("");
+                void refresh();
+              }}
+              panelOpen={panelOpen}
+              setPanelOpen={setPanelOpen}
+            />
           ) : (
             <>
               <EmptyState
                 title="Pick a session"
-                hint="Choose one on the left, or press N to start a new one."
+                hint="Open the session list (☰ on a phone), or press N to start a new one."
+                action={
+                  <Button variant="primary" onClick={() => setCreating(true)}>
+                    New session
+                  </Button>
+                }
               />
               <UsagePanel />
             </>
           )}
-        </div>
+        </main>
       </div>
       {creating && (
         <NewSession

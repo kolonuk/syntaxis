@@ -172,7 +172,7 @@ func TestContainerSpecIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Runtime != "runsc" || spec.Privileged || !spec.ReadOnlyRootFS || len(spec.Mounts) != 0 {
+	if spec.Runtime != "runsc" || spec.Privileged || !spec.ReadOnlyRootFS || len(spec.Mounts) != 0 { // DefaultConfig has no DNS, so no mounts at all
 		t.Fatalf("%+v", spec)
 	}
 	if strings.Join(spec.Cmd, " ") != "npx --yes example-fs-mcp@0.1.5" {

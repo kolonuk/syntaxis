@@ -3,6 +3,7 @@
 package sandbox
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
@@ -127,7 +129,11 @@ func (d *Docker) VolumeUsage(ctx context.Context, name string) (int64, error) {
 func (d *Docker) Create(ctx context.Context, s Spec) (string, error) {
 	var mounts []mount.Mount
 	for _, m := range s.Mounts {
-		mounts = append(mounts, mount.Mount{Type: mount.TypeVolume, Source: m.Volume, Target: m.Target, ReadOnly: m.ReadOnly})
+		mm := mount.Mount{Type: mount.TypeVolume, Source: m.Volume, Target: m.Target, ReadOnly: m.ReadOnly}
+		if m.Subpath != "" {
+			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.Subpath}
+		}
+		mounts = append(mounts, mm)
 	}
 	init := s.Init
 	hc := &container.HostConfig{
@@ -154,6 +160,7 @@ func (d *Docker) Create(ctx context.Context, s Spec) (string, error) {
 		hc.NetworkMode = "none"
 	}
 	cfg := &container.Config{
+		OpenStdin:       s.OpenStdin,
 		Image:           s.Image,
 		User:            s.User,
 		Cmd:             s.Cmd,
@@ -344,6 +351,65 @@ func (d *Docker) ContainerIP(ctx context.Context, id, network string) (string, e
 		}
 	}
 	return "", ErrNotFound
+}
+
+// Attach implements Runtime: stdin in, demultiplexed stdout out.
+func (d *Docker) Attach(ctx context.Context, id string) (*Attachment, error) {
+	hj, err := d.cli.ContainerAttach(ctx, id, container.AttachOptions{Stream: true, Stdin: true, Stdout: true, Stderr: true})
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		_, err := stdcopy.StdCopy(pw, io.Discard, hj.Reader)
+		_ = pw.CloseWithError(err)
+	}()
+	return &Attachment{Stdin: writeCloser{hj}, Stdout: pr, Close: func() { hj.Close(); _ = pr.Close() }}, nil
+}
+
+type writeCloser struct{ h types.HijackedResponse }
+
+func (w writeCloser) Write(p []byte) (int, error) { return w.h.Conn.Write(p) }
+func (w writeCloser) Close() error                { return w.h.CloseWrite() }
+
+// WriteVolumeFile implements Runtime: a created (never started) helper
+// container with the volume mounted receives the file through the copy API.
+func (d *Docker) WriteVolumeFile(ctx context.Context, vol, name, content, image string) error {
+	if err := d.EnsureVolume(ctx, vol, map[string]string{LabelManaged: "true"}); err != nil {
+		return err
+	}
+	resp, err := d.cli.ContainerCreate(ctx, &container.Config{Image: image, Cmd: []string{"true"}, User: "0"},
+		&container.HostConfig{Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol, Target: "/vol"}}, NetworkMode: "none", CapDrop: []string{"ALL"}}, nil, nil, "")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}) }()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+		return err
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return d.cli.CopyToContainer(ctx, resp.ID, "/vol", &buf, container.CopyToContainerOptions{})
+}
+
+// Logs implements Runtime.
+func (d *Docker) Logs(ctx context.Context, id string, tail int) (string, error) {
+	rc, err := d.cli.ContainerLogs(ctx, id, container.LogsOptions{ShowStdout: true, ShowStderr: true, Tail: fmt.Sprint(tail)})
+	if err != nil {
+		return "", mapNotFound(err)
+	}
+	defer rc.Close()
+	var out, errb bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &errb, rc); err != nil {
+		return "", err
+	}
+	return out.String() + errb.String(), nil
 }
 
 // NetworkInfo implements Runtime.

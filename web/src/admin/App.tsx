@@ -53,13 +53,6 @@ interface Prov {
   enabled: boolean;
   has_key: boolean;
 }
-interface Mod {
-  id: number;
-  provider_id: number;
-  name: string;
-  enabled: boolean;
-  tools: number;
-}
 
 const tone = (s: string): Tone => (s === "error" ? "danger" : s === "warning" ? "warn" : "info");
 
@@ -155,7 +148,9 @@ function UsersTab() {
               <th>2FA</th>
               <th>Daily tokens</th>
               <th>Egress</th>
-              <th />
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -178,7 +173,7 @@ function UsersTab() {
                 <td>{u.totp_enabled ? "on" : "off"}</td>
                 <td>{u.quota_daily_tokens || "default"}</td>
                 <td>{u.egress_mode || "default"}</td>
-                <td className="row">
+                <td className="actions-cell">
                   <Button onClick={() => setEdit(u)}>Edit</Button>
                   {u.invited && (
                     <Button
@@ -320,10 +315,34 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
   );
 }
 
+interface ModFull {
+  id: number;
+  provider_id: number;
+  name: string;
+  enabled: boolean;
+  tools: number;
+  recommended: boolean;
+  context_override: number;
+}
+interface Bench {
+  id: number;
+  model_id: number;
+  time: string;
+  report: {
+    pass_rate: number;
+    tokens_per_sec: number;
+    ttft_ms: number;
+    tool_call_failure_rate: number;
+    tasks: { id: string; passed: boolean; detail: string; seconds: number }[];
+  };
+}
+
 function ProvidersTab() {
   const toast = useToast();
   const provs = useLoad<Prov[]>("/providers");
-  const models = useLoad<Mod[]>("/models");
+  const models = useLoad<ModFull[]>("/models");
+  const bench = useLoad<Bench[]>("/benchmarks");
+  const [adding, setAdding] = useState(false);
   const [f, setF] = useState({
     name: "",
     kind: "ollama",
@@ -336,17 +355,29 @@ function ProvidersTab() {
     try {
       await post("/providers", { ...f, concurrency: Number(f.concurrency) });
       setF({ ...f, name: "", base_url: "", api_key: "" });
+      setAdding(false);
       provs.reload();
     } catch (x) {
       toast(errText(x), "error");
     }
   }
   if (!provs.data || !models.data) return <Skeleton />;
+  const latest = (id: number) => bench.data?.find((b) => b.model_id === id);
   return (
     <div className="stack">
-      <p className="muted">
-        Syntaxis only reads from your LLM server: it never pulls, loads or deletes models.
-      </p>
+      <div className="row">
+        <p className="muted grow">
+          Syntaxis only reads from your LLM server: it never pulls, loads or deletes models.
+        </p>
+        <Button variant="primary" onClick={() => setAdding(true)}>
+          Add provider
+        </Button>
+      </div>
+      {provs.data.length === 0 && (
+        <Banner>
+          No provider yet. Add your Ollama, llama.cpp, LiteLLM or OpenAI-compatible server.
+        </Banner>
+      )}
       {provs.data.map((p) => (
         <Card key={p.id} title={`${p.name} (${p.kind})`}>
           <p className="muted">
@@ -377,66 +408,408 @@ function ProvidersTab() {
               Remove
             </Button>
           </div>
-          {models
-            .data!.filter((m) => m.provider_id === p.id)
-            .map((m) => (
-              <div key={m.id} className="row" style={{ marginTop: 8 }}>
-                <Toggle
-                  label={m.name}
-                  checked={m.enabled}
-                  onChange={async (v) => {
-                    await post(`/models/${m.id}/enabled`, { enabled: v });
-                    models.reload();
-                  }}
-                />
-                {m.tools === 0 && <Badge tone="warn">no tool support</Badge>}
-              </div>
-            ))}
+          <div className="table-wrap" tabIndex={0} role="region" aria-label={`Models of ${p.name}`}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Enabled</th>
+                  <th>Recommended</th>
+                  <th>Context override</th>
+                  <th>Last benchmark</th>
+                  <th>
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {models
+                  .data!.filter((m) => m.provider_id === p.id)
+                  .map((m) => {
+                    const b = latest(m.id);
+                    return (
+                      <tr key={m.id}>
+                        <td>
+                          {m.name} {m.tools === 0 && <Badge tone="warn">no tools</Badge>}
+                        </td>
+                        <td>
+                          <Toggle
+                            label={`Enable ${m.name}`}
+                            checked={m.enabled}
+                            onChange={async (v) => {
+                              await post(`/models/${m.id}/enabled`, { enabled: v });
+                              models.reload();
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <Toggle
+                            label={`Recommend ${m.name} for agents`}
+                            checked={m.recommended}
+                            onChange={async (v) => {
+                              await post(`/models/${m.id}/recommended`, { recommended: v });
+                              models.reload();
+                            }}
+                          />
+                        </td>
+                        <td>{m.context_override || <span className="muted">detected</span>}</td>
+                        <td>
+                          {b ? (
+                            `${Math.round(b.report.pass_rate * 100)}% · ${b.report.tokens_per_sec.toFixed(1)} tok/s`
+                          ) : (
+                            <span className="muted">never</span>
+                          )}
+                        </td>
+                        <td>
+                          <Button
+                            onClick={async () => {
+                              try {
+                                await post(`/models/${m.id}/benchmark`);
+                                toast(
+                                  "Benchmark started. It runs in the background at the lowest priority.",
+                                  "success",
+                                );
+                                setTimeout(bench.reload, 15000);
+                              } catch (x) {
+                                toast(errText(x), "error");
+                              }
+                            }}
+                          >
+                            Benchmark
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
         </Card>
       ))}
-      <Card title="Add provider">
-        <form onSubmit={add}>
+      {adding && (
+        <Modal title="Add provider" onClose={() => setAdding(false)}>
+          <form onSubmit={add}>
+            <Input
+              label="Name"
+              value={f.name}
+              onChange={(e) => setF({ ...f, name: e.target.value })}
+              required
+            />
+            <Select
+              label="Kind"
+              value={f.kind}
+              onChange={(e) => setF({ ...f, kind: e.target.value })}
+              options={[
+                { value: "ollama", label: "Ollama" },
+                { value: "llamacpp", label: "llama.cpp server" },
+                { value: "litellm", label: "LiteLLM" },
+                { value: "openai", label: "OpenAI-compatible" },
+              ]}
+            />
+            <Input
+              label="Base URL"
+              placeholder="http://llm.internal:11434"
+              value={f.base_url}
+              onChange={(e) => setF({ ...f, base_url: e.target.value })}
+              required
+            />
+            <Input
+              label="API key (optional)"
+              type="password"
+              value={f.api_key}
+              onChange={(e) => setF({ ...f, api_key: e.target.value })}
+            />
+            <Input
+              label="Concurrency"
+              hint="Match your server's parallel setting; Syntaxis never exceeds it."
+              value={f.concurrency}
+              onChange={(e) => setF({ ...f, concurrency: e.target.value })}
+            />
+            <Button variant="primary" type="submit">
+              Add
+            </Button>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function BenchmarksTab() {
+  const { data } = useLoad<Bench[]>("/benchmarks");
+  const models = useLoad<ModFull[]>("/models");
+  if (!data || !models.data) return <Skeleton />;
+  if (data.length === 0)
+    return (
+      <Banner>
+        No benchmark has been run. Start one from Providers &amp; models. Results are visible to
+        admins only.
+      </Banner>
+    );
+  const name = (id: number) => models.data!.find((m) => m.id === id)?.name ?? `model ${id}`;
+  return (
+    <div className="stack">
+      {data.map((b) => (
+        <Card
+          key={b.id}
+          title={`${name(b.model_id)} — ${Math.round(b.report.pass_rate * 100)}% passed`}
+        >
+          <p className="muted">
+            {new Date(b.time).toLocaleString()} · {b.report.tokens_per_sec.toFixed(1)} tok/s · first
+            token {Math.round(b.report.ttft_ms)} ms · tool failures{" "}
+            {Math.round(b.report.tool_call_failure_rate * 100)}%
+          </p>
+          <ul>
+            {b.report.tasks.map((t) => (
+              <li key={t.id}>
+                <Badge tone={t.passed ? "success" : "danger"}>{t.passed ? "pass" : "fail"}</Badge>{" "}
+                <strong>{t.id}</strong>{" "}
+                <span className="muted">
+                  {t.seconds.toFixed(0)}s — {t.detail}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+interface McpPkg {
+  index: number;
+  package: {
+    registryType: string;
+    identifier: string;
+    version: string;
+    env: { name: string; required: boolean; secret: boolean; description: string }[];
+  };
+  review: {
+    capabilities: string[];
+    warnings: string[];
+    needs_credentials: string[];
+    pinnable: boolean;
+  };
+}
+interface McpServerEntry {
+  name: string;
+  title: string;
+  description: string;
+  repository: string;
+  status: string;
+  remote_only: boolean;
+  packages: McpPkg[];
+}
+interface McpApproved {
+  name: string;
+  package: string;
+  type: string;
+  env_secrets: Record<string, string>;
+  approved_by: string;
+}
+
+function McpTab() {
+  const toast = useToast();
+  const approved = useLoad<McpApproved[]>("/mcp/approved");
+  const secrets = useLoad<string[]>("/secrets");
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<McpServerEntry[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<{ server: McpServerEntry; pkg: McpPkg } | null>(null);
+  const [map, setMap] = useState<Record<string, string>>({});
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  async function search(e?: FormEvent) {
+    e?.preventDefault();
+    setBusy(true);
+    try {
+      setResults(
+        (await get<{ servers: McpServerEntry[] }>(`/mcp/search?q=${encodeURIComponent(q)}`))
+          .servers,
+      );
+    } catch (x) {
+      toast(errText(x), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function approve() {
+    if (!review) return;
+    try {
+      await post("/mcp/approve", {
+        name: review.server.name,
+        package: review.pkg.index,
+        env_secrets: map,
+      });
+      toast("Approved.", "success");
+      setReview(null);
+      approved.reload();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+  return (
+    <div className="stack">
+      <Banner>
+        MCP servers are third-party code. Each approved server runs in its own gVisor container with
+        only the credentials you map to it; its output is treated as untrusted and state-changing
+        tools ask the user first.
+      </Banner>
+      <Card title="Approved servers">
+        {!approved.data ? (
+          <Skeleton lines={2} />
+        ) : approved.data.length === 0 ? (
+          <p className="muted">None yet.</p>
+        ) : (
+          <ul>
+            {approved.data.map((a) => (
+              <li key={a.name} className="row">
+                <strong>{a.name}</strong>
+                <span className="muted grow">{a.package}</span>
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    await del(`/mcp/approved?name=${encodeURIComponent(a.name)}`);
+                    approved.reload();
+                  }}
+                >
+                  Revoke
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card title="Credentials for servers (instance secrets)">
+        <p className="muted">
+          Names only are shown. Map these to a server's variables when approving it.
+        </p>
+        <ul>
+          {(secrets.data ?? []).map((n) => (
+            <li key={n} className="row">
+              <code className="grow">{n}</code>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  await del(`/secrets/${n}`);
+                  secrets.reload();
+                }}
+              >
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              await put(`/secrets/${newName}`, { value: newValue });
+              setNewName("");
+              setNewValue("");
+              secrets.reload();
+            } catch (x) {
+              toast(errText(x), "error");
+            }
+          }}
+        >
           <Input
             label="Name"
-            value={f.name}
-            onChange={(e) => setF({ ...f, name: e.target.value })}
-            required
-          />
-          <Select
-            label="Kind"
-            value={f.kind}
-            onChange={(e) => setF({ ...f, kind: e.target.value })}
-            options={[
-              { value: "ollama", label: "Ollama" },
-              { value: "llamacpp", label: "llama.cpp server" },
-              { value: "litellm", label: "LiteLLM" },
-              { value: "openai", label: "OpenAI-compatible" },
-            ]}
-          />
-          <Input
-            label="Base URL"
-            placeholder="http://llm.internal:11434"
-            value={f.base_url}
-            onChange={(e) => setF({ ...f, base_url: e.target.value })}
+            hint="UPPER_SNAKE_CASE"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value.toUpperCase())}
             required
           />
           <Input
-            label="API key (optional)"
+            label="Value"
             type="password"
-            value={f.api_key}
-            onChange={(e) => setF({ ...f, api_key: e.target.value })}
+            autoComplete="off"
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            required
           />
-          <Input
-            label="Concurrency"
-            hint="Match your server's parallel setting; Syntaxis never exceeds it."
-            value={f.concurrency}
-            onChange={(e) => setF({ ...f, concurrency: e.target.value })}
-          />
-          <Button variant="primary" type="submit">
-            Add
-          </Button>
+          <Button type="submit">Save credential</Button>
         </form>
       </Card>
+      <Card title="Browse the MCP registry">
+        <form className="row" onSubmit={search}>
+          <div className="grow">
+            <Input
+              label="Search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="e.g. filesystem, github, docs"
+            />
+          </div>
+          <Button variant="primary" type="submit" loading={busy}>
+            Search
+          </Button>
+        </form>
+        {results && results.length === 0 && <p className="muted">No servers found.</p>}
+        {results?.map((r) => (
+          <div key={r.name} className="step" style={{ padding: 12 }}>
+            <strong>{r.title || r.name}</strong> <span className="muted">{r.name}</span>{" "}
+            {r.status && r.status !== "active" && <Badge tone="warn">{r.status}</Badge>}
+            <p>{r.description}</p>
+            {r.remote_only ? (
+              <Badge tone="warn">remote only: cannot run in a sandbox</Badge>
+            ) : (
+              r.packages.map((p) => (
+                <Button
+                  key={p.index}
+                  onClick={() => {
+                    setReview({ server: r, pkg: p });
+                    setMap({});
+                  }}
+                >
+                  Review {p.package.registryType}: {p.package.identifier}@{p.package.version}
+                </Button>
+              ))
+            )}
+          </div>
+        ))}
+      </Card>
+      {review && (
+        <Modal
+          title={`Approve ${review.server.name}?`}
+          onClose={() => setReview(null)}
+          actions={
+            <>
+              <Button onClick={() => setReview(null)}>Cancel</Button>
+              <Button variant="primary" onClick={approve} disabled={!review.pkg.review.pinnable}>
+                Approve
+              </Button>
+            </>
+          }
+        >
+          <p className="muted">
+            {review.pkg.package.registryType} package {review.pkg.package.identifier}@
+            {review.pkg.package.version}. {review.server.repository}
+          </p>
+          <ul>
+            {review.pkg.review.capabilities.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+          {review.pkg.review.warnings.map((w) => (
+            <Banner key={w} tone="warn">
+              {w}
+            </Banner>
+          ))}
+          {review.pkg.package.env.map((ev) => (
+            <Select
+              key={ev.name}
+              label={`${ev.name}${ev.required ? " (required)" : ""}`}
+              value={map[ev.name] ?? ""}
+              onChange={(e) => setMap({ ...map, [ev.name]: e.target.value })}
+              options={[
+                { value: "", label: ev.required ? "Choose a credential…" : "Not set" },
+                ...(secrets.data ?? []).map((n) => ({ value: n, label: n })),
+              ]}
+            />
+          ))}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -645,7 +1018,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <span className="brand">Syntaxis admin</span>
+        <h1 className="brand">Syntaxis admin</h1>
         {h && h.summary.worst && (
           <Badge
             tone={tone(
@@ -664,7 +1037,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
           Sign out
         </Button>
       </header>
-      <div className="main">
+      <main className="main">
         <Tabs
           value={tab}
           onChange={setTab}
@@ -682,12 +1055,14 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
         {tab === "health" && <HealthTab />}
         {tab === "users" && <UsersTab />}
         {tab === "providers" && <ProvidersTab />}
+        {tab === "bench" && <BenchmarksTab />}
+        {tab === "mcp" && <McpTab />}
         {tab === "sessions" && <SessionsTab />}
         {tab === "audit" && <AuditTab />}
         {tab === "egress" && <EgressTab />}
         {tab === "settings" && <SettingsTab />}
         {tab === "kill" && <KillTab />}
-      </div>
+      </main>
     </div>
   );
 }

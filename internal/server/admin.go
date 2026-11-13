@@ -65,6 +65,13 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/models/{id}/recommended", a.adminModelRecommended)
 			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
 			r.Get("/benchmarks", a.adminBenchmarks)
+			r.Get("/mcp/search", a.adminMCPSearch)
+			r.Post("/mcp/approve", a.adminMCPApprove)
+			r.Get("/mcp/approved", a.adminMCPApproved)
+			r.Delete("/mcp/approved", a.adminMCPRevoke)
+			r.Get("/secrets", a.adminSecretNames)
+			r.Put("/secrets/{name}", a.adminSecretPut)
+			r.Delete("/secrets/{name}", a.adminSecretDelete)
 
 			r.Get("/sessions", a.adminSessions)
 			r.Get("/sessions/{id}/messages", a.adminMessages)
@@ -420,6 +427,9 @@ func (a *App) adminAudit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "could not load audit log")
 		return
 	}
+	if es == nil {
+		es = []audit.Entry{}
+	}
 	bad := audit.Verify(es)
 	if lim := 500; len(es) > lim {
 		es = es[len(es)-lim:]
@@ -429,6 +439,9 @@ func (a *App) adminAudit(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminEgress(w http.ResponseWriter, r *http.Request) {
 	es, _ := a.Store.ListEgress(r.Context(), 0, 1000) // all users
+	if es == nil {
+		es = []store.EgressEntry{}
+	}
 	writeJSON(w, 200, es)
 }
 

@@ -79,6 +79,7 @@ type Spec struct {
 	ShmBytes        int64
 	NetworkDisabled bool
 	Init            bool
+	OpenStdin       bool // keep stdin open for attach (MCP stdio servers)
 }
 
 // Mount is a named-volume mount. Host bind mounts are not representable on
@@ -87,6 +88,7 @@ type Mount struct {
 	Volume   string
 	Target   string
 	ReadOnly bool
+	Subpath  string // mount only this path of the volume (a file)
 }
 
 var volRe = regexp.MustCompile(`^syntaxis-ws-u[0-9]+$`)
@@ -150,6 +152,9 @@ func BuildSpec(c Config, userID int64, sessionID string, env map[string]string, 
 	for _, k := range keys {
 		s.Env = append(s.Env, k+"="+env[k])
 	}
+	if len(c.DNS) > 0 {
+		s.Mounts = append(s.Mounts, Mount{Volume: DNSVolume, Target: "/etc/resolv.conf", ReadOnly: true, Subpath: "resolv.conf"})
+	}
 	s.Env = append(s.Env, "HOME=/home/dev", "WORKSPACE="+WorkspacePath)
 	return s, Validate(s, userID)
 }
@@ -189,6 +194,9 @@ func Validate(s Spec, ownerID int64) error {
 	}
 	own := WorkspaceVolume(ownerID)
 	for _, m := range s.Mounts {
+		if m.Volume == DNSVolume && m.Target == "/etc/resolv.conf" && m.ReadOnly && m.Subpath == "resolv.conf" {
+			continue // the shared, read-only resolver config
+		}
 		if !volRe.MatchString(m.Volume) {
 			errs = append(errs, fmt.Sprintf("mount %q is not a workspace volume (host bind mounts and docker sockets are forbidden)", m.Volume))
 		} else if m.Volume != own {

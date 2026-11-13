@@ -263,7 +263,7 @@ export const EmptyState = ({
 );
 
 export const Skeleton = ({ lines = 3 }: { lines?: number }) => (
-  <div aria-busy="true" aria-label="Loading">
+  <div role="status" aria-busy="true" aria-label="Loading">
     {Array.from({ length: lines }).map((_, i) => (
       <div
         key={i}

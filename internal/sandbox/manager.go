@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +35,8 @@ type Manager struct {
 	activity    map[string]time.Time // session -> last activity
 	killed      bool                 // global kill switch engaged
 	killedUsers map[int64]bool
+	dns         []string // resolvers handed to new sandboxes (see ensureDNS)
+	dnsWritten  string   // resolv.conf content currently in the DNS volume
 }
 
 // NewManager returns a Manager.
@@ -41,6 +45,24 @@ func NewManager(rt Runtime, cfg Config, log *slog.Logger) *Manager {
 		log = slog.Default()
 	}
 	return &Manager{RT: rt, Cfg: cfg, Log: log, Now: time.Now, activity: map[string]time.Time{}, killedUsers: map[int64]bool{}}
+}
+
+// SetDNS sets the resolvers new sandboxes use.
+func (m *Manager) SetDNS(dns []string) {
+	m.mu.Lock()
+	m.dns = append([]string(nil), dns...)
+	m.mu.Unlock()
+}
+
+// Config returns the sandbox config with the current DNS servers filled in.
+func (m *Manager) Config() Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.Cfg
+	if len(m.dns) > 0 {
+		c.DNS = append([]string(nil), m.dns...)
+	}
+	return c
 }
 
 // ErrKilled is returned while the admin kill switch is engaged.
@@ -72,7 +94,11 @@ func (m *Manager) Create(ctx context.Context, userID int64, sessionID string, en
 	if err := m.RT.EnsureVolume(ctx, WorkspaceVolume(userID), map[string]string{LabelManaged: "true", LabelUser: strconv.FormatInt(userID, 10)}); err != nil {
 		return "", fmt.Errorf("ensure workspace: %w", err)
 	}
-	spec, err := BuildSpec(m.Cfg, userID, sessionID, env, networkDisabled)
+	cfg := m.Config()
+	if err := m.ensureDNS(ctx, cfg.DNS); err != nil {
+		return "", fmt.Errorf("configure sandbox DNS: %w", err)
+	}
+	spec, err := BuildSpec(cfg, userID, sessionID, env, networkDisabled)
 	if err != nil {
 		return "", err
 	}
@@ -266,4 +292,46 @@ func (m *Manager) killMatching(ctx context.Context, match func(ContainerInfo) bo
 		n++
 	}
 	return n, firstErr
+}
+
+// DNSVolume holds the one shared, read-only resolv.conf that sandboxes mount.
+const DNSVolume = "syntaxis-dns"
+
+// ResolvConf renders resolv.conf for the given servers.
+func ResolvConf(dns []string) (string, error) {
+	var b strings.Builder
+	for _, d := range dns {
+		if _, err := netip.ParseAddr(d); err != nil {
+			return "", fmt.Errorf("invalid DNS server %q", d)
+		}
+		fmt.Fprintf(&b, "nameserver %s\n", d)
+	}
+	return b.String(), nil
+}
+
+// ensureDNS writes the shared resolv.conf into the DNS volume when it changed.
+// Under gVisor, Docker's embedded resolver (127.0.0.11) on user-defined
+// networks does not work, and /etc/resolv.conf is read-only in a read-only
+// rootfs, so sandboxes mount this file (volume subpath) over /etc/resolv.conf.
+func (m *Manager) ensureDNS(ctx context.Context, dns []string) error {
+	if len(dns) == 0 {
+		return nil
+	}
+	content, err := ResolvConf(dns)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	same := m.dnsWritten == content
+	m.mu.Unlock()
+	if same {
+		return nil
+	}
+	if err := m.RT.WriteVolumeFile(ctx, DNSVolume, "resolv.conf", content, m.Cfg.Image); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.dnsWritten = content
+	m.mu.Unlock()
+	return nil
 }

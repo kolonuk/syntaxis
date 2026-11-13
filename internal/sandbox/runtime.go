@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -77,8 +78,21 @@ type Runtime interface {
 	// List returns containers carrying the managed label.
 	List(ctx context.Context) ([]ContainerInfo, error)
 	Inspect(ctx context.Context, id string) (*ContainerInfo, error)
+	// Attach connects to the main process's stdin/stdout (stderr is discarded).
+	Attach(ctx context.Context, id string) (*Attachment, error)
+	// WriteVolumeFile creates the volume if needed and writes one file into its root.
+	WriteVolumeFile(ctx context.Context, volume, name, content, image string) error
+	// Logs returns the tail of a container's output (diagnostics).
+	Logs(ctx context.Context, id string, tailLines int) (string, error)
 	// NetworkInfo returns the subnet and gateway of a network.
 	NetworkInfo(ctx context.Context, name string) (subnet, gateway string, err error)
 	// ContainerIP returns the container's address on the given network.
 	ContainerIP(ctx context.Context, id, network string) (string, error)
+}
+
+// Attachment is a live stdio connection to a container's main process.
+type Attachment struct {
+	Stdin  io.WriteCloser
+	Stdout io.Reader
+	Close  func()
 }

@@ -95,7 +95,8 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 			break
 		}
 		if attempt >= 24 || ctx.Err() != nil {
-			log.Warn("dns: sandbox network unavailable; sandboxes will use Docker's resolver", "err", err)
+			log.Warn("dns: sandbox network unavailable; sandboxes use the fallback resolver", "fallback", cfg.DNSFallback, "err", err)
+			mgr.SetDNS([]string{cfg.DNSFallback})
 			return
 		}
 		time.Sleep(5 * time.Second)
@@ -106,7 +107,7 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 	}
 	host, _, _ := net.SplitHostPort(listen)
 	if ip, err := netip.ParseAddr(host); err == nil {
-		mgr.Cfg.DNS = []string{ip.String()}
+		mgr.SetDNS([]string{ip.String()})
 	}
 	var blocked []netip.Prefix
 	for _, c := range cfg.EgressBlock {
@@ -144,8 +145,9 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 	}
 	go func() {
 		if err := r.Serve(ctx, listen); err != nil {
-			log.Warn("sandbox DNS resolver stopped; sandboxes will use Docker's resolver (no domain policy or DNS logging)", "listen", listen, "err", err)
-			mgr.Cfg.DNS = nil
+			fb := cfg.DNSFallback
+			log.Warn("sandbox DNS resolver stopped; new sandboxes use the fallback resolver (no domain policy or DNS logging)", "listen", listen, "fallback", fb, "err", err)
+			mgr.SetDNS([]string{fb})
 		}
 	}()
 	log.Info("sandbox DNS resolver", "listen", listen, "upstream", r.Upstream)

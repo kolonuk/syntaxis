@@ -103,6 +103,14 @@ type Output struct {
 	Question  string // set for ask_user: the loop waits for the user
 }
 
+// MCPBridge exposes tools of approved MCP servers (each in its own sandbox).
+type MCPBridge interface {
+	Defs() []provider.ToolDef
+	Has(name string) bool
+	ReadOnly(name string) bool
+	Call(ctx context.Context, name string, args json.RawMessage) (text string, isError bool, err error)
+}
+
 // Executor runs tools inside the sandbox. It never touches the host.
 type Executor struct {
 	Exec  func(ctx context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error)
@@ -113,6 +121,7 @@ type Executor struct {
 	ConfirmOverride func(ctx context.Context, d scanner.Decision) (bool, error)
 	Audit           func(action, detail string)
 	Model           string // for the commit trailer
+	MCP             MCPBridge
 	// Signing: the private key lives on the server; the sandbox never sees it.
 	SigningMode string // off | optional | required
 	Signer      func(ctx context.Context, payload string) (armored string, err error)
@@ -178,11 +187,21 @@ func Describe(name string, args json.RawMessage) (command, summary string) {
 	case ToolSearch:
 		return "", "search " + a.Pattern
 	}
+	if strings.HasPrefix(name, "mcp__") {
+		return "", name + " " + string(args)
+	}
 	return "", name
 }
 
 // Run executes one tool call.
 func (x *Executor) Run(ctx context.Context, name string, raw json.RawMessage) Output {
+	if x.MCP != nil && strings.HasPrefix(name, "mcp__") && x.MCP.Has(name) {
+		text, isErr, err := x.MCP.Call(ctx, name, raw)
+		if err != nil {
+			return Output{Text: "error: " + err.Error(), IsError: true, Untrusted: true}
+		}
+		return Output{Text: text, IsError: isErr, Untrusted: true}
+	}
 	switch name {
 	case ToolShell:
 		var a struct {

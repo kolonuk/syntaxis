@@ -410,6 +410,7 @@ func cmdServe() error {
 		scfg := sandbox.DefaultConfig()
 		scfg.Runtime, scfg.Image, scfg.Network = cfg.Docker.Runtime, cfg.Docker.Image, cfg.Docker.Network
 		app.Sandbox = sandbox.NewManager(rt, scfg, log)
+		app.Sandbox.SetDNS([]string{cfg.DNSFallback}) // until the resolver is up
 		go startDNS(ctx, cfg, st, app.Sandbox, log)
 	} else {
 		log.Warn("Docker client could not be created; sandboxes are unavailable")

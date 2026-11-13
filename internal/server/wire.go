@@ -199,6 +199,10 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	}
 	_ = signing.ModeOff
 
+	bridge := a.startMCP(ctx, s.ID, run.Emit)
+	if bridge != nil {
+		defer bridge.Stop(context.Background())
+	}
 	ex := &agent.Executor{
 		Exec: exec, Rules: loaded, Model: s.Model, SigningMode: signMode, Signer: signer,
 		Scan: func(text string, force bool) scanner.Decision { return scanner.Evaluate(text, mode, override, force) },
@@ -211,6 +215,9 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		},
 	}
 
+	if bridge != nil {
+		ex.MCP = bridge
+	}
 	first := true
 	chat := func(c context.Context, req provider.ChatRequest, onDelta func(string)) (*provider.ChatResult, error) {
 		done, err := a.Quota.BeginModelCall(c, u, int64(agent.TotalTokens(req.Messages)))

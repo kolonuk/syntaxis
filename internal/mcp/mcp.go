@@ -392,7 +392,14 @@ func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]stri
 		return s, err
 	}
 	s.Image, s.Cmd = image, cmd
-	s.Mounts = nil // an MCP server never sees any workspace
+	// an MCP server never sees any workspace: keep only the shared read-only resolver config
+	var keep []sandbox.Mount
+	for _, m := range s.Mounts {
+		if m.Volume == sandbox.DNSVolume {
+			keep = append(keep, m)
+		}
+	}
+	s.Mounts = keep
 	s.Name = "syntaxis-mcp-" + sanitize(ap.Name)
 	s.Labels["io.syntaxis.mcp"] = ap.Name
 	return s, sandbox.Validate(s, 0)

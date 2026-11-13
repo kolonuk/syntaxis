@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,9 @@ type Fake struct {
 	ExecHook   func(c *FakeContainer, e ExecSpec) (ExecResult, bool)
 	CreateErr  error
 	IPs        map[string]string
-	Now        func() time.Time
+	// AttachHandlers lets tests serve a stdio protocol for containers whose image is the key.
+	AttachHandlers map[string]func(in io.Reader, out io.Writer)
+	Now            func() time.Time
 }
 
 // FakeContainer is a fake container.
@@ -268,6 +271,41 @@ func (f *Fake) ContainerIP(_ context.Context, id, _ string) (string, error) {
 	}
 	return "", ErrNotFound
 }
+
+// Attach implements Runtime using an in-process handler chosen by image.
+func (f *Fake) Attach(_ context.Context, id string) (*Attachment, error) {
+	f.mu.Lock()
+	c, err := f.get(id)
+	var h func(io.Reader, io.Writer)
+	if err == nil {
+		h = f.AttachHandlers[c.Spec.Image]
+	}
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if h == nil {
+		return nil, ErrNotFound
+	}
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	go func() { h(inR, outW); _ = outW.Close() }()
+	return &Attachment{Stdin: inW, Stdout: outR, Close: func() { _ = inW.Close(); _ = outR.Close() }}, nil
+}
+
+// WriteVolumeFile implements Runtime.
+func (f *Fake) WriteVolumeFile(_ context.Context, vol, name, content, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Volumes[vol] == nil {
+		f.Volumes[vol] = map[string]string{}
+	}
+	f.Volumes[vol][name] = content
+	return nil
+}
+
+// Logs implements Runtime.
+func (f *Fake) Logs(context.Context, string, int) (string, error) { return "", nil }
 
 // NetworkInfo implements Runtime.
 func (f *Fake) NetworkInfo(context.Context, string) (string, string, error) {

@@ -207,6 +207,13 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 	var lastSig, lastOut string
 	repeat, consecFail := 0, 0
 	known := ToolNameSet(cfg.SkillsEnabled)
+	var extraTools []provider.ToolDef
+	if a.Deps.Tools != nil && a.Deps.Tools.MCP != nil {
+		extraTools = a.Deps.Tools.MCP.Defs()
+		for _, d := range extraTools {
+			known[d.Name] = true
+		}
+	}
 
 	finish := func(status, reason string) Result {
 		res.Status, res.Reason = status, reason
@@ -248,7 +255,7 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 		// ---- model call ----
 		req := provider.ChatRequest{Model: cfg.Model, Messages: prompt, NumCtx: cfg.Window, Temperature: cfg.Temperature, MaxTokens: cfg.ReserveTokens}
 		if cfg.ToolsEnabled {
-			req.Tools = ToolDefs(cfg.SkillsEnabled)
+			req.Tools = append(ToolDefs(cfg.SkillsEnabled), extraTools...)
 		}
 		chat, err := a.Deps.Chat(ctx, req, func(d string) { a.emit(EvDelta, "text", a.redact(d)) })
 		// Some servers fail the whole request when the model emits a malformed
@@ -368,7 +375,18 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 	if cmd != "" && a.Deps.Policy != nil {
 		risk = a.Deps.Policy.Classify(cmd)
 	}
-	isAction := call.Name == ToolShell || call.Name == ToolWrite || call.Name == ToolPatch || call.Name == ToolGit || call.Name == ToolFetch
+	mcpTool := a.Deps.Tools != nil && a.Deps.Tools.MCP != nil && strings.HasPrefix(call.Name, "mcp__")
+	if mcpTool {
+		// arguments are model-chosen: apply the same network guard as shell commands
+		if why := CheckCommand(string(call.Arguments)); why != "" {
+			a.audit("agent.blocked", call.Name+": "+why)
+			return a.addToolResult(call, "error: blocked by policy: "+why+". Do not retry.", 0), ""
+		}
+		if !a.Deps.Tools.MCP.ReadOnly(call.Name) {
+			risk = Risk{Risky: true, Reason: "calls a third-party MCP tool that may change state"}
+		}
+	}
+	isAction := mcpTool || call.Name == ToolShell || call.Name == ToolWrite || call.Name == ToolPatch || call.Name == ToolGit || call.Name == ToolFetch
 	need, why := false, ""
 	if isAction {
 		need, why = NeedsApproval(cfg.Autonomy, risk, call.Name)

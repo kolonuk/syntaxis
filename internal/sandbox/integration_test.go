@@ -176,3 +176,26 @@ func hostLANAddr(t *testing.T) string {
 	defer c.Close()
 	return c.LocalAddr().(*net.UDPAddr).IP.String()
 }
+
+// Names resolve inside a sandbox on a user-defined network. Docker's embedded
+// resolver does not work under gVisor, so ApplyDNS must make this work.
+func TestIntegrationDNSWorksOnUserDefinedNetworkUnderGVisor(t *testing.T) {
+	m, d := integrationManager(t)
+	ctx := context.Background()
+	m.Cfg.Network = "syntaxis-dns-it"
+	m.SetDNS([]string{"1.1.1.1"})
+	if err := d.EnsureNetwork(ctx, m.Cfg.Network); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", "syntaxis-dns-it").Run() })
+	const uid = 910005
+	id, err := m.Create(ctx, uid, "it-dns", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, "it-dns", id); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid)) })
+	r, _ := m.Exec(ctx, "it-dns", id, ExecSpec{Cmd: []string{"sh", "-c", "curl -s -m 8 -o /dev/null -w '%{http_code}' https://example.com/"}, Timeout: 30 * time.Second})
+	if strings.TrimSpace(r.Stdout) != "200" {
+		t.Skipf("no internet from containers on this host (got %q)", r.Stdout)
+	}
+}

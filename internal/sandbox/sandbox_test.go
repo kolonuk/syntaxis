@@ -325,3 +325,61 @@ func TestKillSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDNSMountedReadOnlyBecauseEmbeddedResolverFailsUnderGVisor(t *testing.T) {
+	m, f := newMgr()
+	m.SetDNS([]string{"172.30.0.2", "1.1.1.1"})
+	id, err := m.Create(ctx, 1, "s", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Volumes[DNSVolume]["resolv.conf"]; got != "nameserver 172.30.0.2\nnameserver 1.1.1.1\n" {
+		t.Fatalf("resolv.conf content: %q", got)
+	}
+	var dnsMount *Mount
+	for i, mn := range f.Containers[id].Spec.Mounts {
+		if mn.Target == "/etc/resolv.conf" {
+			dnsMount = &f.Containers[id].Spec.Mounts[i]
+		}
+	}
+	if dnsMount == nil || !dnsMount.ReadOnly || dnsMount.Subpath != "resolv.conf" || dnsMount.Volume != DNSVolume {
+		t.Fatalf("resolv.conf mount: %+v", dnsMount)
+	}
+	if err := Validate(f.Containers[id].Spec, 1); err != nil {
+		t.Fatalf("spec with the DNS mount must stay valid: %v", err)
+	}
+	// without resolvers nothing is mounted
+	m2, f2 := newMgr()
+	id2, _ := m2.Create(ctx, 1, "s2", nil, false)
+	if len(f2.Containers[id2].Spec.Mounts) != 1 || f2.Volumes[DNSVolume] != nil {
+		t.Fatalf("%+v", f2.Containers[id2].Spec.Mounts)
+	}
+}
+
+func TestDNSMountCannotBeAbused(t *testing.T) {
+	s, _ := BuildSpec(Config{Runtime: "runsc", Image: "i", Network: "n", User: "10001:10001", Limits: DefaultLimits(), DNS: []string{"1.1.1.1"}}, 1, "s", nil, false)
+	bad := s
+	bad.Mounts = append([]Mount(nil), s.Mounts...)
+	for i := range bad.Mounts {
+		if bad.Mounts[i].Volume == DNSVolume {
+			bad.Mounts[i].ReadOnly = false
+		}
+	}
+	if Validate(bad, 1) == nil {
+		t.Fatal("a writable DNS mount was accepted")
+	}
+	bad2 := s
+	bad2.Mounts = append(append([]Mount(nil), s.Mounts...), Mount{Volume: DNSVolume, Target: "/etc", ReadOnly: true, Subpath: "resolv.conf"})
+	if Validate(bad2, 1) == nil {
+		t.Fatal("the DNS volume mounted elsewhere was accepted")
+	}
+}
+
+func TestResolvConfRejectsGarbage(t *testing.T) {
+	if _, err := ResolvConf([]string{"1.1.1.1; rm -rf /"}); err == nil {
+		t.Fatal("invalid server accepted")
+	}
+	if c, err := ResolvConf([]string{"9.9.9.9"}); err != nil || c != "nameserver 9.9.9.9\n" {
+		t.Fatal(c, err)
+	}
+}

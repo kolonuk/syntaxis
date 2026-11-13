@@ -23,6 +23,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/lifecycle"
 	"github.com/kolonuk/syntaxis/internal/mail"
+	"github.com/kolonuk/syntaxis/internal/mcp"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/quota"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
@@ -55,6 +56,7 @@ type App struct {
 	Now         func() time.Time
 	RunAgent    RunFunc
 	Queues      *Queues
+	MCPSource   mcp.Source
 	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler
 	NewProvider func(p *store.Provider) (provider.Provider, error)

@@ -66,6 +66,8 @@ func (a *App) UserHandler() http.Handler {
 				r.Post("/approvals/{call}", a.handleApproval)
 				r.Post("/answer", a.handleAnswer)
 				r.Get("/export", a.handleExport)
+				r.Get("/mcp", a.handleSessionMCP)
+				r.Put("/mcp", a.handleSessionMCPSet)
 			})
 		})
 	})
@@ -202,7 +204,7 @@ func (a *App) handleModels(w http.ResponseWriter, r *http.Request) {
 		allowed[m] = true
 	}
 	models, _ := a.Store.ListModels(r.Context(), 0)
-	var out []map[string]any
+	out := []map[string]any{}
 	for _, m := range models {
 		pn, ok := pname[m.ProviderID]
 		if !ok || !m.Enabled {
@@ -235,6 +237,9 @@ func (a *App) handleMyEgress(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, "could not load egress log")
 		return
+	}
+	if es == nil {
+		es = []store.EgressEntry{}
 	}
 	writeJSON(w, 200, es)
 }
