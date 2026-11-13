@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,9 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kolonuk/syntaxis/internal/audit"
+	"github.com/kolonuk/syntaxis/internal/bench"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/mail"
 	"github.com/kolonuk/syntaxis/internal/provider"
+	"github.com/kolonuk/syntaxis/internal/queue"
+	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
@@ -57,6 +61,9 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/providers/{id}/refresh", a.adminProviderRefresh)
 			r.Get("/models", a.adminModels)
 			r.Post("/models/{id}/enabled", a.adminModelEnabled)
+			r.Post("/models/{id}/recommended", a.adminModelRecommended)
+			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
+			r.Get("/benchmarks", a.adminBenchmarks)
 
 			r.Get("/sessions", a.adminSessions)
 			r.Get("/sessions/{id}/messages", a.adminMessages)
@@ -549,4 +556,90 @@ func (a *App) adminMailTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (a *App) adminModelRecommended(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Recommended bool `json:"recommended"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	if err := a.Store.SetModelRecommended(r.Context(), pathID(r), b.Recommended); err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (a *App) adminBenchmarks(w http.ResponseWriter, r *http.Request) {
+	bs, _ := a.Store.ListBenchmarks(r.Context(), 0)
+	out := []map[string]any{}
+	for _, b := range bs {
+		var rep json.RawMessage = json.RawMessage(b.Result)
+		out = append(out, map[string]any{"id": b.ID, "model_id": b.ModelID, "time": b.Time, "digest": b.Digest, "report": rep})
+	}
+	writeJSON(w, 200, out)
+}
+
+// adminBenchmarkRun starts a benchmark in the background at the lowest queue
+// priority, in a throwaway sandbox that is destroyed afterwards.
+func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
+	m, err := a.Store.GetModel(r.Context(), pathID(r))
+	if err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	prov, err := a.Store.GetProvider(r.Context(), m.ProviderID)
+	if err != nil || a.Sandbox == nil {
+		writeErr(w, 503, "benchmarks need a provider and sandboxes")
+		return
+	}
+	pr, err := a.ProviderFor(prov)
+	if err != nil {
+		writeErr(w, 502, "could not connect to the provider")
+		return
+	}
+	actor := a.actor(r)
+	id := "bench-" + newID()
+	go func() {
+		ctx := context.Background()
+		cid, err := a.Sandbox.Create(ctx, 0, id, nil, false)
+		if err != nil {
+			a.Log.Warn("benchmark: no sandbox", "err", err)
+			return
+		}
+		defer func() {
+			_ = a.Sandbox.Destroy(ctx, id, cid)
+			_ = a.Sandbox.RT.RemoveVolume(ctx, sandbox.WorkspaceVolume(0))
+		}()
+		q := a.Queues
+		if q == nil {
+			q = NewQueues()
+			a.Queues = q
+		}
+		chat := func(c context.Context, req provider.ChatRequest, on func(string)) (*provider.ChatResult, error) {
+			tk, err := q.For(prov).Enqueue(0, queue.Benchmark)
+			if err != nil {
+				return nil, err
+			}
+			release, err := tk.Wait(c)
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			return pr.Chat(c, req, on)
+		}
+		window := m.ContextOverride
+		if window == 0 {
+			window = DefaultWindow
+		}
+		rep := bench.Run(ctx, bench.Env{Model: m.Name, Digest: m.Digest, Window: window, Chat: chat,
+			Exec: func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
+				return a.Sandbox.Exec(c, id, cid, e)
+			}}, bench.Suite())
+		_ = a.Store.AddBenchmark(ctx, m.ID, m.Digest, rep.JSON())
+		_, _ = a.Store.AppendAudit(ctx, actor, "benchmark.run", fmt.Sprintf("model:%d", m.ID), fmt.Sprintf("pass=%.0f%%", rep.PassRate*100))
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }

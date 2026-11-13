@@ -225,3 +225,46 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 		t.Fatal("previewed content must be sandboxed and unable to set cookies on our origin")
 	}
 }
+
+func TestBenchmarkAdminOnlyAndStoresResult(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	fake := sandbox.NewFake()
+	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
+	sp := &stubProvider{} // answers "done" to everything: every task fails, which is a valid, stored result
+	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
+
+	usr := e.userSession("a@example.com")
+	for _, p := range []string{"/api/models/1/benchmark", "/api/benchmarks", "/api/models/1/recommended"} {
+		if code, _, _ := usr.do("POST", p, map[string]bool{"recommended": true}); code == 200 || code == 202 {
+			t.Fatalf("chat user reached admin benchmark route %s: %d", p, code)
+		}
+	}
+	adm := e.makeAdminSession()
+	if code, _, raw := adm.do("POST", "/api/models/1/benchmark", nil); code != 202 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	var list []map[string]any
+	for i := 0; i < 100; i++ {
+		_, _, raw := adm.do("GET", "/api/benchmarks", nil)
+		_ = json.Unmarshal(raw, &list)
+		if len(list) == 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(list) != 1 || list[0]["report"] == nil {
+		t.Fatalf("no benchmark stored: %v", list)
+	}
+	if code, _, _ := adm.do("POST", "/api/models/1/recommended", map[string]bool{"recommended": true}); code != 200 {
+		t.Fatal("recommend")
+	}
+	// the "recommended" flag is visible to users; the report is not
+	_, _, raw := usr.do("GET", "/api/models", nil)
+	if !strings.Contains(string(raw), `"recommended":true`) || strings.Contains(string(raw), "pass_rate") {
+		t.Fatalf("%s", raw)
+	}
+	if len(fake.Containers) != 0 {
+		t.Fatal("throwaway benchmark sandbox was not destroyed")
+	}
+}

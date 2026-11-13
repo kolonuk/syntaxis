@@ -87,6 +87,7 @@ func (a *App) RunAgentFunc(w Wiring) RunFunc {
 	if w.Queues == nil {
 		w.Queues = NewQueues()
 	}
+	a.Queues = w.Queues
 	if w.Window == nil {
 		w.Window = func(m store.Model) int {
 			if m.ContextOverride > 0 {

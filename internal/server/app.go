@@ -54,6 +54,7 @@ type App struct {
 	Web         http.Handler // embedded frontend (may be nil)
 	Now         func() time.Time
 	RunAgent    RunFunc
+	Queues      *Queues
 	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler
 	NewProvider func(p *store.Provider) (provider.Provider, error)

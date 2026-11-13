@@ -561,6 +561,26 @@ func (s *SQLite) SetModelEnabled(ctx context.Context, id int64, enabled bool) er
 	return affected(res, err)
 }
 
+// SetModelRecommended sets the admin's "recommended for agents" flag.
+func (s *SQLite) SetModelRecommended(ctx context.Context, id int64, rec bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE models SET recommended=? WHERE id=?`, b2i(rec), id)
+	return affected(res, err)
+}
+
+// GetModel fetches one model.
+func (s *SQLite) GetModel(ctx context.Context, id int64) (*Model, error) {
+	ms, err := s.ListModels(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ms {
+		if ms[i].ID == id {
+			return &ms[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 // ---- chat sessions & messages ----
 
 // CreateChatSession inserts a session.
@@ -833,6 +853,40 @@ func (s *SQLite) ListEgress(ctx context.Context, userID int64, limit int) ([]Egr
 		}
 		e.Time, e.Allowed, e.DNS = fromTS(t), al == 1, dn == 1
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ---- benchmarks ----
+
+// AddBenchmark stores a result.
+func (s *SQLite) AddBenchmark(ctx context.Context, modelID int64, digest, resultJSON string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO benchmarks (model_id,time,digest,result) VALUES (?,?,?,?)`, modelID, time.Now().Unix(), digest, resultJSON)
+	return err
+}
+
+// ListBenchmarks returns results for a model (0 = all), newest first.
+func (s *SQLite) ListBenchmarks(ctx context.Context, modelID int64) ([]Benchmark, error) {
+	q := `SELECT id,model_id,time,digest,result FROM benchmarks`
+	args := []any{}
+	if modelID != 0 {
+		q += ` WHERE model_id=?`
+		args = append(args, modelID)
+	}
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY id DESC LIMIT 200`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Benchmark
+	for rows.Next() {
+		var b Benchmark
+		var t int64
+		if err := rows.Scan(&b.ID, &b.ModelID, &t, &b.Digest, &b.Result); err != nil {
+			return nil, err
+		}
+		b.Time = fromTS(t)
+		out = append(out, b)
 	}
 	return out, rows.Err()
 }

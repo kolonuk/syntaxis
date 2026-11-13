@@ -169,6 +169,15 @@ type EgressEntry struct {
 	DNS       bool
 }
 
+// Benchmark is a stored benchmark result (admin only).
+type Benchmark struct {
+	ID      int64
+	ModelID int64
+	Time    time.Time
+	Digest  string
+	Result  string
+}
+
 // Store is the persistence interface.
 type Store interface {
 	Close() error
@@ -217,6 +226,8 @@ type Store interface {
 	UpsertModel(ctx context.Context, m Model) (int64, error)
 	ListModels(ctx context.Context, providerID int64) ([]Model, error)
 	SetModelEnabled(ctx context.Context, id int64, enabled bool) error
+	SetModelRecommended(ctx context.Context, id int64, rec bool) error
+	GetModel(ctx context.Context, id int64) (*Model, error)
 
 	// chat sessions + messages
 	CreateChatSession(ctx context.Context, s ChatSession) error
@@ -248,6 +259,10 @@ type Store interface {
 	// egress log
 	AddEgress(ctx context.Context, e EgressEntry) error
 	ListEgress(ctx context.Context, userID int64, limit int) ([]EgressEntry, error)
+
+	// benchmarks
+	AddBenchmark(ctx context.Context, modelID int64, digest, resultJSON string) error
+	ListBenchmarks(ctx context.Context, modelID int64) ([]Benchmark, error)
 
 	// settings
 	GetSetting(ctx context.Context, key, def string) (string, error)
