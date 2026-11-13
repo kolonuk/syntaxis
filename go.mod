@@ -2,6 +2,8 @@ module github.com/kolonuk/syntaxis
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-chi/chi/v5 v5.5.0
