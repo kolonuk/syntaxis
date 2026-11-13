@@ -1,0 +1,23 @@
+# secrets
+.env
+*.key
+*.pem
+master.key
+# data
+/data/
+*.db
+*.db-wal
+*.db-shm
+# build
+/bin/
+/dist/
+/web/node_modules/
+/web/dist/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+coverage.out
+*.test
+# editor
+.idea/
+.vscode/
+.DS_Store
