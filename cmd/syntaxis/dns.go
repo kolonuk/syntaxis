@@ -82,16 +82,23 @@ func upstreamDNS(cfg *config.Config) string {
 // sandboxes at it. Failure to bind is logged, not fatal; the health check
 // reports sandboxes without the resolver as having no DNS policy/logging.
 func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sandbox.Manager, log *slog.Logger) {
-	subnet, gw, err := mgr.RT.NetworkInfo(ctx, cfg.Docker.Network)
-	if err != nil {
-		if err := mgr.RT.EnsureNetwork(ctx, cfg.Docker.Network); err != nil {
-			log.Warn("dns: sandbox network unavailable", "err", err)
-			return
-		}
+	// the Docker socket proxy may still be starting: retry for a while
+	var subnet, gw string
+	var err error
+	for attempt := 0; ; attempt++ {
 		if subnet, gw, err = mgr.RT.NetworkInfo(ctx, cfg.Docker.Network); err != nil {
-			log.Warn("dns: cannot inspect sandbox network", "err", err)
+			if eerr := mgr.RT.EnsureNetwork(ctx, cfg.Docker.Network); eerr == nil {
+				subnet, gw, err = mgr.RT.NetworkInfo(ctx, cfg.Docker.Network)
+			}
+		}
+		if err == nil {
+			break
+		}
+		if attempt >= 24 || ctx.Err() != nil {
+			log.Warn("dns: sandbox network unavailable; sandboxes will use Docker's resolver", "err", err)
 			return
 		}
+		time.Sleep(5 * time.Second)
 	}
 	listen := cfg.DNSListen
 	if listen == "" {

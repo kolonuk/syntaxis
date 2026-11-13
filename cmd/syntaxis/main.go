@@ -410,7 +410,7 @@ func cmdServe() error {
 		scfg := sandbox.DefaultConfig()
 		scfg.Runtime, scfg.Image, scfg.Network = cfg.Docker.Runtime, cfg.Docker.Image, cfg.Docker.Network
 		app.Sandbox = sandbox.NewManager(rt, scfg, log)
-		startDNS(ctx, cfg, st, app.Sandbox, log)
+		go startDNS(ctx, cfg, st, app.Sandbox, log)
 	} else {
 		log.Warn("Docker client could not be created; sandboxes are unavailable")
 	}
@@ -421,7 +421,10 @@ func cmdServe() error {
 	go loop(ctx, 5*time.Minute, func() { app.SetHealth(collectHealth(ctx, cfg, st, rt)) })
 	if app.Sandbox != nil {
 		go loop(ctx, 10*time.Minute, func() { reap(ctx, app, st, cfg, log) })
-		reap(ctx, app, st, cfg, log) // on boot: clean up orphans
+		go func() { // on boot: clean up orphans (Docker may still be starting; the periodic loop retries)
+			time.Sleep(15 * time.Second)
+			reap(ctx, app, st, cfg, log)
+		}()
 	}
 	go loop(ctx, time.Hour, func() { _, _ = st.PurgeExpiredAuthSessions(ctx, time.Now()) })
 	if rt != nil {
