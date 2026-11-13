@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+version: "2"
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G304 # operator-provided paths (key files, backup destination)
+        - G115 # integer conversions are bounds-checked at call sites
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck, bodyclose]
+formatters:
+  enable: [gofmt]
+run:
+  timeout: 5m

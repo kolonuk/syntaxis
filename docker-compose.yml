@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# One-command start:  cp .env.example .env && docker compose up -d
+#
+# The Syntaxis container never mounts the raw Docker socket. Only the socket
+# proxy does, and it forwards an allow-list of API calls (containers, volumes,
+# networks, images, exec). See docs/security.md for what this does and does not protect.
+services:
+  syntaxis:
+    image: ghcr.io/kolonuk/syntaxis:latest
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SYNTAXIS_DOCKER_HOST: tcp://docker-socket-proxy:2375
+    ports:
+      - "8080:8080"            # chat app: put it behind a TLS reverse proxy
+      - "127.0.0.1:8081:8081"  # admin app: loopback only; use a VPN/LAN address if you need remote admin
+    volumes:
+      - syntaxis-data:/data
+    depends_on:
+      - docker-socket-proxy
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [control]
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      VOLUMES: 1
+      NETWORKS: 1
+      IMAGES: 1
+      EXEC: 1
+      INFO: 1
+      VERSION: 1
+      POST: 1
+      # everything else stays at the proxy default (denied): swarm, services, secrets, plugins, build, commit, ...
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [control]
+    read_only: true
+    tmpfs: [/run]
+
+networks:
+  control:
+    internal: false
+
+volumes:
+  syntaxis-data:
