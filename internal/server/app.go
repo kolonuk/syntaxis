@@ -5,6 +5,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -50,6 +51,7 @@ type App struct {
 	Mail        mail.Mailer
 	Health      *health.Engine
 	Sandbox     *sandbox.Manager // may be nil (sandboxes unavailable)
+	Terms       *Terminals       // open interactive terminals
 	Monitor     *sandbox.Monitor // CPU/memory sampling and limits; may be nil
 	Log         *slog.Logger
 	Runs        *Runs
@@ -73,6 +75,7 @@ func New(cfg *config.Config, st store.Store, as *auth.Service, q *quota.Service,
 	}
 	a := &App{Cfg: cfg, Store: st, Auth: as, Quota: q, Secrets: sec, Mail: m, Log: log, Health: health.NewEngine(health.DefaultThresholds()), Now: time.Now}
 	a.Runs = NewRuns()
+	a.Terms = NewTerminals()
 	return a
 }
 
@@ -188,6 +191,19 @@ func (s *statusWriter) Flush() {
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Unwrap lets http.ResponseController (and WebSocket upgrades) reach the real writer.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// Hijack supports WebSocket upgrades.
+func (s *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijacking is not supported")
+	}
+	s.code = http.StatusSwitchingProtocols
+	return h.Hijack()
 }
 
 // sameOrigin rejects cross-origin state-changing requests (strict same-origin).

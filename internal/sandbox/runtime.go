@@ -45,6 +45,21 @@ type ExecResult struct {
 	Duration  time.Duration
 }
 
+// TTYSpec describes an interactive shell.
+type TTYSpec struct {
+	Cmd        []string
+	Env        []string
+	WorkingDir string
+	Rows, Cols uint
+}
+
+// TTY is a live interactive exec with a pseudo-terminal.
+type TTY struct {
+	Conn   io.ReadWriter // raw terminal bytes in and out
+	Resize func(ctx context.Context, rows, cols uint) error
+	Close  func()
+}
+
 // Stats is a point-in-time resource sample.
 type Stats struct {
 	CPUPercent     float64 // of one core (100 = one full core)
@@ -75,6 +90,8 @@ type Runtime interface {
 	Unpause(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
 	Exec(ctx context.Context, id string, e ExecSpec) (ExecResult, error)
+	// ExecTTY starts an interactive command with a pseudo-terminal.
+	ExecTTY(ctx context.Context, id string, t TTYSpec) (*TTY, error)
 	Stats(ctx context.Context, id string) (Stats, error)
 	// UpdateCPU changes a running container's CPU cap in cores (throttling).
 	UpdateCPU(ctx context.Context, id string, cores float64) error

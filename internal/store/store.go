@@ -49,6 +49,7 @@ type User struct {
 	EgressMode         string // "" = instance default
 	AllowedModels      []string
 	CloudToolsDisabled bool
+	TerminalDisabled   bool // admin switch: this user may not open an interactive terminal
 }
 
 // AuthSession is a server-side login session.

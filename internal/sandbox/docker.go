@@ -259,6 +259,28 @@ func (d *Docker) Exec(ctx context.Context, id string, e ExecSpec) (ExecResult, e
 	return res, nil
 }
 
+// ExecTTY implements Runtime.
+func (d *Docker) ExecTTY(ctx context.Context, id string, t TTYSpec) (*TTY, error) {
+	created, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd: t.Cmd, Env: t.Env, WorkingDir: t.WorkingDir, Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true,
+		ConsoleSize: &[2]uint{t.Rows, t.Cols},
+	})
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	att, err := d.cli.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{Tty: true, ConsoleSize: &[2]uint{t.Rows, t.Cols}})
+	if err != nil {
+		return nil, err
+	}
+	return &TTY{
+		Conn: att.Conn,
+		Resize: func(c context.Context, rows, cols uint) error {
+			return d.cli.ContainerExecResize(c, created.ID, container.ResizeOptions{Height: rows, Width: cols})
+		},
+		Close: att.Close,
+	}, nil
+}
+
 // capBuffer retains at most max bytes, discarding the rest.
 type capBuffer struct {
 	buf     bytes.Buffer

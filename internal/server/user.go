@@ -67,6 +67,7 @@ func (a *App) UserHandler() http.Handler {
 				r.Post("/answer", a.handleAnswer)
 				r.Get("/export", a.handleExport)
 				r.Get("/resources", a.handleResources)
+				r.Get("/terminal", a.handleTerminal)
 				r.Get("/mcp", a.handleSessionMCP)
 				r.Put("/mcp", a.handleSessionMCPSet)
 			})
@@ -483,6 +484,7 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request, s *store.ChatSess
 	}
 	u := a.user(r)
 	sc, uc := *s, *u
+	a.Terms.CloseSession(s.ID, "The agent started working, so the terminal was closed.")
 	run, started := a.Runs.Start(s.ID, func(ctx context.Context, run *Run) { a.RunAgent(ctx, run, &sc, &uc, text) })
 	if !started {
 		writeErr(w, http.StatusConflict, "this session is already working; stop it first")

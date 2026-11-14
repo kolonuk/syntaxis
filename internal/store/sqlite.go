@@ -252,16 +252,16 @@ func (s *SQLite) ListAccounts(ctx context.Context, kind string) ([]Account, erro
 func (s *SQLite) scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var models string
-	var cloud int
+	var cloud, term int
 	var created, changed, remind int64
 	var totp, dis int
 	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.TOTPSecret, &totp, &dis, &created, &changed, &remind,
-		&u.QuotaDailyTokens, &u.QuotaMonthlyTokens, &u.MaxSessions, &u.EgressMode, &models, &cloud)
+		&u.QuotaDailyTokens, &u.QuotaMonthlyTokens, &u.MaxSessions, &u.EgressMode, &models, &cloud, &term)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	u.Kind = KindUser
-	u.TOTPEnabled, u.Disabled, u.CloudToolsDisabled = totp == 1, dis == 1, cloud == 1
+	u.TOTPEnabled, u.Disabled, u.CloudToolsDisabled, u.TerminalDisabled = totp == 1, dis == 1, cloud == 1, term == 1
 	u.CreatedAt, u.PasswordChangedAt, u.Remind2FAAfter = fromTS(created), fromTS(changed), fromTS(remind)
 	if err := json.Unmarshal([]byte(models), &u.AllowedModels); err != nil {
 		u.AllowedModels = nil
@@ -269,7 +269,7 @@ func (s *SQLite) scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	return &u, nil
 }
 
-const userCols = `id,email,name,password_hash,totp_secret,totp_enabled,disabled,created_at,password_changed_at,remind_2fa_after,quota_daily_tokens,quota_monthly_tokens,max_sessions,egress_mode,allowed_models,cloud_tools_disabled`
+const userCols = `id,email,name,password_hash,totp_secret,totp_enabled,disabled,created_at,password_changed_at,remind_2fa_after,quota_daily_tokens,quota_monthly_tokens,max_sessions,egress_mode,allowed_models,cloud_tools_disabled,terminal_disabled`
 
 // GetUser returns a chat user with policy fields.
 func (s *SQLite) GetUser(ctx context.Context, id int64) (*User, error) {
@@ -300,8 +300,8 @@ func (s *SQLite) UpdateUserPolicy(ctx context.Context, u User) error {
 	if u.AllowedModels == nil {
 		models = []byte("[]")
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET quota_daily_tokens=?,quota_monthly_tokens=?,max_sessions=?,egress_mode=?,allowed_models=?,cloud_tools_disabled=? WHERE id=?`,
-		u.QuotaDailyTokens, u.QuotaMonthlyTokens, u.MaxSessions, u.EgressMode, string(models), b2i(u.CloudToolsDisabled), u.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET quota_daily_tokens=?,quota_monthly_tokens=?,max_sessions=?,egress_mode=?,allowed_models=?,cloud_tools_disabled=?,terminal_disabled=? WHERE id=?`,
+		u.QuotaDailyTokens, u.QuotaMonthlyTokens, u.MaxSessions, u.EgressMode, string(models), b2i(u.CloudToolsDisabled), b2i(u.TerminalDisabled), u.ID)
 	return affected(res, err)
 }
 

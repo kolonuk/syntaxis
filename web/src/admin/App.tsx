@@ -43,6 +43,7 @@ interface User {
   quota_monthly_tokens: number;
   egress_mode: string;
   allowed_models: string[] | null;
+  terminal_disabled?: boolean;
 }
 interface Prov {
   id: number;
@@ -229,6 +230,7 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
   const [egress, setEgress] = useState(u.egress_mode);
   const [models, setModels] = useState((u.allowed_models ?? []).join(", "));
   const [disabled, setDisabled] = useState(u.disabled);
+  const [terminalOff, setTerminalOff] = useState(!!u.terminal_disabled);
   async function save() {
     try {
       await patch(`/users/${u.id}`, {
@@ -236,6 +238,7 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
         quota_monthly_tokens: Number(monthly),
         egress_mode: egress,
         disabled,
+        terminal_disabled: terminalOff,
         allowed_models: models
           .split(",")
           .map((s) => s.trim())
@@ -287,6 +290,11 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
         hint="Comma-separated provider/model ids. Empty = all enabled models."
         value={models}
         onChange={(e) => setModels(e.target.value)}
+      />
+      <Toggle
+        label="Block the interactive terminal for this user"
+        checked={terminalOff}
+        onChange={setTerminalOff}
       />
       <Toggle
         label="Disabled (revokes sessions and stops sandboxes)"

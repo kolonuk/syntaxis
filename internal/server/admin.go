@@ -121,7 +121,7 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 	for _, u := range us {
 		out = append(out, map[string]any{"id": u.ID, "email": u.Email, "name": u.Name, "disabled": u.Disabled, "totp_enabled": u.TOTPEnabled,
 			"invited": u.PasswordHash == "", "quota_daily_tokens": u.QuotaDailyTokens, "quota_monthly_tokens": u.QuotaMonthlyTokens,
-			"max_sessions": u.MaxSessions, "egress_mode": u.EgressMode, "allowed_models": u.AllowedModels, "cloud_tools_disabled": u.CloudToolsDisabled})
+			"max_sessions": u.MaxSessions, "egress_mode": u.EgressMode, "allowed_models": u.AllowedModels, "cloud_tools_disabled": u.CloudToolsDisabled, "terminal_disabled": u.TerminalDisabled})
 	}
 	writeJSON(w, 200, out)
 }
@@ -172,6 +172,7 @@ func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
 		EgressMode         *string   `json:"egress_mode"`
 		AllowedModels      *[]string `json:"allowed_models"`
 		CloudToolsDisabled *bool     `json:"cloud_tools_disabled"`
+		TerminalDisabled   *bool     `json:"terminal_disabled"`
 	}
 	if !decode(w, r, &b) {
 		return
@@ -194,6 +195,9 @@ func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.AllowedModels != nil {
 		u.AllowedModels = *b.AllowedModels
+	}
+	if b.TerminalDisabled != nil {
+		u.TerminalDisabled = *b.TerminalDisabled
 	}
 	if b.CloudToolsDisabled != nil {
 		u.CloudToolsDisabled = *b.CloudToolsDisabled

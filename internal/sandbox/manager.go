@@ -116,6 +116,30 @@ func (m *Manager) Create(ctx context.Context, userID int64, sessionID string, en
 	return id, nil
 }
 
+// Touch marks a sandbox as in use so the idle reaper leaves it alone.
+func (m *Manager) Touch(sessionID string) { m.touch(sessionID) }
+
+// OpenTerminal starts an interactive shell in a session's sandbox. It is the same
+// container, user, limits and network policy as the agent's commands.
+func (m *Manager) OpenTerminal(ctx context.Context, sessionID, containerID string, rows, cols uint) (*TTY, error) {
+	m.mu.Lock()
+	killed := m.killed
+	m.mu.Unlock()
+	if killed {
+		return nil, ErrKilled
+	}
+	if rows == 0 || cols == 0 {
+		rows, cols = 24, 80
+	}
+	m.touch(sessionID)
+	return m.RT.ExecTTY(ctx, containerID, TTYSpec{
+		Cmd:        []string{"sh", "-c", "exec bash -l 2>/dev/null || exec sh"},
+		Env:        []string{"TERM=xterm-256color", "LANG=C.UTF-8"},
+		WorkingDir: WorkspacePath,
+		Rows:       rows, Cols: cols,
+	})
+}
+
 func (m *Manager) touch(sessionID string) {
 	m.mu.Lock()
 	m.activity[sessionID] = m.Now()

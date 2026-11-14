@@ -26,7 +26,9 @@ type Fake struct {
 	IPs        map[string]string
 	// AttachHandlers lets tests serve a stdio protocol for containers whose image is the key.
 	AttachHandlers map[string]func(in io.Reader, out io.Writer)
-	Now            func() time.Time
+	// TTYHandler serves interactive shells (default: echo).
+	TTYHandler func(rw io.ReadWriter)
+	Now        func() time.Time
 }
 
 // FakeContainer is a fake container.
@@ -234,6 +236,37 @@ func (f *Fake) Stats(_ context.Context, id string) (Stats, error) {
 		return Stats{}, err
 	}
 	return c.StatsV, nil
+}
+
+// ExecTTY implements Runtime.
+func (f *Fake) ExecTTY(_ context.Context, id string, t TTYSpec) (*TTY, error) {
+	f.mu.Lock()
+	c, err := f.get(id)
+	h := f.TTYHandler
+	if err == nil {
+		c.Execs = append(c.Execs, ExecSpec{Cmd: t.Cmd, Env: t.Env, WorkingDir: t.WorkingDir})
+	}
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if h == nil {
+		h = func(rw io.ReadWriter) { _, _ = io.Copy(rw, rw) }
+	}
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	go func() {
+		h(struct {
+			io.Reader
+			io.Writer
+		}{inR, outW})
+		_ = outW.Close()
+	}()
+	rw := struct {
+		io.Reader
+		io.Writer
+	}{outR, inW}
+	return &TTY{Conn: rw, Resize: func(context.Context, uint, uint) error { return nil }, Close: func() { _ = inW.Close(); _ = outR.Close() }}, nil
 }
 
 // UpdateCPU implements Runtime.
