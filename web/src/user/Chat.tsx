@@ -11,6 +11,7 @@ import {
   Icon,
   Meter,
   Modal,
+  Skeleton,
   StatusPill,
   Tabs,
   TextArea,
@@ -443,6 +444,7 @@ export function Chat({
               tabs={[
                 { id: "output", label: "Output" },
                 { id: "context", label: "Context" },
+                { id: "resources", label: "Resources" },
                 { id: "tools", label: "Tools" },
               ]}
               value={panel}
@@ -476,6 +478,7 @@ export function Chat({
             )}
           </div>
         )}
+        {panel === "resources" && <Resources sessionId={session.id} />}
         {panel === "tools" && (
           <div className="stack">
             <p className="muted">
@@ -633,6 +636,65 @@ function Progress({ phase }: { phase: Phase | null }) {
         {slow ? " (large models can take a minute or two)" : ""}
       </span>
     </p>
+  );
+}
+
+interface Res {
+  active: boolean;
+  cpu_percent?: number;
+  cpu_typical?: number;
+  cpu_busiest?: number;
+  cpu_cores?: number;
+  cpu_cores_normal?: number;
+  memory_bytes?: number;
+  memory_limit?: number;
+  throttled?: boolean;
+  paused?: boolean;
+  cpu_seconds?: number;
+}
+
+const pct = (n: number | undefined, cores: number) =>
+  Math.min(100, Math.round(((n ?? 0) / (cores * 100)) * 100));
+
+/** Live CPU and memory use of this session's sandbox. */
+function Resources({ sessionId }: { sessionId: string }) {
+  const [r, setR] = useState<Res | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      void get<Res>(`/sessions/${sessionId}/resources`)
+        .then((x) => live && setR(x))
+        .catch(() => undefined);
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [sessionId]);
+  if (!r) return <Skeleton lines={2} />;
+  if (!r.active)
+    return <p className="muted">The sandbox is not running. Figures appear once it starts.</p>;
+  const cores = r.cpu_cores_normal || 1;
+  const memPct = r.memory_limit ? Math.round(((r.memory_bytes ?? 0) / r.memory_limit) * 100) : 0;
+  return (
+    <div className="stack">
+      {r.paused && <Banner tone="warn">The sandbox is paused. Send a message to resume it.</Banner>}
+      {r.throttled && (
+        <Banner tone="warn">
+          The sandbox has been busy for a while, so it is limited to {r.cpu_cores} of {cores} CPU
+          cores until things calm down.
+        </Banner>
+      )}
+      <Meter label="CPU right now (% of allowance)" used={pct(r.cpu_percent, cores)} limit={100} />
+      <Meter label="CPU typical, last 2 min" used={pct(r.cpu_typical, cores)} limit={100} />
+      <Meter label="CPU busiest 10% (p90)" used={pct(r.cpu_busiest, cores)} limit={100} />
+      <Meter label="Memory" used={memPct} limit={100} />
+      <p className="muted">
+        Sustained load is what gets limited, not short bursts. {Math.round(r.cpu_seconds ?? 0)} CPU
+        seconds used since this sandbox started.
+      </p>
+    </div>
   );
 }
 

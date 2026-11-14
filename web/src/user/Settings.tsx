@@ -10,6 +10,7 @@ interface Usage {
   daily: { Used: number; Limit: number };
   monthly: { Used: number; Limit: number };
   sandbox_seconds: { Used: number; Limit: number };
+  cpu_seconds?: { Used: number; Limit: number };
 }
 
 export function UsagePanel() {
@@ -28,6 +29,13 @@ export function UsagePanel() {
           used={Math.round(u.sandbox_seconds.Used / 60)}
           limit={Math.round(u.sandbox_seconds.Limit / 60)}
         />
+        {u.cpu_seconds && (
+          <Meter
+            label="Compute minutes today (CPU time actually used)"
+            used={Math.round(u.cpu_seconds.Used / 60)}
+            limit={Math.round(u.cpu_seconds.Limit / 60)}
+          />
+        )}
         <p className="muted">
           {compact(u.daily.Used)} tokens used today. Quotas reset at midnight UTC.
         </p>
