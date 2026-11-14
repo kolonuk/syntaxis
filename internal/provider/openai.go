@@ -161,6 +161,7 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		args     strings.Builder
 	}
 	partials := map[int]*partial{}
+	firstSeen := false
 	var order []int
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
@@ -177,6 +178,8 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 			Choices []struct {
 				Delta struct {
 					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
+					Reason2   string `json:"reasoning"`
 					ToolCalls []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id"`
@@ -204,6 +207,17 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		}
 		if chunk.Usage != nil {
 			res.Usage = Usage{PromptTokens: chunk.Usage.Prompt, CompletionTokens: chunk.Usage.Completion, Reported: true}
+		}
+		if req.Phase != nil {
+			if !firstSeen {
+				firstSeen = true
+				req.Phase(PhaseFirstByte)
+			}
+			for _, c := range chunk.Choices {
+				if (c.Delta.Reasoning != "" || c.Delta.Reason2 != "") && c.Delta.Content == "" {
+					req.Phase(PhaseThinking)
+				}
+			}
 		}
 		for _, c := range chunk.Choices {
 			if c.Delta.Content != "" {

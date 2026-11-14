@@ -136,6 +136,7 @@ func (o *Ollama) Loaded(ctx context.Context) ([]LoadedModel, bool, error) {
 type ollamaMsg struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
+	Thinking  string `json:"thinking"`
 	ToolCalls []struct {
 		Function struct {
 			Name      string          `json:"name"`
@@ -191,6 +192,7 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 	}
 	res := &ChatResult{}
 	var content strings.Builder
+	firstSeen := false
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -211,6 +213,15 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		}
 		if chunk.Error != "" {
 			return nil, fmt.Errorf("provider error: %s", chunk.Error)
+		}
+		if req.Phase != nil {
+			if !firstSeen {
+				firstSeen = true
+				req.Phase(PhaseFirstByte)
+			}
+			if chunk.Message.Thinking != "" && chunk.Message.Content == "" {
+				req.Phase(PhaseThinking)
+			}
 		}
 		if chunk.Message.Content != "" {
 			if res.TTFT == 0 {

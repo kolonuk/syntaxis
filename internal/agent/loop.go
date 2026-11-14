@@ -34,6 +34,7 @@ const (
 	EvCompaction      = "compaction"
 	EvCheckpoint      = "checkpoint"
 	EvStatus          = "status"
+	EvPhase           = "phase" // what the run is doing right now, for the progress line in the UI
 	EvNotice          = "notice"
 )
 
@@ -404,6 +405,7 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 		if a.Deps.Approve == nil {
 			return a.addToolResult(call, "error: this action needs approval but no approver is available", 0), ""
 		}
+		a.emit(EvPhase, "phase", "approval", "detail", firstLine(a.redact(summary), 80))
 		a.emit(EvApprovalRequest, "id", call.ID, "tool", call.Name, "summary", a.redact(summary), "reason", why, "risky", risk.Risky)
 		ok, err := a.Deps.Approve(ctx, ApprovalRequest{CallID: call.ID, Tool: call.Name, Summary: a.redact(summary), Reason: why, Args: call.Arguments})
 		if err != nil {
@@ -420,6 +422,7 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 		}
 	}
 
+	a.emit(EvPhase, "phase", "tool", "detail", firstLine(a.redact(describeForPhase(call)), 80))
 	o := a.Deps.Tools.Run(ctx, call.Name, call.Arguments)
 	if o.Question != "" {
 		if a.Deps.Answer == nil {
@@ -481,4 +484,20 @@ func malformedReply(err error) bool {
 		}
 	}
 	return false
+}
+
+// describeForPhase is a short label for the progress line, such as "run_shell".
+func describeForPhase(call provider.ToolCall) string {
+	var a struct {
+		Command string `json:"command"`
+		Path    string `json:"path"`
+	}
+	_ = json.Unmarshal(call.Arguments, &a)
+	switch {
+	case a.Command != "":
+		return a.Command
+	case a.Path != "":
+		return call.Name + " " + a.Path
+	}
+	return call.Name
 }

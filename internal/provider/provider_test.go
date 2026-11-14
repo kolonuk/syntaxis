@@ -274,3 +274,28 @@ func TestUnreachableAndCancel(t *testing.T) {
 		t.Fatal("cancel not honoured")
 	}
 }
+
+func TestChatReportsPhases(t *testing.T) {
+	p := mk(t, KindOllama, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"","thinking":"hmm"},"done":false}`)
+		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"Hi"},"done":false}`)
+		fmt.Fprintln(w, `{"message":{"content":""},"done":true,"done_reason":"stop","eval_count":2}`)
+	}), "")
+	var phases []string
+	if _, err := p.Chat(ctx, ChatRequest{Model: "x", Phase: func(s string) { phases = append(phases, s) }}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(phases) < 2 || phases[0] != PhaseFirstByte || phases[1] != PhaseThinking {
+		t.Fatalf("phases %v", phases)
+	}
+	o := mk(t, KindOpenAI, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hmm\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: [DONE]\n\n")
+	}), "")
+	phases = nil
+	if _, err := o.Chat(ctx, ChatRequest{Model: "x", Phase: func(s string) { phases = append(phases, s) }}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(phases) < 2 || phases[0] != PhaseFirstByte || phases[1] != PhaseThinking {
+		t.Fatalf("openai phases %v", phases)
+	}
+}

@@ -183,6 +183,13 @@ export function Chat({
         case "context":
           setCtx({ used: Number(d.used), window: Number(d.window), percent: Number(d.percent) });
           break;
+        case "phase":
+          setPhase({
+            name: String(d.phase ?? ""),
+            detail: String(d.detail ?? ""),
+            since: Date.now(),
+          });
+          break;
         case "notice":
           setNotice(String(d.message ?? ""));
           break;
@@ -190,6 +197,7 @@ export function Chat({
           setNotice("Older turns were summarised to free up context. Your full history is kept.");
           break;
         case "status":
+          setPhase(null);
           setRunning(false);
           onChanged();
           void loadMessages();
@@ -224,6 +232,7 @@ export function Chat({
 
   // Keep the log pinned to the bottom only while the reader is already there, and scroll
   // the log itself: scrollIntoView also moves the page, which made the chat jitter on phones.
+  const [phase, setPhase] = useState<Phase | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const onLogScroll = () => {
@@ -263,6 +272,7 @@ export function Chat({
     try {
       await post(`/sessions/${session.id}/messages`, { text });
       setRunning(true);
+      setPhase({ name: "preparing", detail: "", since: Date.now() });
       setLines([]);
       attach();
     } catch (x) {
@@ -401,11 +411,7 @@ export function Chat({
               <Body text={live} />
             </div>
           )}
-          {running && !live && (
-            <p className="muted" role="status">
-              Working…
-            </p>
-          )}
+          {running && <Progress phase={phase} />}
         </div>
         <form
           className="composer"
@@ -588,6 +594,48 @@ export function Chat({
 }
 
 /** Command output as plain text: the server runs every command itself and shows what came back. */
+interface Phase {
+  name: string;
+  detail: string;
+  since: number;
+}
+
+const PHASE_TEXT: Record<string, string> = {
+  preparing: "Getting your sandbox ready",
+  queued: "Waiting for the model",
+  connecting: "Connecting to the model",
+  loading_model: "Loading the model into memory",
+  reading: "Model is reading the conversation",
+  thinking: "Model is thinking",
+  replying: "Model is replying",
+  tool: "Running",
+  approval: "Waiting for your approval",
+};
+
+/** What the run is doing right now, with how long it has been doing it. */
+function Progress({ phase }: { phase: Phase | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const label = phase ? (PHASE_TEXT[phase.name] ?? "Working") : "Working";
+  const secs = phase ? Math.max(0, Math.round((now - phase.since) / 1000)) : 0;
+  // Loading a large model can take minutes; say so once it has been a while.
+  const slow = phase?.name === "loading_model" && secs > 20;
+  return (
+    <p className="progress" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <span>
+        {label}
+        {phase?.detail ? `: ${phase.detail}` : ""}
+        {phase && secs >= 3 ? ` · ${secs}s` : ""}
+        {slow ? " (large models can take a minute or two)" : ""}
+      </span>
+    </p>
+  );
+}
+
 /** Message text with fenced code shown as copyable blocks. */
 function Body({ text, plain }: { text: string; plain?: boolean }) {
   if (plain) return <div className="body">{text}</div>;

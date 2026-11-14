@@ -87,7 +87,17 @@ type ChatRequest struct {
 	NumCtx      int // requested window (Ollama num_ctx); 0 = server default
 	Temperature *float64
 	MaxTokens   int
+	// Phase, when set, is told how the call is progressing: PhaseFirstByte when the
+	// server starts answering (the model is loaded and has read the prompt) and
+	// PhaseThinking when it is producing reasoning rather than the reply.
+	Phase func(string)
 }
+
+// Call phases reported through ChatRequest.Phase.
+const (
+	PhaseFirstByte = "first_byte"
+	PhaseThinking  = "thinking"
+)
 
 // Usage is token accounting as reported by the provider.
 type Usage struct {

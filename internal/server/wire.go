@@ -118,6 +118,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		run.Emit(agent.Event{Kind: agent.EvStatus, Data: map[string]any{"status": agent.StatusError, "reason": msg}})
 		a.setState(bg, s.ID, "error", 0, 0)
 	}
+	run.Emit(agent.Event{Kind: agent.EvPhase, Data: map[string]any{"phase": "preparing", "detail": "starting your sandbox"}})
 	if a.Sandbox == nil {
 		fail("Sandboxes are not available on this server.")
 		return
@@ -228,12 +229,16 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		if first {
 			class, first = queue.Interactive, false
 		}
+		phase := func(p, detail string) {
+			run.Emit(agent.Event{Kind: agent.EvPhase, Data: map[string]any{"phase": p, "detail": detail}})
+		}
 		tk, err := w.Queues.For(prov).Enqueue(u.ID, class)
 		if err != nil {
 			done(0, 0)
 			return nil, err
 		}
 		if ahead, eta := tk.Position(); ahead > 0 {
+			phase("queued", fmt.Sprintf("%d ahead of you, about %s", ahead, eta.Round(time.Second)))
 			run.Emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": fmt.Sprintf("Queued: %d ahead of you (about %s).", ahead, eta.Round(time.Second))}})
 		}
 		release, err := tk.Wait(c)
@@ -242,7 +247,30 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			return nil, err
 		}
 		defer release()
-		res, err := pr.Chat(c, req, onDelta)
+		phase("connecting", "")
+		if resident, known := modelResident(c, pr, req.Model); known && !resident {
+			phase("loading_model", req.Model)
+		} else {
+			phase("reading", "")
+		}
+		replied := false
+		req.Phase = func(p string) {
+			switch p {
+			case provider.PhaseFirstByte:
+				phase("thinking", "")
+			case provider.PhaseThinking:
+				phase("thinking", "")
+			}
+		}
+		res, err := pr.Chat(c, req, func(d string) {
+			if !replied {
+				replied = true
+				phase("replying", "")
+			}
+			if onDelta != nil {
+				onDelta(d)
+			}
+		})
 		if err != nil {
 			done(0, 0)
 			return nil, err
@@ -434,4 +462,21 @@ func (f execFS) ListDir(ctx context.Context, p string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// modelResident asks the server (briefly) whether the model is already loaded.
+// known is false when the server cannot say, so no loading message is shown.
+func modelResident(ctx context.Context, pr provider.Provider, model string) (resident, known bool) {
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ms, supported, err := pr.Loaded(c)
+	if err != nil || !supported {
+		return false, false
+	}
+	for _, m := range ms {
+		if m.Name == model || m.Name == model+":latest" || strings.TrimSuffix(m.Name, ":latest") == model {
+			return true, true
+		}
+	}
+	return false, true
 }
