@@ -119,6 +119,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y runsc
           sudo runsc install
           sudo systemctl restart docker
+          docker version --format "docker {{.Server.Version}}"
           docker run --rm --runtime=runsc alpine:3.20 uname -a
       - name: Build sandbox image
         run: docker build -t syntaxis-sandbox:latest images/sandbox

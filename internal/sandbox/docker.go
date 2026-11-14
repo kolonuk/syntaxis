@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -133,7 +134,17 @@ func (d *Docker) Create(ctx context.Context, s Spec) (string, error) {
 	for _, m := range s.Mounts {
 		mm := mount.Mount{Type: mount.TypeVolume, Source: m.Volume, Target: m.Target, ReadOnly: m.ReadOnly}
 		if m.Subpath != "" {
-			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.Subpath}
+			// Volume subpath mounts of a single file are not supported by every Docker
+			// release, so bind the file from the volume's own directory instead. The
+			// path comes from Docker, never from a user, and is mounted read-only.
+			if filepath.Base(m.Subpath) != m.Subpath || m.Subpath == ".." {
+				return "", fmt.Errorf("%w: bad volume subpath %q", ErrBadSpec, m.Subpath)
+			}
+			v, err := d.cli.VolumeInspect(ctx, m.Volume)
+			if err != nil {
+				return "", fmt.Errorf("inspect volume %s: %w", m.Volume, err)
+			}
+			mm = mount.Mount{Type: mount.TypeBind, Source: filepath.Join(v.Mountpoint, m.Subpath), Target: m.Target, ReadOnly: m.ReadOnly}
 		}
 		mounts = append(mounts, mm)
 	}
