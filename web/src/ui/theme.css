@@ -256,20 +256,20 @@ a {
   color: var(--text);
 }
 .badge-success {
-  background: color-mix(in srgb, var(--success) 18%, transparent);
-  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: color-mix(in srgb, var(--success) 60%, var(--text));
 }
 .badge-warn {
-  background: color-mix(in srgb, var(--warn) 20%, transparent);
-  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: color-mix(in srgb, var(--warn) 60%, var(--text));
 }
 .badge-danger {
-  background: color-mix(in srgb, var(--danger) 18%, transparent);
-  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: color-mix(in srgb, var(--danger) 60%, var(--text));
 }
 .badge-info {
-  background: color-mix(in srgb, var(--info) 18%, transparent);
-  color: var(--info);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: color-mix(in srgb, var(--info) 60%, var(--text));
 }
 .tabs {
   display: flex;

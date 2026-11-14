@@ -370,7 +370,7 @@ export function Chat({
               return (
                 <details className={`step ${failed ? "failed" : ""}`} key={it.key}>
                   <summary>{describeCall(it.call)}</summary>
-                  <pre>{it.output ?? "running…"}</pre>
+                  <pre tabIndex={0}>{it.output ?? "running…"}</pre>
                 </details>
               );
             }
