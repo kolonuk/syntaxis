@@ -63,7 +63,12 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	}
 	// SMTP out is blocked in every mode
 	fmt.Fprintf(&b, "    ip saddr %s tcp dport { %s } counter drop\n", subnet, joinInts(BlockedSMTPPorts))
-	// intra-sandbox-network traffic between sandboxes is dropped (isolation between users)
+	// intra-sandbox-network traffic between sandboxes is dropped (isolation between users);
+	// the Syntaxis container itself (the resolver address) may open connections to sandboxes
+	// for the dev-server preview
+	if resolverIP.IsValid() {
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s accept\n", resolverIP, subnet)
+	}
 	fmt.Fprintf(&b, "    ip saddr %s ip daddr %s counter drop\n", subnet, subnet)
 	// always-blocked destinations
 	var v4, v6 []string
@@ -117,6 +122,18 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "  set allowed_hosts {\n    type ipv4_addr\n    flags timeout\n  }\n")
 	}
 	fmt.Fprintf(&b, "}\n")
+	// Traffic between two sandboxes on the same bridge is switched at layer 2 and only reaches
+	// the forward hook above when the br_netfilter kernel module is loaded and enabled, which
+	// not every host does. A bridge-family table filters it regardless, so isolation between
+	// sandboxes never depends on that setting.
+	l2 := table + "_l2"
+	fmt.Fprintf(&b, "table bridge %s\ndelete table bridge %s\n", l2, l2)
+	fmt.Fprintf(&b, "table bridge %s {\n  chain forward {\n    type filter hook forward priority -200; policy accept;\n", l2)
+	if resolverIP.IsValid() {
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s accept\n", resolverIP, subnet)
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s accept\n", subnet, resolverIP)
+	}
+	fmt.Fprintf(&b, "    ip saddr %s ip daddr %s counter drop\n  }\n}\n", subnet, subnet)
 	return RuleSet{Table: table, Text: b.String()}, nil
 }
 

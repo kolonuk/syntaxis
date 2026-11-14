@@ -138,7 +138,10 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 	if b, err := apply.CombinedOutput(); err != nil {
 		t.Skipf("cannot apply nft rules (%v): %s", err, b)
 	}
-	t.Cleanup(func() { _ = exec.Command("sudo", "-n", "nft", "delete", "table", "inet", "syntaxis_it").Run() })
+	t.Cleanup(func() {
+		_ = exec.Command("sudo", "-n", "nft", "delete", "table", "inet", "syntaxis_it").Run()
+		_ = exec.Command("sudo", "-n", "nft", "delete", "table", "bridge", "syntaxis_it_l2").Run()
+	})
 
 	const uid = 910004
 	id, err := m.Create(ctx, uid, "it-egress", nil, false)

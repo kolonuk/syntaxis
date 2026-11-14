@@ -197,3 +197,26 @@ func TestSanitizeName(t *testing.T) {
 		t.Fatal("table name injection")
 	}
 }
+
+func TestRulesAlsoFilterLayer2SoIsolationDoesNotDependOnBrNetfilter(t *testing.T) {
+	sub := netip.MustParsePrefix("172.30.0.0/24")
+	rs, err := Nftables("syx", sub, netip.MustParseAddr("172.30.0.2"), Policy{Mode: ModeOpen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"table bridge syx_l2",
+		"type filter hook forward priority -200",
+		"ip saddr 172.30.0.2 ip daddr 172.30.0.0/24 accept",
+		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 accept",
+		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.0/24 counter drop",
+	} {
+		if !strings.Contains(rs.Text, want) {
+			t.Errorf("missing %q in\n%s", want, rs.Text)
+		}
+	}
+	// the resolver exceptions must come before the drop
+	if strings.Index(rs.Text, "ip daddr 172.30.0.2 accept") > strings.LastIndex(rs.Text, "counter drop\n  }\n}") {
+		t.Error("exception after the drop")
+	}
+}
