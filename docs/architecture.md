@@ -1,5 +1,23 @@
 # Architecture
 
+How the pieces fit together. For setup see [getting started](getting-started.md).
+
+```mermaid
+flowchart LR
+  U[Chat users] -->|HTTPS reverse proxy| CH[Chat app]
+  A[Admin] -->|LAN / VPN / loopback| AD[Admin app]
+  subgraph syntaxis[Syntaxis]
+    CH --- CORE[Auth · Quotas · Queue · Agent · Secrets]
+    AD --- CORE
+    CORE --- DB[(SQLite)]
+  end
+  CORE -->|OpenAI / Ollama API| LLM[Your LLM server]
+  CORE -->|restricted API| SP[docker-socket-proxy]
+  SP --> D[Docker + gVisor]
+  D --> S1[Sandbox: session A]
+  D --> S2[Sandbox: session B]
+```
+
 ## Components
 
 | Package | Role |
@@ -20,13 +38,13 @@
 | `internal/scanner`, `internal/redact` | Secret scanner and output redaction |
 | `internal/signing` | Server-side SSH commit signing |
 | `internal/health`, `internal/doctor` | Health-check engine (pure checks) and live collectors |
-| `internal/routing` | Optional helper-model routing decisions (off by default) |
+| `internal/routing` | Optional helper-model routing (off by default) |
 | `internal/audit` | Hash-chained audit entries |
 | `web/` | React + TypeScript + Vite frontend (chat app and admin app), built into `internal/webui/dist` and embedded |
 
-## Data model (SQLite)
+## Storage
 
-`admins`, `users` (separate tables), `recovery_codes`, `tokens` (hashed invite/reset), `auth_sessions` (hashed ids), `login_attempts`, `providers`, `models`, `chat_sessions`, `messages` (with `abandoned` for rewound branches), `usage_daily`, `secrets`, `audit_log` (hash chain), `egress_log`, `settings`, `benchmarks`, `push_subscriptions`. SQL is portable so PostgreSQL can be added in v1.1; SQLite is the default because the target is a handful of users on one server and a backup is one file (`syntaxis backup`). Move up when you have many concurrent users, multiple instances or heavy message volume.
+SQLite is the default: the target is a handful of users on one server, and a backup is a single file (`syntaxis backup`). The SQL is portable, so PostgreSQL can be added later for more concurrent users or multiple instances.
 
 ## A request, end to end
 

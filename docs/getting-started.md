@@ -1,93 +1,95 @@
 # Getting started
 
-> Verified on Debian 12 (x86-64) with Docker 28 and gVisor release-20261109: sandbox isolation, fork-bomb containment, the egress firewall and a full agent run are exercised by the integration tests (`go test -run Integration ./internal/...`, also run in CI). Run `syntaxis doctor` after each step.
+About 20 minutes. You will end up with Syntaxis running on one Linux machine, connected to your own LLM server, with an invite link for your first user.
 
-## Requirements
+## What you need, and why
 
-- A Linux Docker host (x86-64 or arm64) you control, with Docker Engine 24+ and Docker Compose v2
-- [gVisor](https://gvisor.dev) (`runsc`) registered as a Docker runtime
-- An LLM endpoint you already run: Ollama, llama.cpp server, LiteLLM, or any OpenAI-compatible API
-- `nft` (nftables) on the Docker host if you want the egress firewall (strongly recommended)
-- Optional: an SMTP relay for invite and reset emails (without one, emails are written to the log)
+| You need | Why |
+| --- | --- |
+| **A Linux machine you control** with Docker Engine 24+ and Docker Compose v2 | Syntaxis runs as a container and starts one more container for each coding session. Windows and macOS are not supported, because gVisor needs Linux. |
+| **gVisor** (`runsc`) registered with Docker | Agents run commands, and those commands run inside gVisor containers rather than directly on your machine. Syntaxis refuses to start sessions without it. |
+| **An LLM server you already run**: Ollama, llama.cpp, LiteLLM or anything OpenAI-compatible | Syntaxis does not include a model. It sends work to yours and never installs, loads or removes models. |
+| **nftables** (`nft`) on that machine | A firewall rule set stops sandboxes reaching your home network, your LLM server and cloud metadata. Strongly recommended. |
+| *Optional:* **an SMTP server** | Used for invite and password-reset emails. Without one, the links are printed in the log instead. |
+| *Optional:* **a reverse proxy with HTTPS** | Needed before anyone outside your network uses it. See [pitfalls](pitfalls.md#reverse-proxy-and-tls). |
 
-## Install gVisor (`runsc`)
+## 1. Install gVisor
 
-Run as root on the Docker host (review [scripts/install-gvisor.sh](../scripts/install-gvisor.sh) first):
+On the Docker host, as root:
 
 ```sh
+git clone https://github.com/kolonuk/syntaxis && cd syntaxis
 sh scripts/install-gvisor.sh
 ```
 
-By hand, that is:
+Check it worked:
 
 ```sh
-curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" > /etc/apt/sources.list.d/gvisor.list
-apt-get update && apt-get install -y runsc
-runsc install            # registers the runtime in /etc/docker/daemon.json
-systemctl restart docker
 docker run --rm --runtime=runsc hello-world
 ```
 
-Check it is registered: `docker info --format '{{json .Runtimes}}'` must list `runsc`. Syntaxis **refuses to start a sandbox without it** and will not fall back to plain `runc`.
+## 2. Build the sandbox image
 
-Limitations to know about now (details in [pitfalls](pitfalls.md#gvisor-limitations)): some syscalls are unsupported, file and network I/O are slower, there is no GPU passthrough and no nested virtualisation.
-
-## Build the sandbox image
+This is the environment the agent works in (git, Node, Go, Python and common tools).
 
 ```sh
 docker build -t syntaxis-sandbox:latest images/sandbox
-# optional variants
-docker build -t syntaxis-sandbox:cloud --build-arg BASE=syntaxis-sandbox:latest images/sandbox-cloud
-docker build -t syntaxis-sandbox:security --build-arg BASE=syntaxis-sandbox:latest images/sandbox-security
 ```
 
-To use your own image set `SYNTAXIS_SANDBOX_IMAGE`. It needs: a non-root user with uid 10001, a POSIX shell, git; `ripgrep` and `curl` are used by agent tools.
-
-## Configure
+## 3. Create your settings
 
 ```sh
 cp .env.example .env
-syntaxis keygen            # or: docker run --rm ghcr.io/kolonuk/syntaxis keygen
+docker run --rm ghcr.io/kolonuk/syntaxis keygen
 ```
 
-Put the key in `.env` as `SYNTAXIS_MASTER_KEY` (or mount a file and set `SYNTAXIS_MASTER_KEY_FILE`; keep it **outside** the data directory). **Back this key up separately**: without it, stored secrets, 2FA secrets and signing keys cannot be decrypted. Set `SYNTAXIS_BASE_URL` to the public HTTPS URL users will use (it goes into emails). All options are in [configuration.md](configuration.md).
+Paste the output into `.env` as `SYNTAXIS_MASTER_KEY`, and set `SYNTAXIS_BASE_URL` to the address your users will open.
 
-## Start
+**Back the key up somewhere separate.** It encrypts stored secrets and 2FA settings, and they cannot be recovered without it.
+
+Every other setting is optional; see [configuration](configuration.md).
+
+## 4. Start Syntaxis and create an admin
 
 ```sh
 docker compose up -d
 docker compose exec syntaxis syntaxis admin create you@example.com "Your Name"
 ```
 
-The admin app listens on `127.0.0.1:8081` (loopback by default). Sign in, then **2FA setup is mandatory** before anything else works. Put the chat app (`:8080`) behind a TLS reverse proxy ([pitfalls](pitfalls.md#reverse-proxy-and-tls)).
+Open `http://127.0.0.1:8081`, sign in and set up two-factor authentication when asked.
 
-## Apply the sandbox firewall
+The admin app is only reachable from the machine itself by default. That is deliberate; keep it on your LAN or VPN.
 
-Sandboxes join a dedicated Docker network. The egress rules that block the host, LAN, cloud metadata, the LLM server and outbound SMTP are generated from your configuration and applied on the **Docker host** (the container cannot, and should not, do this):
+## 5. Turn on the firewall
+
+Sandboxes can reach the internet but must not reach your network. Generate the rules and apply them on the host, using your LLM server's address:
 
 ```sh
-docker network create syntaxis-sandbox --opt com.docker.network.bridge.enable_icc=false   # Syntaxis also creates it on first use
-sh scripts/apply-egress.sh syntaxis-sandbox 172.30.0.2 203.0.113.5/32   # resolver IP from docker-compose.yml, then your LLM server's CIDR(s)
-export SYNTAXIS_NETWORK_RULES_APPLIED=true                        # lets the health check know
+docker compose exec syntaxis syntaxis egress-rules 172.30.0.0/24 172.30.0.2 172.30.0.1 <llm-server-ip>/32 | sudo nft -f -
 ```
 
-Docker Compose already puts Syntaxis on the sandbox network at `172.30.0.2`, where its DNS resolver listens (domain policy, rebinding protection, query log). Set `SYNTAXIS_EGRESS_BLOCK` to your LLM server's CIDR so sandboxes cannot resolve or reach it. Re-run after changing the egress mode or the LLM server's address, and after a firewall reload/reboot (persist with your distribution's nftables service). See [security.md](security.md#egress).
+Then add the same `<llm-server-ip>/32` to `SYNTAXIS_EGRESS_BLOCK` in `.env` and run `docker compose up -d` again. Re-apply the rules after a reboot or firewall reload; your distribution's nftables service can do that automatically. Details: [security](security.md#egress).
 
-## Connect your LLM server
+## 6. Connect your LLM server
 
-In the admin app: **Providers & models → Add provider**, enter the base URL (for example `http://llm.internal:11434`), set **concurrency to match your server's parallel setting**, click **Discover models**, enable the models users may use, then fix whatever the **Health** page reports (typically context size and concurrency).
+In the admin app, open **Providers & models → Add provider** and enter your server's address. Set **concurrency** to how many requests your server handles at once, click **Discover models**, and enable the ones your users may use.
 
-Syntaxis only reads from the LLM server. If sandboxes must not reach it directly, pass its address to the firewall step above; sandboxes use it only through Syntaxis.
+## 7. Invite a user
 
-## Invite users
+Go to **Users → Invite user**. They get a single-use link to set their own password. Without email configured, find the link with `docker compose logs syntaxis`.
 
-**Users → Invite user.** They receive a single-use link, set their own password, and are reminded at every login until they turn on 2FA. Without SMTP configured the link is printed in the Syntaxis log (`docker compose logs syntaxis`).
+They sign in at `http://<your-host>:8080`, start a session and describe a task.
 
-## Check everything
+## 8. Check everything
 
 ```sh
 docker compose exec syntaxis syntaxis doctor
 ```
 
-Each finding says what is wrong and how to fix it. Run without Compose as `syntaxis serve` (set the same environment variables).
+Anything wrong is listed with how to fix it. The same checks appear on the admin **Health** page.
+
+## Next
+
+- Something not working: [pitfalls and troubleshooting](pitfalls.md)
+- Put it online safely: [reverse proxy and TLS](pitfalls.md#reverse-proxy-and-tls) and [security](security.md)
+- Tune limits and options: [configuration](configuration.md)

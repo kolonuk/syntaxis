@@ -12,11 +12,11 @@ It runs as a background job: closing the browser does not stop it, and the user 
 
 ## Tools
 
-`run_shell`, `read_file`, `write_file`, `patch_file` (exact, unique match), `list_files`, `search_files` (ripgrep), `git` (status, diff, log, add, commit, branch, checkout, push, pr), `fetch_url` (through the sandbox network; output is untrusted), `ask_user`, and `load_skill` when skills exist. All path arguments are confined to `/workspace`; arguments are passed as argv, never interpolated into scripts.
+`run_shell`, `read_file`, `write_file`, `patch_file` (exact, unique match), `list_files`, `search_files` (ripgrep), `git` (status, diff, log, add, commit, branch, checkout, push, pr), `fetch_url` (through the sandbox network; output is untrusted), `ask_user`, and `load_skill` when skills exist, plus any approved [MCP](integrations.md#mcp-servers) tools. All path arguments are confined to `/workspace`; arguments are passed as argv, never interpolated into scripts.
 
 ## Weaker models
 
-If a model emits tool calls as text or JSON in its reply instead of the structured API, a tolerant parser recovers them (fenced blocks, `<tool_call>` tags, bare JSON, double-encoded arguments, several naming styles). Only known tool names are accepted. Models without tool support are offered chat-only mode. Repeated identical actions trigger a nudge and then a stop; repeated failures stop the run and hand back to the user.
+If a model writes tool calls as text instead of using the structured API, a tolerant parser recovers them. Only known tool names are accepted. Models without tool support are offered chat-only mode. Repeated identical actions trigger a nudge and then a stop; repeated failures stop the run and hand back to the user.
 
 ## Commands run on the server, output shown in the UI
 
@@ -26,16 +26,16 @@ Every command runs through the server inside the sandbox; the UI shows the comma
 
 Before a command runs it is inspected. These are **blocked outright** (not offered for approval, even in `full` autonomy), the attempt is audited, and the model is told not to retry:
 
-- targets in private/LAN/link-local/CGNAT ranges, cloud metadata, `*.local`/`*.lan`/`*.internal`/single-label hostnames, `host.docker.internal`, including obfuscated forms (decimal, hex, octal addresses) and loops that build addresses like `192.168.1.$i`
-- port scanners and LAN recon (`nmap`, `masscan`, `arp`, `ip neigh`, `nc -z`, packet capture, …)
-- the Docker socket, `--network host`, `--privileged`
+- local-network, link-local and cloud-metadata addresses and hostnames, including disguised forms
+- port scanners and LAN reconnaissance tools
+- the Docker socket and privileged container options
 - `fetch_url` to any of the above
 
 The sandbox's own loopback (`localhost`, `127.0.0.1`) stays usable for dev servers. This inspection is a fast first line, not the boundary: a script the agent writes and runs can hide a target, so the egress firewall and DNS resolver enforce the same rules at the network level.
 
 ## Approval gates and autonomy
 
-A **code-level** policy classifies commands (force push, `git reset --hard`, `terraform apply/destroy`, `kubectl delete`, cloud `delete/destroy/deploy/create`, `wrangler deploy`, `curl | sh`, `sudo`, recursive `rm` outside the workspace, publishing packages, and more; admins can add patterns). Autonomy levels per session:
+A **code-level** policy classifies commands as risky: destructive git operations, infrastructure and cloud changes, deploys, piping downloads into a shell, `sudo`, deleting outside the workspace and publishing packages. Admins can add patterns. Autonomy levels per session:
 
 - `ask` — ask before running anything
 - `workspace` (default) — automatic inside the workspace, ask for risky actions
@@ -63,6 +63,3 @@ On every commit and push made through Syntaxis the staged diff is scanned (provi
 
 Commit signing (`off | optional | required`) is done on the server with an SSH key stored encrypted: the agent makes an unsigned commit, the server signs the commit object, and the signed object replaces it. The private key never enters the sandbox or the model context. Agent commits carry an `Agent-Authored-By` trailer.
 
-## Other agents
-
-The loop is behind a small interface so other agents can be added. An experimental **opencode** adapter (the agent runs inside the sandbox and talks to the model only through a Syntaxis-hosted OpenAI-compatible endpoint with a per-session scoped token, so quotas, logging and key secrecy still apply) is **not implemented yet**. Trade-offs when it lands: the built-in agent is predictable, quota-exact and tuned for local models; opencode brings richer editing and LSP but is heavier.

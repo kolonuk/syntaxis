@@ -1,6 +1,6 @@
 # Pitfalls and troubleshooting
 
-Honest and practical. Each entry names the health check that reports it (shown on the admin **Health** page and by `syntaxis doctor`) and how to fix it. Numbers in examples are **illustrative**: suitability depends entirely on *your* hardware and models.
+Honest and practical. Each entry names the health check that reports it (shown on the admin **Health** page and by `syntaxis doctor`) and how to fix it. What suits you depends on your hardware and models.
 
 ## Context windows
 
@@ -49,8 +49,7 @@ A GPU server serves a limited number of requests in parallel (Ollama: `OLLAMA_NU
 - File and network I/O are slower than native containers; large `npm install`/builds may take noticeably longer.
 - No GPU passthrough and no nested virtualisation (no KVM, no VMs inside sandboxes).
 - **Docker-in-sandbox:** sandboxes have no Docker socket; rootless buildkit under gVisor is untested here. Use remote builds.
-- **DNS:** Docker's embedded resolver (127.0.0.11) does not work under gVisor on user-defined networks, even with `--dns`. Syntaxis therefore runs its own resolver and mounts a shared read-only `resolv.conf` into every sandbox. If lookups time out, check that the resolver is up (`sandbox DNS resolver` in the log) and that the firewall rules accept established replies (re-run `scripts/apply-egress.sh` after upgrading).
-- **Old tool versions:** the default image ships current Node and Go; modern MCP servers need Node 20+.
+- **DNS:** Docker's embedded resolver (127.0.0.11) does not work under gVisor on user-defined networks, even with `--dns`. Syntaxis therefore runs its own resolver and mounts a shared read-only `resolv.conf` into every sandbox. If lookups time out, check that the resolver is up (`sandbox DNS resolver` in the log) and that the firewall rules accept established replies (re-apply the firewall rules after upgrading).
 - If `runsc` is not registered Syntaxis refuses to run sandboxes rather than falling back to `runc`.
 
 ## Egress
@@ -73,7 +72,7 @@ Use least privilege and short-lived tokens, a dedicated cloud project with a bud
 - **Timeouts:** agent runs and event streams are long-lived; raise read/idle timeouts (several minutes at least). The server sends a keep-alive comment every 20 s.
 - **Headers:** only trust `X-Forwarded-For` / proxy-auth headers from your proxy's address(es) (`SYNTAXIS_PROXY_TRUSTED`). Never enable header auth without a trusted list.
 - **CSP:** Syntaxis sets a strict Content-Security-Policy; don't override it with a looser one at the proxy.
-- **PWA:** installability, service workers and push need **HTTPS** (localhost excepted). On iOS, push works only after the app is added to the home screen.
+- **PWA:** installing the app and offline support need **HTTPS** (localhost excepted).
 
 ## Email
 
@@ -97,10 +96,9 @@ Back up: the database (`syntaxis backup <dest>`), the workspace volumes (`docker
 
 Cloned repositories, web pages and tool output can contain text that tries to steer the model. Syntaxis wraps and labels such content, keeps policy in code (approvals, quotas, egress and secrets cannot be changed by text), and treats `AGENTS.md`/`CLAUDE.md` as advisory. It does **not** guarantee the model won't do something harmful inside its permissions. For untrusted repositories use `ask` autonomy and `allowlist`/`none` egress.
 
-## Known limitations and unsupported setups
+## Known limitations
 
-- Not verified on a real gVisor host yet; see [todo.md](../todo.md).
-- Web Push delivery, running MCP servers, a debug bundle, connection-level egress logs and PostgreSQL are not implemented yet.
-- Windows and macOS Docker hosts are unsupported (gVisor requires Linux).
+- Linux Docker hosts only; gVisor does not run on Windows or macOS.
 - IPv6 inside sandboxes is unsupported.
-- Single instance only (no clustering); SQLite is single-writer.
+- Single instance only; SQLite allows one writer.
+- No PostgreSQL backend or connection-level egress logs yet.

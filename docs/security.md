@@ -28,14 +28,13 @@ Syntaxis is **not** designed for hostile users or the open internet. gVisor is a
 
 Modes: `open` (default; full outbound internet), `allowlist`, `none`. In **every** mode these are blocked: RFC1918/LAN, loopback, link-local and **cloud metadata** (169.254.169.254 and friends), CGNAT/tailnet ranges, the Docker bridge gateway, other sandboxes, Syntaxis internals and the LLM server (except through Syntaxis), and outbound SMTP (25/465/587).
 
-How: `syntaxis egress-rules` generates an nftables ruleset applied **on the Docker host** (`scripts/apply-egress.sh`). Syntaxis also runs a DNS resolver for the sandbox network that applies per-domain policy, refuses answers pointing into blocked ranges (DNS rebinding), and logs queries (names and answers only, never payloads).
+How: `syntaxis egress-rules` generates an nftables ruleset that you apply **on the Docker host** ([getting started](getting-started.md#5-turn-on-the-firewall)). Syntaxis also runs a DNS resolver for the sandbox network that applies per-domain policy, refuses answers pointing into blocked ranges (DNS rebinding), and logs queries (names and answers only, never payloads).
 
 Limits, honestly:
 - Rules must be applied by the operator and survive reboots; the health check can only see whether you told it they are applied (`SYNTAXIS_NETWORK_RULES_APPLIED`).
 - Allowlist mode by hostname depends on DNS answers; a sandbox that learns an IP another way and is on an allowed CIDR is allowed.
 - IPv6 is not routed on the sandbox network by default; if you enable it, extend the rules.
 - DNS over HTTPS or any allowed host that proxies traffic bypasses domain policy. `open` mode is not a substitute for trusting your users.
-- Connection-level (non-DNS) egress logging requires conntrack/nflog integration that is **not implemented yet**; only DNS queries are logged today.
 
 ## The Docker socket
 
@@ -53,16 +52,14 @@ Redaction of tool output is best-effort (known patterns plus the user's own stor
 
 Admins see session metadata (who, when, model, tokens, state), not message content, unless `ALLOW_ADMIN_READ_CONTENT=true`; reads are audited. Egress logs are visible to admins in full and to each user for their own sessions only. Set retention to match your obligations.
 
-## Dependency advisories (govulncheck)
+## Dependency advisories
 
-`govulncheck` currently reports advisories in the `github.com/docker/docker` module (AuthZ plugin bypass, plugin privilege validation, `docker cp` races and archive handling). They are bugs in the **Docker daemon/CLI code**, which shares a Go module with the client SDK that Syntaxis links; Syntaxis does not implement or expose those code paths, and no fixed module version exists yet ("Fixed in: N/A"). The mitigation is operational: keep **Docker Engine itself** up to date, and do not enable AuthZ plugins you rely on without patching. CI runs govulncheck on every change so a fixed SDK release is picked up by Dependabot.
-
-`npm audit` is clean for the dependencies that ship in the frontend bundle; remaining advisories are in dev tooling (vite/vitest/esbuild) that is not shipped, and are tracked by Dependabot.
+CI runs `govulncheck` and `npm audit` on every change. The Docker Go module has advisories that affect the Docker daemon, not the client code Syntaxis uses, and no fixed version exists yet. Keep Docker Engine itself up to date.
 
 ## Known gaps in this version
 
-- Web Push delivery, running MCP servers, a debug bundle and connection-level egress logging are not implemented yet (see [todo.md](../todo.md)).
-- Isolation, egress and an agent run are tested against real gVisor (see the integration tests), but gVisor is not a VM and no escape-resistance testing has been done.
-- Pinned image digests are not yet set.
+- Connection-level egress logging is not implemented; only DNS queries are logged.
+- Isolation, egress and agent runs are tested against real gVisor, but gVisor is not a VM and no escape-resistance testing has been done.
+- Image digests are not pinned yet.
 
 Report vulnerabilities privately: [SECURITY.md](../SECURITY.md).
