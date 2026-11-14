@@ -61,6 +61,7 @@ html,
 body,
 #root {
   height: 100%;
+  height: 100dvh;
   margin: 0;
 }
 body {
@@ -70,6 +71,8 @@ body {
   color: var(--text);
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
+  touch-action: manipulation; /* pinch-zoom stays on; removes double-tap delay */
+  overscroll-behavior: none;
 }
 a {
   color: var(--accent);
@@ -514,7 +517,10 @@ pre {
 }
 .chat-log {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   padding-bottom: var(--s4);
 }
 .msg {
@@ -799,4 +805,32 @@ a.btn {
 .chat-head .btn {
   min-height: 36px;
   padding: 0 var(--s3);
+}
+
+.codeblock {
+  margin: var(--s2) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+  white-space: normal;
+}
+.codeblock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--s2) 0 var(--s3);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.codeblock pre {
+  margin: 0;
+  border-radius: 0;
+  white-space: pre;
+}
+.codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 32px;
+  padding: 0 var(--s2);
 }

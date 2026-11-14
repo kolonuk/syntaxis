@@ -7,6 +7,8 @@ import {
   Badge,
   Banner,
   Button,
+  CodeBlock,
+  Icon,
   Meter,
   Modal,
   StatusPill,
@@ -16,6 +18,7 @@ import {
   useToast,
   Input,
 } from "../ui/ui";
+import { copyText, splitFences } from "../lib/fences";
 
 interface Msg {
   id: number;
@@ -134,7 +137,6 @@ export function Chat({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mcp, setMcp] = useState<McpServer[]>([]);
   const abort = useRef<AbortController | null>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
 
   const loadMessages = useCallback(async () => {
     setMsgs(await get<Msg[]>(`/sessions/${session.id}/messages`));
@@ -220,9 +222,18 @@ export function Chat({
     return () => abort.current?.abort();
   }, [session.id, session.autonomy, session.title, attach, loadMessages]);
 
+  // Keep the log pinned to the bottom only while the reader is already there, and scroll
+  // the log itself: scrollIntoView also moves the page, which made the chat jitter on phones.
+  const log = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  const onLogScroll = () => {
+    const el = log.current;
+    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    logEnd.current?.scrollIntoView({ block: "end" });
-  }, [msgs, live]);
+    const el = log.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [msgs, live, lines]);
 
   useEffect(() => {
     const send = async () => {
@@ -353,8 +364,9 @@ export function Chat({
         )}
         <div
           className="chat-log"
+          ref={log}
+          onScroll={onLogScroll}
           role="log"
-          aria-live="polite"
           tabIndex={0}
           aria-label="Conversation"
         >
@@ -370,7 +382,7 @@ export function Chat({
               return (
                 <details className={`step ${failed ? "failed" : ""}`} key={it.key}>
                   <summary>{describeCall(it.call)}</summary>
-                  <pre tabIndex={0}>{it.output ?? "running…"}</pre>
+                  <CodeBlock code={it.output ?? "running…"} lang="output" />
                 </details>
               );
             }
@@ -379,14 +391,14 @@ export function Chat({
             return (
               <div className={`msg ${it.kind}`} key={it.key}>
                 {showWho && <div className="who">{it.kind === "user" ? "You" : "Assistant"}</div>}
-                <div className="body">{it.text}</div>
+                <Body text={it.text} plain={it.kind === "user"} />
               </div>
             );
           })}
           {live && (
             <div className="msg assistant">
               <div className="who">Assistant</div>
-              <div className="body">{live}</div>
+              <Body text={live} />
             </div>
           )}
           {running && !live && (
@@ -394,7 +406,6 @@ export function Chat({
               Working…
             </p>
           )}
-          <div ref={logEnd} />
         </div>
         <form
           className="composer"
@@ -577,17 +588,43 @@ export function Chat({
 }
 
 /** Command output as plain text: the server runs every command itself and shows what came back. */
+/** Message text with fenced code shown as copyable blocks. */
+function Body({ text, plain }: { text: string; plain?: boolean }) {
+  if (plain) return <div className="body">{text}</div>;
+  return (
+    <div className="body">
+      {splitFences(text).map((p, i) =>
+        p.kind === "code" ? (
+          <CodeBlock key={i} code={p.text} lang={p.lang} />
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </div>
+  );
+}
+
 function Output({ lines }: { lines: string[] }) {
-  const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLPreElement>(null);
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
+    const el = box.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [lines]);
   if (lines.length === 0)
     return <p className="muted">Commands the agent runs and their output appear here.</p>;
   return (
-    <pre className="output" role="log" aria-label="Command output" tabIndex={0}>
-      {lines.join("\n")}
-      <div ref={end} />
-    </pre>
+    <div>
+      <button
+        type="button"
+        className="btn btn-ghost codeblock-copy"
+        onClick={() => void copyText(lines.join("\n"))}
+      >
+        <Icon name="copy" />
+        <span>Copy all</span>
+      </button>
+      <pre className="output" ref={box} role="log" aria-label="Command output" tabIndex={0}>
+        {lines.join("\n")}
+      </pre>
+    </div>
   );
 }

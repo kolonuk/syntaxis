@@ -13,6 +13,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { copyText } from "../lib/fences";
 import "./theme.css";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost" | "icon";
@@ -343,6 +344,8 @@ const ICONS: Record<string, string> = {
   sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v3M12 20v3M4.200 4.200l2.100 2.100M17.700 17.700l2.100 2.100M1 12h3M20 12h3M4.200 19.800l2.100-2.100M17.700 6.300l2.100-2.100",
   moon: "M21 12.800A9 9 0 1111.200 3a7 7 0 009.800 9.800z",
   auto: "M12 3a9 9 0 100 18V3z",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  check: "M5 13l4 4L19 7",
 };
 
 /** Small stroke icon; decorative (the button carries the accessible name). */
@@ -362,5 +365,34 @@ export function Icon({ name }: { name: keyof typeof ICONS | string }) {
     >
       <path d={ICONS[name] ?? ""} />
     </svg>
+  );
+}
+
+/** A code block with a copy button, for pasting into a terminal. */
+export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="codeblock">
+      <div className="codeblock-bar">
+        <span className="muted">{lang || "code"}</span>
+        <button
+          type="button"
+          className="btn btn-ghost codeblock-copy"
+          aria-label={done ? "Copied" : "Copy code"}
+          onClick={async () => {
+            if (await copyText(code)) {
+              setDone(true);
+              setTimeout(() => setDone(false), 1500);
+            }
+          }}
+        >
+          <Icon name={done ? "check" : "copy"} />
+          <span>{done ? "Copied" : "Copy"}</span>
+        </button>
+      </div>
+      <pre tabIndex={0}>
+        <code>{code}</code>
+      </pre>
+    </div>
   );
 }
