@@ -142,6 +142,7 @@ type Usage struct {
 	TokensIn       int64
 	TokensOut      int64
 	SandboxSeconds int64
+	CPUSeconds     int64 // CPU time actually used by the sandbox processes
 }
 
 // Secret is an encrypted secret row.
@@ -242,6 +243,8 @@ type Store interface {
 
 	// usage
 	AddUsage(ctx context.Context, userID int64, day string, in, out, sandboxSeconds int64) error
+	// AddCPUSeconds accumulates CPU time used by a user's sandboxes today.
+	AddCPUSeconds(ctx context.Context, userID int64, day string, seconds int64) error
 	GetUsage(ctx context.Context, userID int64, day string) (*Usage, error)
 	SumUsage(ctx context.Context, userID int64, dayPrefix string) (*Usage, error)
 	ResetUsage(ctx context.Context, userID int64, day string) error

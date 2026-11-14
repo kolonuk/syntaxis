@@ -251,3 +251,24 @@ func TestErrorMessagesAreHumane(t *testing.T) {
 		t.Fatal("fallback")
 	}
 }
+
+func TestCPUTimeAllowance(t *testing.T) {
+	f := newFx(t)
+	f.s.Defaults = func() Defaults { return Defaults{CPUSecondsDaily: 100, MaxSessions: 3} }
+	if f.s.CPUExhausted(ctx, f.u) {
+		t.Fatal("fresh user already exhausted")
+	}
+	_ = f.s.RecordCPUTime(ctx, f.u.ID, 99)
+	if err := f.s.CheckSandboxStart(ctx, f.u, 0); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.s.RecordCPUTime(ctx, f.u.ID, 1)
+	asExhausted(t, f.s.CheckSandboxStart(ctx, f.u, 0), KindCPUTime)
+	if !f.s.CPUExhausted(ctx, f.u) {
+		t.Fatal("not flagged")
+	}
+	m, _ := f.s.Meters(ctx, f.u)
+	if m.CPUSeconds.Used != 100 || m.CPUSeconds.Limit != 100 {
+		t.Fatalf("%+v", m.CPUSeconds)
+	}
+}

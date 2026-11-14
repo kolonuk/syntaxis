@@ -810,6 +810,21 @@ func TestUsageEndpoint(t *testing.T) {
 	}
 }
 
+func TestResourcesEndpointIsOwnerOnlyAndSafeWithoutMonitor(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	u := e.userSession("a@example.com")
+	other := e.userSession("b@example.com")
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	id, _ := s["id"].(string)
+	if code, m, _ := u.do("GET", "/api/sessions/"+id+"/resources", nil); code != 200 || m["active"] != false {
+		t.Fatalf("%d %v", code, m)
+	}
+	if code, _, _ := other.do("GET", "/api/sessions/"+id+"/resources", nil); code != 404 {
+		t.Fatalf("another user must get 404, got %d", code)
+	}
+}
+
 func TestMeIncludesHealthBannersForUsersOnly(t *testing.T) {
 	e := newEnv(t)
 	u := e.userSession("a@example.com")

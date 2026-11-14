@@ -395,7 +395,7 @@ func cmdServe() error {
 		mm, _ := st.GetSetting(ctx, server.SettingMonthlyTokens, "0")
 		d, _ := strconv.ParseInt(dd, 10, 64)
 		m, _ := strconv.ParseInt(mm, 10, 64)
-		return quota.Defaults{DailyTokens: d, MonthlyTokens: m, MaxSessions: 3, RequestsPerMinute: 60, MaxParallelRequests: 2, SandboxSecondsDaily: 8 * 3600, MaxSessionWallClock: 4 * time.Hour}
+		return quota.Defaults{DailyTokens: d, MonthlyTokens: m, MaxSessions: 3, RequestsPerMinute: 60, MaxParallelRequests: 2, SandboxSecondsDaily: 8 * 3600, CPUSecondsDaily: 4 * 3600, MaxSessionWallClock: 4 * time.Hour}
 	})
 	sec := &secrets.Service{Store: st, Vault: v}
 	app := server.New(cfg, st, as, q, sec, ml, log)
@@ -412,6 +412,15 @@ func cmdServe() error {
 		app.Sandbox = sandbox.NewManager(rt, scfg, log)
 		app.Sandbox.SetDNS([]string{cfg.DNSFallback}) // until the resolver is up
 		go startDNS(ctx, cfg, st, app.Sandbox, log)
+		mon := sandbox.NewMonitor(rt, sandbox.NewWatchdog(sandbox.DefaultWatchdogConfig()), scfg.Limits.CPUs, log)
+		mon.OnCPU = func(user, secs int64) { _ = q.RecordCPUTime(ctx, user, secs) }
+		mon.OnEvent = app.SandboxEvent
+		mon.Exhausted = func(user int64) bool {
+			u, err := st.GetUser(ctx, user)
+			return err == nil && q.CPUExhausted(ctx, u)
+		}
+		app.Monitor = mon
+		go mon.Run(ctx)
 	} else {
 		log.Warn("Docker client could not be created; sandboxes are unavailable")
 	}

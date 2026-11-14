@@ -236,6 +236,26 @@ func (f *Fake) Stats(_ context.Context, id string) (Stats, error) {
 	return c.StatsV, nil
 }
 
+// UpdateCPU implements Runtime.
+func (f *Fake) UpdateCPU(_ context.Context, id string, cores float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, err := f.get(id)
+	if err == nil {
+		c.Spec.NanoCPUs = int64(cores * 1e9)
+	}
+	return err
+}
+
+// SetStats lets tests set the stats a container reports.
+func (f *Fake) SetStats(id string, st Stats) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, err := f.get(id); err == nil {
+		c.StatsV = st
+	}
+}
+
 // List implements Runtime.
 func (f *Fake) List(context.Context) ([]ContainerInfo, error) {
 	f.mu.Lock()

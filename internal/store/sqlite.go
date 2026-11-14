@@ -701,10 +701,17 @@ ON CONFLICT(user_id,day) DO UPDATE SET tokens_in=tokens_in+excluded.tokens_in,to
 	return err
 }
 
+// AddCPUSeconds accumulates daily CPU time.
+func (s *SQLite) AddCPUSeconds(ctx context.Context, userID int64, day string, seconds int64) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO usage_daily (user_id,day,cpu_seconds) VALUES (?,?,?)
+ON CONFLICT(user_id,day) DO UPDATE SET cpu_seconds=cpu_seconds+excluded.cpu_seconds`, userID, day, seconds)
+	return err
+}
+
 // GetUsage returns one day's usage (zeros when absent).
 func (s *SQLite) GetUsage(ctx context.Context, userID int64, day string) (*Usage, error) {
 	u := Usage{UserID: userID, Day: day}
-	err := s.db.QueryRowContext(ctx, `SELECT tokens_in,tokens_out,sandbox_seconds FROM usage_daily WHERE user_id=? AND day=?`, userID, day).Scan(&u.TokensIn, &u.TokensOut, &u.SandboxSeconds)
+	err := s.db.QueryRowContext(ctx, `SELECT tokens_in,tokens_out,sandbox_seconds,cpu_seconds FROM usage_daily WHERE user_id=? AND day=?`, userID, day).Scan(&u.TokensIn, &u.TokensOut, &u.SandboxSeconds, &u.CPUSeconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &u, nil
 	}
@@ -714,8 +721,8 @@ func (s *SQLite) GetUsage(ctx context.Context, userID int64, day string) (*Usage
 // SumUsage sums usage for days starting with dayPrefix (e.g. "2026-11" for a month).
 func (s *SQLite) SumUsage(ctx context.Context, userID int64, dayPrefix string) (*Usage, error) {
 	u := Usage{UserID: userID, Day: dayPrefix}
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(tokens_in),0),COALESCE(SUM(tokens_out),0),COALESCE(SUM(sandbox_seconds),0) FROM usage_daily WHERE user_id=? AND day LIKE ?`, userID, dayPrefix+"%").
-		Scan(&u.TokensIn, &u.TokensOut, &u.SandboxSeconds)
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(tokens_in),0),COALESCE(SUM(tokens_out),0),COALESCE(SUM(sandbox_seconds),0),COALESCE(SUM(cpu_seconds),0) FROM usage_daily WHERE user_id=? AND day LIKE ?`, userID, dayPrefix+"%").
+		Scan(&u.TokensIn, &u.TokensOut, &u.SandboxSeconds, &u.CPUSeconds)
 	return &u, err
 }
 

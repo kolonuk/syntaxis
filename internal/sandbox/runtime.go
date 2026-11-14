@@ -48,6 +48,7 @@ type ExecResult struct {
 // Stats is a point-in-time resource sample.
 type Stats struct {
 	CPUPercent     float64 // of one core (100 = one full core)
+	CPUNanos       uint64  // cumulative CPU time used by the container (0 = unknown)
 	MemoryBytes    int64
 	MemoryLimit    int64
 	Pids           int64
@@ -75,6 +76,8 @@ type Runtime interface {
 	Remove(ctx context.Context, id string) error
 	Exec(ctx context.Context, id string, e ExecSpec) (ExecResult, error)
 	Stats(ctx context.Context, id string) (Stats, error)
+	// UpdateCPU changes a running container's CPU cap in cores (throttling).
+	UpdateCPU(ctx context.Context, id string, cores float64) error
 	// List returns containers carrying the managed label.
 	List(ctx context.Context) ([]ContainerInfo, error)
 	Inspect(ctx context.Context, id string) (*ContainerInfo, error)

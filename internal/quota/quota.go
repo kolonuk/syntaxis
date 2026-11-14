@@ -25,6 +25,7 @@ type Defaults struct {
 	RequestsPerMinute   int
 	MaxParallelRequests int
 	SandboxSecondsDaily int64         // total sandbox time per day
+	CPUSecondsDaily     int64         // CPU time (core-seconds) per day; 0 = unlimited
 	MaxSessionWallClock time.Duration // 0 = none
 }
 
@@ -35,6 +36,7 @@ type Limits struct {
 	RequestsPerMinute          int
 	MaxParallelRequests        int
 	SandboxSecondsDaily        int64
+	CPUSecondsDaily            int64
 	MaxSessionWallClock        time.Duration
 }
 
@@ -49,6 +51,7 @@ const (
 	KindParallel      Kind = "parallel"
 	KindSessions      Kind = "sessions"
 	KindSandboxTime   Kind = "sandbox_time"
+	KindCPUTime       Kind = "cpu_time"
 )
 
 // ExhaustedError is returned when a limit is reached.
@@ -73,6 +76,8 @@ func (e *ExhaustedError) Error() string {
 		return fmt.Sprintf("You have reached your limit of %d concurrent sessions. Stop or delete one first.", e.Limit)
 	case KindSandboxTime:
 		return "Daily sandbox time used up. It resets at midnight UTC."
+	case KindCPUTime:
+		return "Daily compute time used up. It resets at midnight UTC."
 	}
 	return "quota exhausted"
 }
@@ -112,6 +117,7 @@ func (s *Service) Resolve(u *store.User) Limits {
 		RequestsPerMinute:   d.RequestsPerMinute,
 		MaxParallelRequests: d.MaxParallelRequests,
 		SandboxSecondsDaily: d.SandboxSecondsDaily,
+		CPUSecondsDaily:     d.CPUSecondsDaily,
 		MaxSessionWallClock: d.MaxSessionWallClock,
 		MaxSessions:         d.MaxSessions,
 	}
@@ -134,8 +140,8 @@ type Meter struct {
 
 // Meters are the user's current usage meters.
 type Meters struct {
-	Daily, Monthly, SandboxSeconds Meter
-	DailyResetsAt, MonthlyResetsAt time.Time
+	Daily, Monthly, SandboxSeconds, CPUSeconds Meter
+	DailyResetsAt, MonthlyResetsAt             time.Time
 }
 
 // Meters returns current usage against limits.
@@ -154,6 +160,7 @@ func (s *Service) Meters(ctx context.Context, u *store.User) (*Meters, error) {
 		Daily:           Meter{d.TokensIn + d.TokensOut, l.DailyTokens},
 		Monthly:         Meter{m.TokensIn + m.TokensOut, l.MonthlyTokens},
 		SandboxSeconds:  Meter{d.SandboxSeconds, l.SandboxSecondsDaily},
+		CPUSeconds:      Meter{d.CPUSeconds, l.CPUSecondsDaily},
 		DailyResetsAt:   time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC),
 		MonthlyResetsAt: time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC),
 	}, nil
@@ -220,13 +227,16 @@ func (s *Service) CheckSandboxStart(ctx context.Context, u *store.User, activeSe
 	if l.MaxSessions > 0 && activeSessions >= l.MaxSessions {
 		return &ExhaustedError{Kind: KindSessions, Limit: int64(l.MaxSessions), Used: int64(activeSessions)}
 	}
-	if l.SandboxSecondsDaily > 0 {
+	if l.SandboxSecondsDaily > 0 || l.CPUSecondsDaily > 0 {
 		d, err := s.Store.GetUsage(ctx, u.ID, s.day())
 		if err != nil {
 			return err
 		}
-		if d.SandboxSeconds >= l.SandboxSecondsDaily {
+		if l.SandboxSecondsDaily > 0 && d.SandboxSeconds >= l.SandboxSecondsDaily {
 			return &ExhaustedError{Kind: KindSandboxTime, Limit: l.SandboxSecondsDaily, Used: d.SandboxSeconds}
+		}
+		if l.CPUSecondsDaily > 0 && d.CPUSeconds >= l.CPUSecondsDaily {
+			return &ExhaustedError{Kind: KindCPUTime, Limit: l.CPUSecondsDaily, Used: d.CPUSeconds}
 		}
 	}
 	return nil
@@ -235,6 +245,21 @@ func (s *Service) CheckSandboxStart(ctx context.Context, u *store.User, activeSe
 // RecordSandboxTime adds sandbox run time to today's usage.
 func (s *Service) RecordSandboxTime(ctx context.Context, userID int64, d time.Duration) error {
 	return s.Store.AddUsage(ctx, userID, s.day(), 0, 0, int64(d.Seconds()))
+}
+
+// RecordCPUTime adds CPU time used by a user's sandboxes to today's usage.
+func (s *Service) RecordCPUTime(ctx context.Context, userID int64, seconds int64) error {
+	return s.Store.AddCPUSeconds(ctx, userID, s.day(), seconds)
+}
+
+// CPUExhausted reports whether the user's daily compute allowance is used up.
+func (s *Service) CPUExhausted(ctx context.Context, u *store.User) bool {
+	l := s.Resolve(u)
+	if l.CPUSecondsDaily <= 0 {
+		return false
+	}
+	d, err := s.Store.GetUsage(ctx, u.ID, s.day())
+	return err == nil && d.CPUSeconds >= l.CPUSecondsDaily
 }
 
 // SessionExpired reports whether a session exceeded its wall-clock cap.

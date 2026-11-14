@@ -291,7 +291,7 @@ func (d *Docker) Stats(ctx context.Context, id string) (Stats, error) {
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		return Stats{}, err
 	}
-	st := Stats{MemoryBytes: int64(v.MemoryStats.Usage), MemoryLimit: int64(v.MemoryStats.Limit), Pids: int64(v.PidsStats.Current), At: time.Now()}
+	st := Stats{CPUNanos: v.CPUStats.CPUUsage.TotalUsage, MemoryBytes: int64(v.MemoryStats.Usage), MemoryLimit: int64(v.MemoryStats.Limit), Pids: int64(v.PidsStats.Current), At: time.Now()}
 	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
 	sysDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
 	if sysDelta > 0 && cpuDelta > 0 {
@@ -302,6 +302,12 @@ func (d *Docker) Stats(ctx context.Context, id string) (Stats, error) {
 		st.CPUPercent = cpuDelta / sysDelta * n * 100
 	}
 	return st, nil
+}
+
+// UpdateCPU implements Runtime.
+func (d *Docker) UpdateCPU(ctx context.Context, id string, cores float64) error {
+	_, err := d.cli.ContainerUpdate(ctx, id, container.UpdateConfig{Resources: container.Resources{NanoCPUs: int64(cores * 1e9)}})
+	return mapNotFound(err)
 }
 
 // List implements Runtime.

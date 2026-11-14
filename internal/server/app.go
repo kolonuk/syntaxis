@@ -50,6 +50,7 @@ type App struct {
 	Mail        mail.Mailer
 	Health      *health.Engine
 	Sandbox     *sandbox.Manager // may be nil (sandboxes unavailable)
+	Monitor     *sandbox.Monitor // CPU/memory sampling and limits; may be nil
 	Log         *slog.Logger
 	Runs        *Runs
 	Web         http.Handler // embedded frontend (may be nil)

@@ -66,6 +66,7 @@ func (a *App) UserHandler() http.Handler {
 				r.Post("/approvals/{call}", a.handleApproval)
 				r.Post("/answer", a.handleAnswer)
 				r.Get("/export", a.handleExport)
+				r.Get("/resources", a.handleResources)
 				r.Get("/mcp", a.handleSessionMCP)
 				r.Put("/mcp", a.handleSessionMCPSet)
 			})
@@ -227,7 +228,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"daily": m.Daily, "monthly": m.Monthly, "sandbox_seconds": m.SandboxSeconds,
+		"daily": m.Daily, "monthly": m.Monthly, "sandbox_seconds": m.SandboxSeconds, "cpu_seconds": m.CPUSeconds,
 		"daily_resets_at": m.DailyResetsAt, "monthly_resets_at": m.MonthlyResetsAt,
 	})
 }
