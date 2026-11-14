@@ -7,7 +7,13 @@
 services:
   syntaxis:
     image: ghcr.io/kolonuk/syntaxis:latest
-    build: .
+    build:
+      context: .
+      args:
+        # for source builds: SYNTAXIS_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
+        VERSION: ${SYNTAXIS_VERSION:-dev}
+        COMMIT: ${SYNTAXIS_COMMIT:-}
+        DATE: ${SYNTAXIS_BUILD_DATE:-}
     restart: unless-stopped
     env_file: .env
     environment:

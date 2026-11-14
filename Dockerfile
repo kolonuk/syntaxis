@@ -17,7 +17,9 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/syntaxis ./cmd/syntaxis \
+ARG COMMIT=
+ARG DATE=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/kolonuk/syntaxis/internal/buildinfo.Version=${VERSION} -X github.com/kolonuk/syntaxis/internal/buildinfo.Commit=${COMMIT} -X github.com/kolonuk/syntaxis/internal/buildinfo.Date=${DATE}" -o /out/syntaxis ./cmd/syntaxis \
     && mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot

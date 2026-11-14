@@ -35,7 +35,7 @@ func TestUsageAndUnknown(t *testing.T) {
 		t.Fatal("unknown command accepted")
 	}
 	out.Reset()
-	if err := run([]string{"version"}, &out, &errb); err != nil || strings.TrimSpace(out.String()) != version {
+	if err := run([]string{"version"}, &out, &errb); err != nil || strings.TrimSpace(out.String()) != version() {
 		t.Fatal("version")
 	}
 	if err := run([]string{"help"}, &out, &errb); err != nil {

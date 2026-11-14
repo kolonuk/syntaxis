@@ -843,3 +843,17 @@ func TestMeIncludesHealthBannersForUsersOnly(t *testing.T) {
 		t.Fatalf("snoozing an error must be refused: %d", code)
 	}
 }
+
+func TestVersionIsPublicOnBothApps(t *testing.T) {
+	e := newEnv(t)
+	for _, base := range []string{e.user.URL, e.admin.URL} {
+		c := e.client(base)
+		code, m, _ := c.do("GET", "/api/version", nil)
+		if code != 200 || m["version"] == nil || m["go"] == nil {
+			t.Fatalf("%s: %d %v", base, code, m)
+		}
+		if code, m, _ := c.do("GET", "/healthz", nil); code != 200 || m["version"] == nil {
+			t.Fatalf("healthz must carry the version: %d %v", code, m)
+		}
+	}
+}

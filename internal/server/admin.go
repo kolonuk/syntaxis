@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"net/http"
 	"strconv"
 	"time"
@@ -35,7 +36,10 @@ const (
 func (a *App) AdminHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(a.secureHeaders, a.logRequests)
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "ok", "version": buildinfo.Get()})
+	})
+	r.Get("/api/version", handleVersion)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", a.handleLogin(store.KindAdmin))
 		r.Post("/login/mfa", a.handleMFA(store.KindAdmin))

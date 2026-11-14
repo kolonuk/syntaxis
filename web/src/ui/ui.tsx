@@ -396,3 +396,56 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
     </div>
   );
 }
+
+interface BuildInfo {
+  version: string;
+  commit: string;
+  date: string;
+  go: string;
+  dirty: boolean;
+}
+
+/** Which build is running, and a prompt to reload when the server has been updated. */
+export function VersionLabel() {
+  const [v, setV] = useState<BuildInfo | null>(null);
+  const [stale, setStale] = useState(false);
+  const first = useRef("");
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      void fetch("/api/version", { credentials: "same-origin" })
+        .then((r) => (r.ok ? (r.json() as Promise<BuildInfo>) : null))
+        .then((b) => {
+          if (!live || !b) return;
+          const id = `${b.version}/${b.commit}`;
+          if (!first.current) first.current = id;
+          else if (first.current !== id) setStale(true);
+          setV(b);
+        })
+        .catch(() => undefined);
+    load();
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, []);
+  if (!v) return null;
+  const text = v.commit ? `${v.version} (${v.commit}${v.dirty ? ", modified" : ""})` : v.version;
+  return (
+    <span
+      className="muted version-label"
+      title={`Built ${v.date || "at an unknown time"} with ${v.go}`}
+    >
+      Syntaxis {text}
+      {stale && (
+        <>
+          {" "}
+          <button type="button" className="btn btn-ghost" onClick={() => location.reload()}>
+            Updated: reload
+          </button>
+        </>
+      )}
+    </span>
+  );
+}

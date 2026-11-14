@@ -2,7 +2,18 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { del, get, post, put, errText } from "../lib/api";
 import { compact } from "../lib/format";
-import { Badge, Banner, Button, Card, Input, Meter, Skeleton, Tabs, useToast } from "../ui/ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  Input,
+  Meter,
+  Skeleton,
+  Tabs,
+  useToast,
+  VersionLabel,
+} from "../ui/ui";
 import { ChangePassword, TwoFactorSetup } from "./Auth";
 import type { Me } from "./hooks";
 
@@ -156,6 +167,9 @@ export function Settings({
           >
             Sign out everywhere
           </Button>
+          <p>
+            <VersionLabel />
+          </p>
         </Card>
       )}
       {tab === "password" && (

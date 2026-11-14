@@ -14,6 +14,7 @@ import {
   Tabs,
   ToastProvider,
   Toggle,
+  VersionLabel,
   useToast,
   type Tone,
 } from "../ui/ui";
@@ -1040,6 +1041,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
             {h.summary.errors} errors · {h.summary.warnings} warnings
           </Badge>
         )}
+        <VersionLabel />
         <span className="muted">{name}</span>
         <Button variant="ghost" onClick={signOut}>
           Sign out

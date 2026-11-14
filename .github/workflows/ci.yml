@@ -88,6 +88,9 @@ jobs:
           push: false
           load: true
           tags: syntaxis:ci
+          build-args: |
+            VERSION=ci-${{ github.run_number }}
+            COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build sandbox image (no push on CI)

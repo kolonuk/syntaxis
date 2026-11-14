@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"net/http"
 	"strings"
 	"time"
@@ -28,7 +29,10 @@ type RunFunc func(ctx context.Context, run *Run, s *store.ChatSession, u *store.
 func (a *App) UserHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(a.secureHeaders, a.logRequests)
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "ok", "version": buildinfo.Get()})
+	})
+	r.Get("/api/version", handleVersion)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", a.handleLogin(store.KindUser))

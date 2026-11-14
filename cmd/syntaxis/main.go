@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/kolonuk/syntaxis/internal/auth"
+	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"github.com/kolonuk/syntaxis/internal/config"
 	"github.com/kolonuk/syntaxis/internal/doctor"
 	"github.com/kolonuk/syntaxis/internal/egress"
@@ -42,8 +43,8 @@ import (
 	"github.com/kolonuk/syntaxis/internal/webui"
 )
 
-// version is set at build time (-ldflags "-X main.version=...").
-var version = "dev"
+// version is the running build, for example "v1.2.3 (abc1234)".
+func version() string { return buildinfo.Get().String() }
 
 const usage = `syntaxis ` + "%s" + `
 
@@ -67,15 +68,15 @@ func main() {
 
 func run(args []string, out, errw io.Writer) error {
 	if len(args) == 0 {
-		fmt.Fprintf(errw, usage, version)
+		fmt.Fprintf(errw, usage, version())
 		return errors.New("no command given")
 	}
 	switch args[0] {
 	case "version", "--version":
-		fmt.Fprintln(out, version)
+		fmt.Fprintln(out, version())
 		return nil
 	case "help", "-h", "--help":
-		fmt.Fprintf(out, usage, version)
+		fmt.Fprintf(out, usage, version())
 		return nil
 	case "keygen":
 		return cmdKeygen(args[1:], out)
@@ -92,7 +93,7 @@ func run(args []string, out, errw io.Writer) error {
 	case "egress-rules":
 		return cmdEgressRules(args[1:], out)
 	}
-	fmt.Fprintf(errw, usage, version)
+	fmt.Fprintf(errw, usage, version())
 	return fmt.Errorf("unknown command %q", args[0])
 }
 
