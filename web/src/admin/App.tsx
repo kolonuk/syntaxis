@@ -139,7 +139,7 @@ function UsersTab() {
       <Button variant="primary" onClick={() => setAdding(true)}>
         Invite user
       </Button>
-      <div className="table-wrap">
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Table">
         <table>
           <thead>
             <tr>
@@ -816,7 +816,7 @@ function McpTab() {
 
 function Table({ rows, cols }: { rows: Record<string, unknown>[]; cols: string[] }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label="Table">
       <table>
         <thead>
           <tr>
