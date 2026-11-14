@@ -136,6 +136,21 @@ func (s *Service) SandboxEnv(ctx context.Context, userID int64) (map[string]stri
 	return env, nil
 }
 
+// Snapshot returns the user's current secrets as environment variables together with
+// a redactor that knows every value. It is read fresh each time, so a secret added or
+// removed in Settings applies to the very next command.
+func (s *Service) Snapshot(ctx context.Context, userID int64) (map[string]string, *redact.Redactor, error) {
+	env, err := s.SandboxEnv(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	vals := make([]string, 0, len(env))
+	for _, v := range env {
+		vals = append(vals, v)
+	}
+	return env, redact.New(vals...), nil
+}
+
 // Redactor builds a redactor that knows all of a user's secret values, so they
 // are scrubbed from model input, logs and the UI stream.
 func (s *Service) Redactor(ctx context.Context, userID int64) (*redact.Redactor, error) {

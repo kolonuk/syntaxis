@@ -2,7 +2,7 @@
 
 ## Secrets vault
 
-Users add their own tokens under **Settings → Secrets** (names are `UPPER_SNAKE_CASE`). Values are encrypted with AES-256-GCM (key from `SYNTAXIS_MASTER_KEY`), never shown again, never sent to the model, redacted from output and logs, and injected into the user's sandbox **only while it runs**. Instance secrets (provider API keys) are admin-owned and never injected into sandboxes.
+Users add their own tokens under **Settings → Secrets** (names are `UPPER_SNAKE_CASE`). Values are encrypted with AES-256-GCM (key from `SYNTAXIS_MASTER_KEY`), never shown again, never sent to the model, redacted from output and logs, and supplied to the user's sandbox commands. They are read fresh for every command, so adding, changing or removing a secret applies immediately, with no new session needed. An already-open terminal keeps the values it started with; reconnect it to pick up changes. Instance secrets (provider API keys) are admin-owned and never injected into sandboxes.
 
 ## GitHub
 

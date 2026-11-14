@@ -87,8 +87,20 @@ func TestEndToEndAgentRunThroughServer(t *testing.T) {
 		t.Fatalf("containers: %d", len(fake.Containers))
 	}
 	for _, c := range fake.Containers {
-		if c.Spec.Runtime != "runsc" || c.Spec.Mounts[0].Volume != "syntaxis-ws-u1" || !strings.Contains(strings.Join(c.Spec.Env, " "), "DEPLOY_TOKEN=tok-very-secret-123") {
+		if c.Spec.Runtime != "runsc" || c.Spec.Mounts[0].Volume != "syntaxis-ws-u1" {
 			t.Fatalf("%+v", c.Spec)
+		}
+		if strings.Contains(strings.Join(c.Spec.Env, " "), "tok-very-secret") {
+			t.Fatal("secrets must not be baked into the container: they are supplied per command so changes apply at once")
+		}
+		seen := false
+		for _, ex := range c.Execs {
+			if strings.Contains(strings.Join(ex.Env, " "), "DEPLOY_TOKEN=tok-very-secret-123") {
+				seen = true
+			}
+		}
+		if !seen {
+			t.Fatal("the user's secret did not reach the agent's command")
 		}
 	}
 	// history persisted, tool result included
@@ -269,5 +281,12 @@ func TestBenchmarkAdminOnlyAndStoresResult(t *testing.T) {
 	}
 	if fake.Count() != 0 {
 		t.Fatal("throwaway benchmark sandbox was not destroyed")
+	}
+}
+
+func TestMergeEnvOwnEntriesWinAndOrderIsStable(t *testing.T) {
+	got := mergeEnv([]string{"A=own", "TERM=x"}, map[string]string{"A": "secret", "B": "2", "C": "3"})
+	if strings.Join(got, " ") != "A=own TERM=x B=2 C=3" {
+		t.Fatalf("%v", got)
 	}
 }

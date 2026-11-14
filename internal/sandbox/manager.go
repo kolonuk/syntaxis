@@ -121,7 +121,7 @@ func (m *Manager) Touch(sessionID string) { m.touch(sessionID) }
 
 // OpenTerminal starts an interactive shell in a session's sandbox. It is the same
 // container, user, limits and network policy as the agent's commands.
-func (m *Manager) OpenTerminal(ctx context.Context, sessionID, containerID string, rows, cols uint) (*TTY, error) {
+func (m *Manager) OpenTerminal(ctx context.Context, sessionID, containerID string, rows, cols uint, extraEnv []string) (*TTY, error) {
 	m.mu.Lock()
 	killed := m.killed
 	m.mu.Unlock()
@@ -134,7 +134,7 @@ func (m *Manager) OpenTerminal(ctx context.Context, sessionID, containerID strin
 	m.touch(sessionID)
 	return m.RT.ExecTTY(ctx, containerID, TTYSpec{
 		Cmd:        []string{"sh", "-c", "exec bash -l 2>/dev/null || exec sh"},
-		Env:        []string{"TERM=xterm-256color", "LANG=C.UTF-8"},
+		Env:        append([]string{"TERM=xterm-256color", "LANG=C.UTF-8"}, extraEnv...),
 		WorkingDir: WorkspacePath,
 		Rows:       rows, Cols: cols,
 	})

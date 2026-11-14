@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -155,7 +156,26 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	started := a.Now()
 	defer func() { _ = a.Quota.RecordSandboxTime(bg, u.ID, a.Now().Sub(started)) }()
 
+	// Secrets are not baked into the container: they are read fresh for every command,
+	// so adding, changing or removing one in Settings applies immediately, mid-run included.
+	var redMu sync.RWMutex
+	red, _ := a.Secrets.Redactor(bg, u.ID)
+	redactNow := func(txt string) string {
+		redMu.RLock()
+		r := red
+		redMu.RUnlock()
+		if r == nil {
+			return txt
+		}
+		return r.String(txt)
+	}
 	exec := func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
+		if env, r, err := a.Secrets.Snapshot(bg, u.ID); err == nil {
+			redMu.Lock()
+			red = r
+			redMu.Unlock()
+			e.Env = mergeEnv(e.Env, env)
+		}
 		return a.Sandbox.Exec(c, s.ID, cid, e)
 	}
 	// helpers over exec
@@ -173,7 +193,6 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	cp := &checkpoint.Manager{Run: runner, Workspace: sandbox.WorkspacePath, MaxCount: 50, MaxBytes: 1 << 30}
 	fs := execFS{exec: exec}
 	loaded, _ := rules.Load(ctx, fs, sandbox.WorkspacePath, rules.Options{ForeignEnabled: a.settingBool(bg, "foreign_instructions", true), RepoSkills: a.settingBool(bg, "repo_skills", true)})
-	red, _ := a.Secrets.Redactor(bg, u.ID)
 	policy, _ := agent.NewApprovalPolicy()
 
 	mode := scanner.Mode(a.setting(bg, SettingScanMode, a.Cfg.SecretScanMode))
@@ -299,7 +318,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			Answer:  func(c context.Context, _ string) (string, error) { return run.Ask(c) },
 			Emit:    run.Emit,
 			Persist: func(m provider.Message, in, out int) { a.persistMessage(bg, s.ID, m, in, out) },
-			Redact:  nilSafeRedact(red),
+			Redact:  redactNow,
 			Checkpoint: func(c context.Context, label string) error {
 				_, err := cp.Snapshot(c, label)
 				return err
@@ -356,13 +375,6 @@ func summarisable(prev string, older []provider.Message) []provider.Message {
 	return append(out, provider.Message{Role: "user", Content: "Earlier conversation to summarise:\n" + b.String()})
 }
 
-func nilSafeRedact(r interface{ String(string) string }) func(string) string {
-	if r == nil {
-		return func(s string) string { return s }
-	}
-	return r.String
-}
-
 func (a *App) persistMessage(ctx context.Context, sessionID string, m provider.Message, in, out int) {
 	tc := ""
 	if len(m.ToolCalls) > 0 {
@@ -392,15 +404,11 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 	if err := a.Quota.CheckSandboxStart(ctx, u, 0); err != nil {
 		return "", err
 	}
-	env, err := a.Secrets.SandboxEnv(ctx, u.ID)
-	if err != nil {
-		return "", err
-	}
 	mode := u.EgressMode
 	if mode == "" {
 		mode = a.Cfg.EgressMode
 	}
-	id, err := a.Sandbox.Create(ctx, u.ID, s.ID, env, mode == "none")
+	id, err := a.Sandbox.Create(ctx, u.ID, s.ID, nil, mode == "none")
 	if err != nil {
 		return "", err
 	}
@@ -479,4 +487,27 @@ func modelResident(ctx context.Context, pr provider.Provider, model string) (res
 		}
 	}
 	return false, true
+}
+
+// mergeEnv adds the user's secrets to a command's own environment (the command's own
+// entries win).
+func mergeEnv(own []string, secrets map[string]string) []string {
+	have := map[string]bool{}
+	for _, kv := range own {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			have[kv[:i]] = true
+		}
+	}
+	keys := make([]string, 0, len(secrets))
+	for k := range secrets {
+		if !have[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	out := append([]string(nil), own...)
+	for _, k := range keys {
+		out = append(out, k+"="+secrets[k])
+	}
+	return out
 }

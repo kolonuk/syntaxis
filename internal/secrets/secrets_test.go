@@ -153,3 +153,21 @@ func TestRotateAll(t *testing.T) {
 		t.Fatal("instance secret")
 	}
 }
+
+func TestSnapshotIsAlwaysCurrent(t *testing.T) {
+	s, _ := newSvc(t)
+	env, r, _ := s.Snapshot(ctx, 1)
+	if len(env) != 0 {
+		t.Fatalf("%v", env)
+	}
+	_ = s.Put(ctx, ScopeUser, 1, "NEW_TOKEN", "value-added-later-123")
+	env, r, _ = s.Snapshot(ctx, 1)
+	if env["NEW_TOKEN"] != "value-added-later-123" || strings.Contains(r.String("x value-added-later-123 y"), "later") {
+		t.Fatalf("a secret added after the first read must appear and be redacted: %v", env)
+	}
+	_ = s.Delete(ctx, ScopeUser, 1, "NEW_TOKEN")
+	env, _, _ = s.Snapshot(ctx, 1)
+	if _, ok := env["NEW_TOKEN"]; ok {
+		t.Fatal("a deleted secret must disappear immediately")
+	}
+}

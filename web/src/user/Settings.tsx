@@ -69,8 +69,9 @@ function Secrets() {
     <Card title="Secrets and integrations">
       <p className="muted">
         Tokens you add here (GitHub, Cloudflare, cloud credentials) are encrypted, never shown
-        again, never sent to the model, and injected into your sandbox only while it runs. Use
-        least-privilege, short-lived credentials.
+        again, never sent to the model, and supplied to your sandbox commands. Changes apply
+        immediately; an open terminal needs reconnecting. Use least-privilege, short-lived
+        credentials.
       </p>
       {names === null ? (
         <Skeleton lines={2} />

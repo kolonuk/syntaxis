@@ -49,7 +49,7 @@ SQLite is the default: the target is a handful of users on one server, and a bac
 ## A request, end to end
 
 1. Browser `POST /api/sessions/{id}/messages` → ownership check → `Runs.Start` launches a **background job** (context not tied to the HTTP request).
-2. The job ensures a sandbox (creating one under gVisor with the user's workspace volume and the user's secrets injected as environment variables), loads rules and skills, builds the system prompt.
+2. The job ensures a sandbox (creating one under gVisor with the user's workspace volume), loads rules and skills, builds the system prompt.
 3. Each model call: quota check → queue (priority class, fair share) → provider adapter → usage recorded.
 4. Tool calls are classified by the approval policy; risky ones checkpoint and wait for the user; then they execute **inside the sandbox** via the Docker exec API with timeouts and output caps.
 5. Output is redacted, stored in full in history, truncated head+tail for the model, and streamed over SSE (replayable for late subscribers).

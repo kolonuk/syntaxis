@@ -120,6 +120,10 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	var secretEnv []string
+	if env, _, err := a.Secrets.Snapshot(r.Context(), u.ID); err == nil {
+		secretEnv = mergeEnv(nil, env) // read now: the shell sees what Settings holds at this moment
+	}
 	conn, err := websocket.Accept(w, r, nil) // same-origin only (the library checks Origin against Host)
 	if err != nil {
 		return // Accept has already replied
@@ -132,7 +136,7 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	tty, err := a.Sandbox.OpenTerminal(ctx, s.ID, cid, uint(rows), uint(cols))
+	tty, err := a.Sandbox.OpenTerminal(ctx, s.ID, cid, uint(rows), uint(cols), secretEnv)
 	if err != nil {
 		_ = conn.Close(websocket.StatusInternalError, "could not start a shell: "+err.Error())
 		return
