@@ -49,6 +49,8 @@ A GPU server serves a limited number of requests in parallel (Ollama: `OLLAMA_NU
 - File and network I/O are slower than native containers; large `npm install`/builds may take noticeably longer.
 - No GPU passthrough and no nested virtualisation (no KVM, no VMs inside sandboxes).
 - **Docker-in-sandbox:** sandboxes have no Docker socket; rootless buildkit under gVisor is untested here. Use remote builds.
+- **DNS:** Docker's embedded resolver (127.0.0.11) does not work under gVisor on user-defined networks, even with `--dns`. Syntaxis therefore runs its own resolver and mounts a shared read-only `resolv.conf` into every sandbox. If lookups time out, check that the resolver is up (`sandbox DNS resolver` in the log) and that the firewall rules accept established replies (re-run `scripts/apply-egress.sh` after upgrading).
+- **Old tool versions:** the default image ships current Node and Go; modern MCP servers need Node 20+.
 - If `runsc` is not registered Syntaxis refuses to run sandboxes rather than falling back to `runc`.
 
 ## Egress

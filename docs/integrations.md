@@ -40,7 +40,9 @@ Trivy and `osv-scanner` live in the optional `images/sandbox-security` image and
 
 ## MCP servers
 
-The admin catalogue (`internal/mcp`) browses the official MCP Registry (`registry.modelcontextprotocol.io`, API verified at build time; the source is pluggable) and shows a review (what it runs as, credentials it needs, capabilities and warnings). Approval is refused unless the version is pinned exactly, the transport is stdio and every required credential is mapped to a secret. An approved server gets a hardened gVisor container spec of its own (no workspace, no host mounts, only the secrets mapped to it, sandbox egress policy). **Not yet implemented:** the admin UI for browsing/approving and the stdio bridge that runs an approved server and exposes its tools to the agent; MCP output will be treated as untrusted and state-changing tools gated.
+Admins browse the official MCP Registry (`registry.modelcontextprotocol.io`) in **MCP servers**, review what a server runs as, the credentials it needs and its capabilities, then approve it. Approval is refused unless the version is pinned exactly, the transport is stdio and every required credential is mapped to an instance secret. Server details are re-fetched from the registry on approval: the browser only chooses the package and the secrets.
+
+At the start of each agent run the bridge starts the approved servers (minus any the user switched off for that session), each in **its own gVisor container**: no workspace, no host mounts, only the credentials mapped to it, the sandbox egress policy, destroyed when the run ends. Their tools appear to the model as `mcp__<server>__<tool>`; output is untrusted (wrapped), arguments go through the same local-network guard as shell commands, and tools that are not declared read-only ask the user for approval. Verified against the reference `server-everything` package running in real gVisor.
 
 ## Integrations v2 (design only)
 

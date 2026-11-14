@@ -120,7 +120,7 @@ Each check: id, severity (info/warning/error), plain explanation, suggested fix,
 - [~] Integrations v1: GitHub (PAT/App: list repos, clone, branch, push, PR), generic git HTTPS/SSH deploy keys; status + test-connection. v2 interface designed (Cloudflare, registrars) only. — _via user secrets + gh/git in sandbox; no repo-list UI or test-connection_
 - [x] Built-in secret scanner (gitleaks-style rules + entropy; check licence of reused rules) on staged diffs, agent-written files, tool output (redaction); policy `off|warn|block`; user override with confirmation recorded in audit unless `allow_user_override=false`. Trivy/osv-scanner only in optional security image, on demand.
 - [x] Signed commits `off|optional|required` via SSH signing; private key never in sandbox/model (signing helper/agent socket); agent-authored trailer.
-- [~] MCP: admin catalogue (official MCP Registry, pluggable source; verify API at build time), review -> approve -> run each in own gVisor container, pinned digests, minimal secrets, egress policy, output untrusted, approval gates for state-changing tools, log every call. — _registry client, review, approvals, container spec; stdio bridge/running not implemented_
+- [x] MCP: admin catalogue, approve, run each server in its own gVisor container (pinned, minimal secrets, untrusted output, approval gates) — implemented and verified with a real server
 
 ## Logging, history, lifecycle
 
@@ -180,7 +180,7 @@ Scheduled/triggered runs; devcontainer.json; PostgreSQL; OIDC; multi-instance fa
 - [x] Scanner block/override/forbid; Trivy/osv in separate on-demand image
 - [~] Idle/expired cleanup with pre-warning — reaper + retention job tested; workspace export missing
 - [~] Benchmark admin-only; routing refuses non-resident — benchmark done; routing logic done but not wired into the agent
-- [~] MCP catalogue — browse/approve/spec done; running a real server in gVisor `[!]` and not implemented
+- [x] MCP catalogue browse/approve/run — verified with the reference server in real gVisor
 - [x] Signed commits required mode without key in sandbox (verified with real git+ssh-keygen)
 - [x] Egress log: admin all, user own (DNS log entries not yet persisted by a running resolver)
 - [~] PWA install/offline/push — SW+manifest+offline done; push delivery not implemented; Lighthouse/browser run `[!]`
@@ -196,6 +196,13 @@ Scheduled/triggered runs; devcontainer.json; PostgreSQL; OIDC; multi-instance fa
 - New: command inspection that hard-blocks LAN/metadata/scanner/Docker-socket access; output panel instead of a terminal; sandbox DNS resolver wired into `serve`.
 - Removed: Prometheus metrics, xterm, licence tooling.
 - CI additions: gVisor integration job and Playwright job (not yet seen green).
+
+## Update 2: compose, MCP bridge, UI review
+
+- Clean `docker compose up` run on this host; bugs found and fixed: admin listener unreachable in the container, socket-proxy tmpfs, start-up races, DNS under gVisor (shared read-only resolv.conf mount; embedded Docker DNS cannot work under runsc), ICC/firewall replies for the resolver, sandbox image Node/Go too old, no `python`, PEP 668 pip.
+- MCP bridge done: stdio JSON-RPC client, per-run servers in gVisor, agent integration (gating, untrusted output, LAN guard), admin catalogue/approve/credentials UI, per-session toggles. Verified with the real reference server in gVisor.
+- UI reviewed with Playwright + axe on desktop/phone, light/dark; mobile layout, inline tool steps, rename/delete/export, autonomy switch, a11y fixes, admin provider/benchmark/MCP screens.
+- Dropped per owner: Web Push/notifications, debug bundle, workspace export.
 
 ## Progress log
 
