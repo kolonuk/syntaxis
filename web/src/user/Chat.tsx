@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { del, get, patch, post, put, errText } from "../lib/api";
 import { streamEvents, type StreamEvent } from "../lib/sse";
 import { enqueue, flush } from "../lib/queue";
@@ -130,6 +130,8 @@ export function Chat({
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [panel, setPanel] = useState("output");
+  const [view, setView] = useState<"chat" | "terminal">("chat");
+  const [termOpened, setTermOpened] = useState(false);
   const [running, setRunning] = useState(session.state === "running");
   const [notice, setNotice] = useState("");
   const [autonomy, setAutonomy] = useState(session.autonomy);
@@ -373,69 +375,87 @@ export function Chat({
             </Button>
           </div>
         )}
-        <div
-          className="chat-log"
-          ref={log}
-          onScroll={onLogScroll}
-          role="log"
-          tabIndex={0}
-          aria-label="Conversation"
-        >
-          {items.length === 0 && !live && (
-            <p className="muted">
-              Describe a task below. The agent works in its own sandbox and you can watch every
-              command it runs.
-            </p>
-          )}
-          {items.map((it, i) => {
-            if (it.kind === "step") {
-              const failed = !!it.output && /^exit code: [1-9]/.test(it.output);
-              return (
-                <details className={`step ${failed ? "failed" : ""}`} key={it.key}>
-                  <summary>{describeCall(it.call)}</summary>
-                  <CodeBlock code={it.output ?? "running…"} lang="output" />
-                </details>
-              );
-            }
-            const prev = items[i - 1];
-            const showWho = !prev || prev.kind !== it.kind;
-            return (
-              <div className={`msg ${it.kind}`} key={it.key}>
-                {showWho && <div className="who">{it.kind === "user" ? "You" : "Assistant"}</div>}
-                <Body text={it.text} plain={it.kind === "user"} />
-              </div>
-            );
-          })}
-          {live && (
-            <div className="msg assistant">
-              <div className="who">Assistant</div>
-              <Body text={live} />
-            </div>
-          )}
-          {running && <Progress phase={phase} />}
-        </div>
-        <form
-          className="composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
+        <Tabs
+          tabs={[
+            { id: "chat", label: "Chat" },
+            { id: "terminal", label: "Terminal" },
+          ]}
+          value={view}
+          onChange={(v) => {
+            setView(v as "chat" | "terminal");
+            if (v === "terminal") setTermOpened(true);
           }}
-        >
-          <div className="grow">
-            <TextArea
-              label="Message"
-              value={draft}
-              placeholder="Describe a task, e.g. “add pagination to the API and run the tests”"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
-              }}
-            />
+        />
+        <div className="chat-body" hidden={view === "terminal"}>
+          <div
+            className="chat-log"
+            ref={log}
+            onScroll={onLogScroll}
+            role="log"
+            tabIndex={0}
+            aria-label="Conversation"
+          >
+            {items.length === 0 && !live && (
+              <p className="muted">
+                Describe a task below. The agent works in its own sandbox and you can watch every
+                command it runs.
+              </p>
+            )}
+            {items.map((it, i) => {
+              if (it.kind === "step") {
+                const failed = !!it.output && /^exit code: [1-9]/.test(it.output);
+                return (
+                  <details className={`step ${failed ? "failed" : ""}`} key={it.key}>
+                    <summary>{describeCall(it.call)}</summary>
+                    <CodeBlock code={it.output ?? "running…"} lang="output" />
+                  </details>
+                );
+              }
+              const prev = items[i - 1];
+              const showWho = !prev || prev.kind !== it.kind;
+              return (
+                <div className={`msg ${it.kind}`} key={it.key}>
+                  {showWho && <div className="who">{it.kind === "user" ? "You" : "Assistant"}</div>}
+                  <Body text={it.text} plain={it.kind === "user"} />
+                </div>
+              );
+            })}
+            {live && (
+              <div className="msg assistant">
+                <div className="who">Assistant</div>
+                <Body text={live} />
+              </div>
+            )}
+            {running && <Progress phase={phase} />}
           </div>
-          <Button variant="primary" type="submit" disabled={running}>
-            Send
-          </Button>
-        </form>
+          <form
+            className="composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send();
+            }}
+          >
+            <div className="grow">
+              <TextArea
+                label="Message"
+                value={draft}
+                placeholder="Describe a task, e.g. “add pagination to the API and run the tests”"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+                }}
+              />
+            </div>
+            <Button variant="primary" type="submit" disabled={running}>
+              Send
+            </Button>
+          </form>
+        </div>
+        {termOpened && (
+          <Suspense fallback={<p className="muted">Loading the terminal…</p>}>
+            <TerminalView sessionId={session.id} visible={view === "terminal"} blocked={running} />
+          </Suspense>
+        )}
       </div>
       <aside className={`side-panel ${panelOpen ? "open" : ""}`} aria-label="Session details">
         <div className="row">
@@ -697,6 +717,8 @@ function Resources({ sessionId }: { sessionId: string }) {
     </div>
   );
 }
+
+const TerminalView = lazy(() => import("./Terminal"));
 
 /** Message text with fenced code shown as copyable blocks. */
 function Body({ text, plain }: { text: string; plain?: boolean }) {

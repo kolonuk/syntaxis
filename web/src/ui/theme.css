@@ -856,3 +856,42 @@ a.btn {
     transform: rotate(360deg);
   }
 }
+
+[hidden] {
+  display: none !important;
+}
+.chat-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--s2);
+  padding-top: var(--s2);
+}
+.terminal-host {
+  flex: 1;
+  min-height: 200px;
+  background: #0f1115;
+  border-radius: var(--r2);
+  padding: var(--s2);
+  overflow: hidden;
+}
+.terminal-note {
+  margin: 0;
+}
+.terminal-keys {
+  display: flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+}
+.terminal-keys .btn {
+  min-width: 44px;
+  min-height: 40px;
+  font-family: var(--mono);
+}
