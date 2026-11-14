@@ -57,6 +57,6 @@ Then open `http://127.0.0.1:8081`. The [getting started guide](docs/getting-star
 
 ## Project
 
-v1 is under active development; [todo.md](todo.md) tracks what works and what is planned. Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md). Changes are in the [changelog](CHANGELOG.md).
+v1 is under active development; [todo.md](todo.md) lists the work that is left, and [docs/review-prompt.md](docs/review-prompt.md) is a prompt for a thorough review with a large model. Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md). Changes are in the [changelog](CHANGELOG.md).
 
 Licensed GPL-2.0-or-later. See [LICENSE](LICENSE).
