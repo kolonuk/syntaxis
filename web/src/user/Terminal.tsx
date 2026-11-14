@@ -89,6 +89,9 @@ export default function TerminalView({
     sock.onopen = () => {
       setState("open");
       t.focus();
+      // the layout settles after the keys bar appears: refit so the shell gets the real size
+      setTimeout(() => fit.current?.(), 50);
+      setTimeout(() => fit.current?.(), 400);
     };
     sock.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) t.write(new Uint8Array(e.data));

@@ -925,3 +925,9 @@ a.btn {
   flex: 0 1 auto;
   max-width: 100%;
 }
+
+.terminal-host .xterm,
+.terminal-host .xterm-viewport {
+  background-color: transparent !important;
+  height: 100%;
+}
