@@ -150,6 +150,19 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 		r, _ := m.Exec(ctx, "it-egress", id, ExecSpec{Cmd: []string{"sh", "-c", "curl -s -m 5 -o /dev/null " + target}, Timeout: 20 * time.Second})
 		return r.ExitCode == 0
 	}
+	// a second sandbox on the same network must not be reachable from the first
+	const uid2 = 910006
+	id2, err := m.Create(ctx, uid2, "it-egress-2", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, "it-egress-2", id2); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid2)) })
+	ip2, _ := d.ContainerIP(ctx, id2, m.Cfg.Network)
+	_, _ = m.Exec(ctx, "it-egress-2", id2, ExecSpec{Cmd: []string{"sh", "-c", "nohup python3 -m http.server 8000 >/dev/null 2>&1 &"}, Timeout: 10 * time.Second})
+	time.Sleep(2 * time.Second)
+	if r, _ := m.Exec(ctx, "it-egress", id, ExecSpec{Cmd: []string{"sh", "-c", "curl -s -m 4 -o /dev/null http://" + ip2 + ":8000/"}, Timeout: 20 * time.Second}); r.ExitCode == 0 {
+		t.Errorf("sandbox A reached sandbox B (%s) on the shared network", ip2)
+	}
 	if !reach("http://1.1.1.1/") {
 		t.Skip("no internet from the sandbox on this host")
 	}

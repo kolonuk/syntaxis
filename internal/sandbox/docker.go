@@ -73,8 +73,8 @@ func (d *Docker) ImagePresent(ctx context.Context, ref string) (bool, error) {
 	return err == nil, err
 }
 
-// EnsureNetwork implements Runtime: an isolated bridge with inter-container
-// communication disabled and IPv6 off. Egress rules are applied separately.
+// EnsureNetwork implements Runtime: a dedicated bridge (IPv6 off). Isolation
+// between sandboxes comes from the egress ruleset, not Docker's ICC flag. Egress rules are applied separately.
 func (d *Docker) EnsureNetwork(ctx context.Context, name string) error {
 	nets, err := d.cli.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", name))})
 	if err != nil {
@@ -87,8 +87,10 @@ func (d *Docker) EnsureNetwork(ctx context.Context, name string) error {
 	}
 	_, err = d.cli.NetworkCreate(ctx, name, network.CreateOptions{
 		Driver: "bridge",
+		// ICC stays on so sandboxes can reach the DNS resolver on this network;
+		// the egress ruleset drops sandbox-to-sandbox traffic.
 		Options: map[string]string{
-			"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_icc": "true",
 		},
 		Labels: map[string]string{LabelManaged: "true"},
 	})
