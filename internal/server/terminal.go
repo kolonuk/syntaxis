@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,7 +125,11 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return // Accept has already replied
 	}
 	conn.SetReadLimit(1 << 20)
-	ctx, cancel := context.WithCancel(r.Context())
+	// ctx ends the terminal; the socket itself is read and written with the request
+	// context, because the WebSocket library drops the connection when the context it
+	// is given is cancelled, which would skip the close handshake (and the reason).
+	parent := r.Context()
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	tty, err := a.Sandbox.OpenTerminal(ctx, s.ID, cid, uint(rows), uint(cols))
@@ -147,7 +152,7 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := tty.Conn.Read(buf)
 			if n > 0 {
-				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+				if werr := conn.Write(parent, websocket.MessageBinary, buf[:n]); werr != nil {
 					return
 				}
 			}
@@ -197,14 +202,14 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusNormalClosure, reason)
 	}()
 	for {
-		typ, data, err := conn.Read(ctx)
+		typ, data, err := conn.Read(parent)
 		if err != nil {
 			return
 		}
 		last = time.Now()
 		switch typ {
 		case websocket.MessageBinary:
-			if _, err := tty.Conn.Write(data); err != nil && err != io.EOF {
+			if _, err := tty.Conn.Write(data); err != nil && !errors.Is(err, io.EOF) {
 				return
 			}
 		case websocket.MessageText:

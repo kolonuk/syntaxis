@@ -84,7 +84,7 @@ func TestAllowedNetworkCommands(t *testing.T) {
 		"curl -s -m 10 -o /dev/null -w '%{http_code}' https://example.com",
 		"curl -o index https://example.com/",
 		"wget -O out.html https://example.com",
-		"ssh -i id_rsa user@github.com",
+		"ssh -i id_rsa git@example.org",
 		"dig example.com A",
 		"dig example.com MX +short",
 		"ping -c 3 example.com",
