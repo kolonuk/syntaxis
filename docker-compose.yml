@@ -68,7 +68,7 @@ networks:
     name: syntaxis-sandbox
     driver_opts:
       # ICC must stay on so sandboxes can reach the Syntaxis DNS resolver on this network.
-      # Sandbox-to-sandbox traffic is dropped by the egress ruleset (scripts/apply-egress.sh),
+      # Sandbox-to-sandbox traffic is dropped by the egress ruleset (see docs/getting-started.md),
       # which is verified by the integration tests.
       com.docker.network.bridge.enable_icc: "true"
     ipam:

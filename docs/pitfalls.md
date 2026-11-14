@@ -98,6 +98,12 @@ Invites and resets need working SMTP; without it, links are only in the log. Set
 
 Workspaces, checkpoints (the shadow repo inside each workspace), container layers, images and logs all grow. Set idle, destroy, workspace and log retention; the reaper stops idle sandboxes, removes stale and orphaned containers on boot and periodically, and the watchdog kills a sandbox whose workspace fills its cap. Checkpoints are pruned by count and size.
 
+## Which version is running
+
+*Health check: none; this is how you tell whether a fix has reached your instance.*
+
+The version and commit are shown in **Settings → Profile** (chat app), in the admin header, in `docker compose exec syntaxis syntaxis version` and at `/api/version`. Release builds report a tag such as `v1.2.3`. If you build from source, pass the commit so it shows up: `SYNTAXIS_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build`. Compare it with the [changelog](../CHANGELOG.md) or the release notes on GitHub to see whether a fix is included. After an upgrade, open apps show an "Updated: reload" prompt.
+
 ## Backups and upgrades
 
 *Health check: `housekeeping.backups`*

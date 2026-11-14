@@ -51,7 +51,7 @@ const usage = `syntaxis ` + "%s" + `
 Usage:
   syntaxis serve                       run the server
   syntaxis admin create <email> <name> create the first/another admin (password from SYNTAXIS_NEW_ADMIN_PASSWORD or stdin)
-  syntaxis keygen [--vapid]            print a new master key (or VAPID key pair)
+  syntaxis keygen                      print a new master key
   syntaxis doctor                      check Docker, gVisor, providers, SMTP and configuration
   syntaxis backup <dest.db>            write a consistent database backup
   syntaxis rotate-key <old-key-file> <new-key-file>   re-encrypt all secrets under a new master key

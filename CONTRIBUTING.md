@@ -16,6 +16,7 @@ Thanks for helping. By contributing you agree your work is licensed under the pr
 go test -race ./...
 go vet ./...
 gofmt -l .
+golangci-lint run ./...
 
 # frontend (Node 18+; CI uses 22)
 cd web && npm ci && npm test && npm run lint && npm run typecheck && npm run build
@@ -28,3 +29,7 @@ Integration tests that need a real gVisor host skip themselves when `runsc` is a
 ## Adding a provider adapter / agent adapter
 
 Implement `provider.Provider` (read-only toward the server) or `agent.AgentAdapter`, add fake-server tests, and document trade-offs in `docs/`.
+
+## Releases and versions
+
+Versions follow semver and are tags of the form `vMAJOR.MINOR.PATCH` on `main`. Pushing a tag runs the release workflow, which publishes the images, builds the binaries and creates the GitHub release with generated notes. The version, commit and build date are compiled in (`internal/buildinfo`) and shown by `syntaxis version`, `/api/version` and the apps themselves. Add user-visible changes to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) as you make them; move them under the new version when tagging.
