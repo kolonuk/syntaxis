@@ -150,6 +150,9 @@ func TestNftablesOpen(t *testing.T) {
 	if strings.Contains(txt, "allowed_hosts") || strings.HasSuffix(strings.TrimSpace(txt), "counter drop\n  }") {
 		t.Error("open mode must not end in a default drop")
 	}
+	if !strings.Contains(txt, "ct state established,related accept") || strings.Index(txt, "ct state established,related accept") > strings.Index(txt, "ip daddr 172.30.0.0/24 counter drop") {
+		t.Error("established replies must be accepted before the sandbox-to-sandbox drop (DNS answers come from inside the subnet)")
+	}
 	// resolver accept must come before the generic DNS drop (rule order matters)
 	if strings.Index(txt, "udp dport 53 accept") > strings.Index(txt, "udp dport 53 counter drop") {
 		t.Error("resolver accept after drop")

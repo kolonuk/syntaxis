@@ -46,6 +46,9 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	fmt.Fprintf(&b, "table inet %s {\n", table)
 	fmt.Fprintf(&b, "  chain egress {\n    type filter hook forward priority -10; policy accept;\n")
 	fmt.Fprintf(&b, "    ip saddr != %s accept\n", subnet)
+	// replies to connections a sandbox opened (for example the resolver's DNS answers, which come
+	// from an address inside the subnet) must pass; new sandbox-to-sandbox connections are dropped below
+	fmt.Fprintf(&b, "    ct state established,related accept\n")
 	// the sandbox may talk to the Syntaxis resolver (and only it) for DNS
 	if resolverIP.IsValid() {
 		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s udp dport 53 accept\n", subnet, resolverIP)
