@@ -1045,6 +1045,8 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
             { id: "health", label: "Health" },
             { id: "users", label: "Users" },
             { id: "providers", label: "Providers & models" },
+            { id: "bench", label: "Benchmarks" },
+            { id: "mcp", label: "MCP servers" },
             { id: "sessions", label: "Sessions" },
             { id: "audit", label: "Audit" },
             { id: "egress", label: "Egress" },
