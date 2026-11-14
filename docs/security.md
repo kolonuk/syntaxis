@@ -30,6 +30,8 @@ Modes: `open` (default; full outbound internet), `allowlist`, `none`. In **every
 
 How: `syntaxis egress-rules` generates an nftables ruleset that you apply **on the Docker host** ([getting started](getting-started.md#5-turn-on-the-firewall)). Syntaxis also runs a DNS resolver for the sandbox network that applies per-domain policy, refuses answers pointing into blocked ranges (DNS rebinding), and logs queries (names and answers only, never payloads).
 
+Sandboxes cannot reach each other: the rules filter that traffic both in the routing path and at the bridge, so isolation does not depend on the host loading the `br_netfilter` kernel module.
+
 Limits, honestly:
 - Rules must be applied by the operator and survive reboots; the health check can only see whether you told it they are applied (`SYNTAXIS_NETWORK_RULES_APPLIED`).
 - Allowlist mode by hostname depends on DNS answers; a sandbox that learns an IP another way and is on an allowed CIDR is allowed.
