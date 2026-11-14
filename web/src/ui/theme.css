@@ -781,3 +781,22 @@ pre {
     flex: 1 1 100%;
   }
 }
+
+.btn,
+a.btn {
+  text-decoration: none;
+}
+.btn svg {
+  flex-shrink: 0;
+}
+.chat-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.chat-head .btn {
+  min-height: 36px;
+  padding: 0 var(--s3);
+}

@@ -4,6 +4,7 @@ import { get, post, errText } from "../lib/api";
 import { applyTheme, loadPref, nextPref, type ThemePref } from "../lib/theme";
 import { clearUserData } from "../lib/queue";
 import { ago } from "../lib/format";
+import { Icon } from "../ui/ui";
 import {
   Banner,
   Button,
@@ -198,7 +199,7 @@ function Shell({
   };
   const cur = sessions?.find((s) => s.id === current);
   const showReminder = me.remind_2fa && !dismissed2fa;
-  const theme = pref === "dark" ? "☾" : pref === "light" ? "☀" : "◐";
+  const theme = <Icon name={pref === "dark" ? "moon" : pref === "light" ? "sun" : "auto"} />;
 
   return (
     <div className="shell">
@@ -210,7 +211,7 @@ function Shell({
           aria-expanded={drawer}
           onClick={() => setDrawer(!drawer)}
         >
-          ☰
+          <Icon name="menu" />
         </Button>
         <h1 className="brand">Syntaxis</h1>
         <Button
@@ -222,7 +223,8 @@ function Shell({
             setDrawer(false);
           }}
         >
-          ＋<span className="label">&nbsp;New session</span>
+          <Icon name="plus" />
+          <span className="label">New session</span>
         </Button>
         <Button
           variant="icon"
@@ -244,11 +246,12 @@ function Shell({
             setDrawer(false);
           }}
         >
-          {view === "settings" ? "←" : "⚙"}
-          <span className="label">&nbsp;{view === "settings" ? "Back" : "Settings"}</span>
+          <Icon name={view === "settings" ? "back" : "gear"} />
+          <span className="label">{view === "settings" ? "Back" : "Settings"}</span>
         </Button>
         <Button variant="ghost" className="icon-only" aria-label="Sign out" onClick={logout}>
-          ⎋<span className="label">&nbsp;Sign out</span>
+          <Icon name="logout" />
+          <span className="label">Sign out</span>
         </Button>
       </header>
       {me.banners?.map((b) => (
@@ -326,7 +329,7 @@ function Shell({
             <>
               <EmptyState
                 title="Pick a session"
-                hint="Open the session list (☰ on a phone), or press N to start a new one."
+                hint="Open the session list (menu button on a phone), or press N to start a new one."
                 action={
                   <Button variant="primary" onClick={() => setCreating(true)}>
                     New session

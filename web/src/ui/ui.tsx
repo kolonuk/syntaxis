@@ -333,3 +333,34 @@ export function useShortcuts(map: Record<string, () => void>) {
     return () => document.removeEventListener("keydown", on);
   }, []);
 }
+
+const ICONS: Record<string, string> = {
+  plus: "M12 5v14M5 12h14",
+  menu: "M4 6h16M4 12h16M4 18h16",
+  gear: "M12 15a3 3 0 100-6 3 3 0 000 6zm7.4-3a7.4 7.4 0 00-.1-1.2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 00-2-1.2L14.700 3h-4l-.3 2.700a7.600 7.600 0 00-2 1.200l-2.300-1-2 3.400 2 1.500a7.400 7.400 0 000 2.400l-2 1.500 2 3.400 2.300-1c.600.500 1.300.900 2 1.200l.3 2.700h4l.3-2.700c.700-.300 1.400-.700 2-1.200l2.300 1 2-3.400-2-1.500c.100-.400.100-.800.100-1.200z",
+  logout: "M9 4H5v16h4M16 8l4 4-4 4M20 12H9",
+  back: "M15 5l-7 7 7 7",
+  sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v3M12 20v3M4.200 4.200l2.100 2.100M17.700 17.700l2.100 2.100M1 12h3M20 12h3M4.200 19.800l2.100-2.100M17.700 6.300l2.100-2.100",
+  moon: "M21 12.800A9 9 0 1111.200 3a7 7 0 009.800 9.800z",
+  auto: "M12 3a9 9 0 100 18V3z",
+};
+
+/** Small stroke icon; decorative (the button carries the accessible name). */
+export function Icon({ name }: { name: keyof typeof ICONS | string }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={ICONS[name] ?? ""} />
+    </svg>
+  );
+}
