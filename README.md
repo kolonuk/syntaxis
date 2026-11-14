@@ -21,6 +21,10 @@ Most chat UIs for local models stop at conversation. Coding agents can do real w
 
 It is not a hosted service, and a gVisor container is not a virtual machine. The honest limits are in [security](docs/security.md).
 
+## About the name
+
+*Syntaxis* is the Greek word (σύνταξις) for "arranging things together", and the origin of the English word *syntax*. That is the project in one word: a place where code is written, where models, users, quotas and sandboxes are arranged into one orderly system, and where every session gets its own well-defined place to work.
+
 ## What you get
 
 - A phone-friendly chat app with live command output, approvals and a context meter
