@@ -18,9 +18,13 @@ It runs as a background job: closing the browser does not stop it, and the user 
 
 If a model writes tool calls as text instead of using the structured API, a tolerant parser recovers them. Only known tool names are accepted. Models without tool support are offered chat-only mode. Repeated identical actions trigger a nudge and then a stop; repeated failures stop the run and hand back to the user.
 
+## Progress and the terminal
+
+While a run is active the chat shows what it is doing: waiting its turn, connecting, loading the model into memory, reading the conversation, thinking, replying, or running a command. See [security](security.md#the-terminal) for the interactive terminal.
+
 ## Commands run on the server, output shown in the UI
 
-Every command runs through the server inside the sandbox; the UI shows the command and its output as plain text (there is no interactive terminal).
+Every agent command runs through the server inside the sandbox; the UI shows the command and its output as plain text. Users who want a live shell have a separate terminal tab.
 
 ## Network and host protection
 

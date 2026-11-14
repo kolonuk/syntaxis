@@ -52,6 +52,18 @@ A GPU server serves a limited number of requests in parallel (Ollama: `OLLAMA_NU
 - **DNS:** Docker's embedded resolver (127.0.0.11) does not work under gVisor on user-defined networks, even with `--dns`. Syntaxis therefore runs its own resolver and mounts a shared read-only `resolv.conf` into every sandbox. If lookups time out, check that the resolver is up (`sandbox DNS resolver` in the log) and that the firewall rules accept established replies (re-apply the firewall rules after upgrading).
 - If `runsc` is not registered Syntaxis refuses to run sandboxes rather than falling back to `runc`.
 
+## Resource limits
+
+*Health checks: `sandbox.disk`*
+
+Every sandbox has fixed CPU, memory and process limits. On top of that, Syntaxis samples each running sandbox every few seconds:
+
+- **Compute time** (CPU actually used, not wall-clock time) is metered per user and shown next to tokens and sandbox time. When a user's daily allowance (`SYNTAXIS_CPU_MINUTES_DAILY`) is used up, their sandbox is paused and new ones will not start until midnight UTC.
+- **Sustained load is limited, short bursts are not.** Enforcement looks at the *median* of the last two minutes, so a compile or test run is fine. Staying near the CPU cap for about two minutes halves the sandbox's CPU; about five minutes pauses it; about ten stops it. It returns to full speed once the load drops.
+- **The busiest 10% (p90)** is shown alongside the typical figure on the session's Resources tab so users can see short spikes, but it does not trigger anything.
+
+Users are told in the chat when something is limited, and the actions are audited.
+
 ## Egress
 
 *Health checks: `sandbox.network-rules`, `security.egress-open`*

@@ -36,6 +36,16 @@ Limits, honestly:
 - IPv6 is not routed on the sandbox network by default; if you enable it, extend the rules.
 - DNS over HTTPS or any allowed host that proxies traffic bypasses domain policy. `open` mode is not a substitute for trusting your users.
 
+## The terminal
+
+Users can open an interactive terminal on a session's sandbox. It is a shell in the **same container** the agent uses: same non-root user, dropped capabilities, read-only root, resource limits, egress firewall and DNS policy. It is not a way onto the host.
+
+- Only the session's owner can open it, over a same-origin WebSocket. Admins have no sandboxes, so no terminal.
+- An admin can turn it off for a user (**Users → Edit**).
+- The terminal closes when the agent starts working and cannot be opened while it runs, so the two never type into the same workspace.
+- It closes after 15 minutes without input. Opening and closing are audited; keystrokes are not logged.
+- The user's own secrets are in the shell's environment, as they are for the agent. Command inspection (the local-network blocklist) applies to the agent only; for a live shell the egress firewall is the control, so use `allowlist` or `none` egress where that matters.
+
 ## The Docker socket
 
 The Syntaxis container does not mount the raw socket. A `docker-socket-proxy` does, exposing only containers, volumes, networks, images and exec. **This is still powerful**: anyone who can reach the proxy can run containers on the host. It is kept on a private Compose network, never published. A stricter allow-list proxy is future work.

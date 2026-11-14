@@ -24,6 +24,7 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_SIGNING_MODE` | `off` | `off` / `optional` / `required` SSH commit signing |
 | `SYNTAXIS_IDLE_MINUTES` | `30` | Stop sandboxes idle this long |
 | `SYNTAXIS_SANDBOX_MAX_AGE_DAYS` | `7` | Destroy unused sandbox containers after this many days |
+| `SYNTAXIS_CPU_MINUTES_DAILY` | `240` | CPU time (core-minutes) a user's sandboxes may use per day; `0` = unlimited. See [resource limits](pitfalls.md#resource-limits) |
 | `SYNTAXIS_WORKSPACE_RETENTION_DAYS` | `30` | Delete a user's workspace after this many days unused (`0` keeps) |
 | `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
 | `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |

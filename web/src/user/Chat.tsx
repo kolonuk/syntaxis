@@ -329,38 +329,42 @@ export function Chat({
     <div className="layout" style={{ height: "100%" }}>
       <div className="main chat">
         <div className="chat-head">
-          <h2 className="grow">{session.title}</h2>
-          <StatusPill
-            state={running ? "running" : session.state === "running" ? "idle" : session.state}
-          />
-          <Badge>{session.model}</Badge>
-          <select
-            className="select"
-            aria-label="Autonomy"
-            value={autonomy}
-            onChange={(e) => void changeAutonomy(e.target.value)}
-          >
-            <option value="ask">Ask before running anything</option>
-            <option value="workspace">Auto in workspace, ask for risky</option>
-            <option value="full">Fully autonomous</option>
-          </select>
-          {running && <Button onClick={() => post(`/sessions/${session.id}/stop`)}>Stop</Button>}
-          <Button variant="ghost" onClick={() => setRenaming(true)} aria-label="Rename session">
-            Rename
-          </Button>
-          <a className="btn btn-ghost" href={`/api/sessions/${session.id}/export`}>
-            Export
-          </a>
-          <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
-          <Button
-            className="sheet-toggle"
-            onClick={() => setPanelOpen(!panelOpen)}
-            aria-expanded={panelOpen}
-          >
-            Output &amp; context
-          </Button>
+          <div className="chat-title">
+            <h2 title={session.title}>{session.title}</h2>
+            <StatusPill
+              state={running ? "running" : session.state === "running" ? "idle" : session.state}
+            />
+            <Badge>{session.model}</Badge>
+          </div>
+          <div className="chat-actions">
+            <select
+              className="select"
+              aria-label="Autonomy"
+              value={autonomy}
+              onChange={(e) => void changeAutonomy(e.target.value)}
+            >
+              <option value="ask">Ask before running anything</option>
+              <option value="workspace">Auto in workspace, ask for risky</option>
+              <option value="full">Fully autonomous</option>
+            </select>
+            {running && <Button onClick={() => post(`/sessions/${session.id}/stop`)}>Stop</Button>}
+            <Button variant="ghost" onClick={() => setRenaming(true)} aria-label="Rename session">
+              Rename
+            </Button>
+            <a className="btn btn-ghost" href={`/api/sessions/${session.id}/export`}>
+              Export
+            </a>
+            <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
+              Delete
+            </Button>
+            <Button
+              className="sheet-toggle"
+              onClick={() => setPanelOpen(!panelOpen)}
+              aria-expanded={panelOpen}
+            >
+              Output &amp; context
+            </Button>
+          </div>
         </div>
         {notice && (
           <div className="banner banner-info row" role="status">

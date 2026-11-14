@@ -46,6 +46,7 @@ type Config struct {
 	SigningMode          string // off | optional | required
 	IdleTimeout          time.Duration
 	SandboxMaxAge        time.Duration
+	CPUMinutesDaily      int // CPU time (core-minutes) each user may use per day; 0 = unlimited
 	WorkspaceRetention   time.Duration
 }
 
@@ -134,6 +135,9 @@ func LoadFrom(get Getenv) (*Config, error) {
 		return nil, err
 	}
 	c.IdleTimeout = time.Duration(idle) * time.Minute
+	if c.CPUMinutesDaily, err = integer(get, "SYNTAXIS_CPU_MINUTES_DAILY", 240); err != nil {
+		return nil, err
+	}
 	age, err := integer(get, "SYNTAXIS_SANDBOX_MAX_AGE_DAYS", 7)
 	if err != nil {
 		return nil, err
