@@ -21,7 +21,7 @@ envval() { # value of KEY in .env, or empty
 }
 NET="${1:-$(envval SYNTAXIS_SANDBOX_NETWORK)}"; NET="${NET:-syntaxis-sandbox}"
 RESOLVER="${2:-$(envval SYNTAXIS_SANDBOX_RESOLVER)}"; RESOLVER="${RESOLVER:-172.30.0.2}"
-[ $# -ge 2 ] && shift 2 || shift $#
+if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
 # At boot Docker may still be creating the network: wait for it (up to two minutes).
 i=0

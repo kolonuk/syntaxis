@@ -123,8 +123,9 @@ if [ -n "$VERSION" ]; then
 else
   say "Building from source ($(git rev-parse --short HEAD 2>/dev/null || echo 'no git'))"
   setenv SYNTAXIS_IMAGE "syntaxis:local"
-  export SYNTAXIS_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
-  export SYNTAXIS_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  SYNTAXIS_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
+  SYNTAXIS_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  export SYNTAXIS_COMMIT SYNTAXIS_BUILD_DATE
   docker compose build
   img=$(getenv SYNTAXIS_SANDBOX_IMAGE); img=${img:-syntaxis-sandbox:latest}
   docker build -t "$img" images/sandbox

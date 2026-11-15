@@ -81,7 +81,9 @@ VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}
 
 # ---- apply ----
 if [ "$SOURCE" = 1 ]; then
-  export SYNTAXIS_COMMIT="$WANT" SYNTAXIS_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  SYNTAXIS_COMMIT="$WANT"
+  SYNTAXIS_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  export SYNTAXIS_COMMIT SYNTAXIS_BUILD_DATE
   docker compose build -q
   img=$(getenv SYNTAXIS_SANDBOX_IMAGE); img=${img:-syntaxis-sandbox:latest}
   docker build -q -t "$img" images/sandbox >/dev/null
