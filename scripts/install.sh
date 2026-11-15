@@ -100,6 +100,8 @@ if [ "$NEED_DOCKER$NEED_GVISOR${NEED_PKGS:+1}" != "00" ] && [ "$YES" != 1 ]; the
   printf 'Install the packages above now? [y/N] '
   read -r a; case "$a" in y|Y|yes) ;; *) die "cannot continue without them" ;; esac
 fi
+# NEED_PKGS is a space-separated list; word splitting is intended
+# shellcheck disable=SC2086
 [ -z "$NEED_PKGS" ] || { say "Installing$NEED_PKGS"; pkg_install $NEED_PKGS; }
 if [ "$NEED_DOCKER" = 1 ]; then say "Installing Docker"; install_docker; fi
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"

@@ -7,6 +7,7 @@
 # Raspberry Pi OS reports itself as Debian (or raspbian on old releases) and is treated as Debian.
 # CentOS Stream, Rocky Linux, AlmaLinux, RHEL and Fedora are the RHEL family.
 
+# shellcheck disable=SC2034   # these are read by the script that sources this file
 OS_ID=unknown OS_FAMILY=unknown OS_CODENAME=""
 if [ -r "${OS_RELEASE_FILE:-/etc/os-release}" ]; then
   # shellcheck disable=SC1090
@@ -18,6 +19,7 @@ if [ -r "${OS_RELEASE_FILE:-/etc/os-release}" ]; then
     *" rhel "*|*" fedora "*|*" centos "*) OS_FAMILY=rhel ;;
   esac
 fi
+# shellcheck disable=SC2034
 case "${SYNTAXIS_TEST_ARCH:-$(uname -m)}" in
   x86_64|amd64) CPU_ARCH=amd64 ;;
   aarch64|arm64) CPU_ARCH=arm64 ;;
