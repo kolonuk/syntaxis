@@ -5,10 +5,10 @@
 # non-root user with uid 10001, git, and a POSIX shell; ripgrep and curl are
 # used by agent tools). Node and Go come from the official images so they are
 # current (many tools, including modern MCP servers, need Node 20+).
-FROM node:22-bookworm-slim AS node
-FROM golang:1.26-bookworm AS golang
+FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS node
+FROM golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS golang
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git openssh-client curl wget jq ripgrep build-essential pkg-config \

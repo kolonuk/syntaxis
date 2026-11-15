@@ -2,7 +2,7 @@
 # Syntaxis server image: static Go binary with the embedded frontend, on a
 # minimal non-root distroless base. Build: docker build -t syntaxis .
 
-FROM node:22-alpine AS web
+FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -10,7 +10,7 @@ COPY web/ ./
 # the build writes to ../internal/webui/dist
 RUN mkdir -p /src/internal/webui && npm run build
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.26-alpine@sha256:30b1e546a9c7fa3b747c2bdba3a0c7bdf3a02ebb4c5b8405d2f948d7e8aac4ec AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -22,7 +22,7 @@ ARG DATE=
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/kolonuk/syntaxis/internal/buildinfo.Version=${VERSION} -X github.com/kolonuk/syntaxis/internal/buildinfo.Commit=${COMMIT} -X github.com/kolonuk/syntaxis/internal/buildinfo.Date=${DATE}" -o /out/syntaxis ./cmd/syntaxis \
     && mkdir -p /out/data
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/syntaxis /usr/local/bin/syntaxis
 # the data directory must be writable by the non-root user (a named volume inherits this ownership)
 COPY --from=build --chown=65532:65532 /out/data /data

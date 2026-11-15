@@ -74,6 +74,10 @@ Redaction of tool output is best-effort (known patterns plus the user's own stor
 
 Admins see session metadata (who, when, model, tokens, state), not message content, unless `ALLOW_ADMIN_READ_CONTENT=true`; reads are audited. Egress logs are visible to admins in full and to each user for their own sessions only. Set retention to match your obligations.
 
+## Supply chain
+
+Base images are pinned by digest and kept current by Dependabot. Tagged releases publish multi-arch images with SBOM and provenance attestations, signed with Sigstore keyless signing by the release workflow, plus binaries, an SPDX SBOM of the source and a signed `SHA256SUMS` (verification commands are in each release's notes). Source installs build everything locally.
+
 ## Dependency advisories
 
 CI runs `govulncheck` and `npm audit` on every change. The Docker Go module has advisories that affect the Docker daemon, not the client code Syntaxis uses, and no fixed version exists yet. Keep Docker Engine itself up to date.
@@ -82,6 +86,5 @@ CI runs `govulncheck` and `npm audit` on every change. The Docker Go module has 
 
 - Connection-level egress logging is not implemented; only DNS queries are logged.
 - Isolation, egress and agent runs are tested against real gVisor, but gVisor is not a VM and no escape-resistance testing has been done.
-- Image digests are not pinned yet.
 
 Report vulnerabilities privately: [SECURITY.md](../SECURITY.md).
