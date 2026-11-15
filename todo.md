@@ -18,8 +18,6 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] User levels: `user`, `poweruser` and `admin`. Define what a poweruser may do beyond a user (for example higher limits, terminal, MCP servers, cloud tooling), and make it configurable.
 - [ ] Admins get a link in the chat app to switch into admin mode, and a link back, instead of two separate logins to remember. Keep the separate admin listener, cookie and 2FA requirement.
 - [ ] User groups. Permissions and settings can be set per group as well as per user: quotas, allowed models, egress mode, terminal, cloud tooling, MCP servers, session limits, retention. Document how group and user settings combine (most specific wins; an explicit user setting overrides the group).
-- [ ] Optional trusted reverse-proxy header authentication (config and health check exist; the middleware is not wired).
-- [ ] Admin IP allowlist.
 
 ## 3. GitHub integration, per user
 
@@ -28,10 +26,20 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] The workspace is a clone of the chosen repository on a working branch; the agent can commit, push and open a pull request; the UI shows the branch, the diff and the pull request link.
 - [ ] Repository list, search and a test-connection button; clear errors for missing scopes and expired tokens.
 - [ ] Start from an issue or pull request; respond to review comments on a pull request the agent opened.
-- [ ] Generic git over HTTPS and SSH deploy keys with a credential helper, for GitLab and Gitea.
-- [ ] Registrar and Cloudflare connectors as plugins behind a generic "API token + base URL" connector.
 
-## 4. Agent and workflow
+## 4. Per-user connections to other services
+
+Every connection belongs to one user: their own account and credentials, kept in their own vault, available only to their own sessions, never shared across the server and never shown to the model. Admins cannot see them.
+
+- [ ] A connections page where a user adds, tests and removes a connection, with a short guide for each service on creating a least-privilege, preferably short-lived credential, and clear errors for expired or under-scoped ones.
+- [ ] GitLab (including self-hosted) and Gitea: repository pick or create, clone, branch, push and merge request, the same as GitHub.
+- [ ] Cloudflare: API token with the user's own zones and Workers.
+- [ ] Google Cloud: the user's own project, with a service account key or short-lived credentials, working with the `gcloud` CLI and client libraries in the sandbox.
+- [ ] AWS: the user's own account or role, with temporary credentials, working with the `aws` CLI and SDKs.
+- [ ] Azure: the user's own subscription and service principal, working with the `az` CLI and SDKs.
+- [ ] The existing approval gate covers deploys, deletes and anything that costs money on any of these; show which connection and project an action would touch before the user approves it.
+
+## 5. Agent and workflow
 
 Compared with Jules and Claude Code, these are missing or weaker (background runs, approvals, project instructions, skills, MCP, checkpoints and usage visibility already exist):
 
@@ -49,7 +57,7 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 - [ ] Side panel tabs for files and a dev-server preview.
 - [ ] Optional terminal recording.
 
-## 5. Operations
+## 6. Operations
 
 - [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
 - [ ] Ansible role (or Terraform module) for a single host, wrapping `scripts/install.sh`.
@@ -58,7 +66,3 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 - [ ] Docker proxy: filter the container list to Syntaxis containers, so a compromised server cannot see other containers on the host.
 - [ ] Admin log viewer beyond audit and egress; log retention and rotation settings.
 - [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute, a warning is shown at the limit and the sandbox is stopped when far over it.
-- [ ] Abuse alerts and admin notification emails.
-- [ ] Maintenance banner.
-- [ ] Usage reports.
-- [ ] PostgreSQL backend, OIDC login and multi-instance provider fallback.
