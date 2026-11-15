@@ -741,6 +741,14 @@ pre {
   .topbar .badge {
     white-space: nowrap;
   }
+  /* every tab stays visible on a phone instead of scrolling out of sight */
+  .tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .tab {
+    padding: var(--s2) var(--s3);
+  }
   .topbar .label {
     display: none;
   }
