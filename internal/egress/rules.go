@@ -5,6 +5,7 @@ package egress
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -93,8 +94,12 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	sort.Strings(v4)
 	sort.Strings(v6)
 	fmt.Fprintf(&b, "    ip saddr %s ip daddr { %s } counter drop\n", subnet, strings.Join(v4, ", "))
-	if len(v6) > 0 {
-		fmt.Fprintf(&b, "    ip6 daddr { %s } counter drop\n", strings.Join(v6, ", "))
+	// IPv6: the sandbox network has none, and an IPv6 rule cannot be limited by the IPv4
+	// subnet, so it is tied to the sandbox bridge or left out. (An unqualified ip6 drop would
+	// hit every forwarded IPv6 packet on the host, including other applications'.)
+	_ = v6
+	if br := bridgeName(p.Bridge); br != "" {
+		fmt.Fprintf(&b, "    iifname %q meta nfproto ipv6 counter drop\n", br)
 	}
 	// mode-specific tail
 	switch p.Mode {
@@ -129,6 +134,9 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "    ip saddr %s accept\n", resolverIP)
 	}
 	fmt.Fprintf(&b, "    ip saddr %s ct state established,related accept\n", subnet)
+	if br := bridgeName(p.Bridge); br != "" {
+		fmt.Fprintf(&b, "    iifname %q meta nfproto ipv6 counter drop\n", br)
+	}
 	fmt.Fprintf(&b, "    ip saddr %s counter drop\n  }\n", subnet)
 	if p.Mode == ModeAllowlist {
 		fmt.Fprintf(&b, "  set allowed_hosts {\n    type ipv4_addr\n    flags timeout\n  }\n")
@@ -147,6 +155,16 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	}
 	fmt.Fprintf(&b, "    ip saddr %s ip daddr %s counter drop\n  }\n}\n", subnet, subnet)
 	return RuleSet{Table: table, Text: b.String()}, nil
+}
+
+var ifaceRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
+
+// bridgeName returns a valid interface name or "" (never interpolate anything else into nft).
+func bridgeName(s string) string {
+	if ifaceRe.MatchString(s) {
+		return s
+	}
+	return ""
 }
 
 func joinInts(ns []int) string {

@@ -54,6 +54,10 @@ type Policy struct {
 	ExtraBlocked []netip.Prefix
 	// Bridge gateway of the sandbox network (always blocked; also inside RFC1918).
 	BridgeGateway netip.Addr
+	// Bridge is the sandbox network's host interface (for example br-0123456789ab).
+	// The sandbox network is IPv4 only; when Bridge is known, any IPv6 from it is dropped.
+	// IPv6 rules never match on anything else, so other traffic on the host is untouched.
+	Bridge string
 }
 
 // Validate checks the mode and allowlist.

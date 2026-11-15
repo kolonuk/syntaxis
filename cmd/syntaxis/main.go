@@ -299,7 +299,7 @@ func cmdEgressRules(args []string, out io.Writer) error {
 			return fmt.Errorf("bad gateway ip: %w", err)
 		}
 	}
-	pol := egress.Policy{Mode: cfg.EgressMode, Allowlist: cfg.EgressAllow, BridgeGateway: gw}
+	pol := egress.Policy{Mode: cfg.EgressMode, Allowlist: cfg.EgressAllow, BridgeGateway: gw, Bridge: os.Getenv("SYNTAXIS_SANDBOX_BRIDGE")}
 	for _, c := range cfg.EgressBlock {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {

@@ -246,3 +246,35 @@ func TestRulesAlsoFilterLayer2SoIsolationDoesNotDependOnBrNetfilter(t *testing.T
 		t.Error("exception after the drop")
 	}
 }
+
+// The host also runs other applications. Every rule that drops must be limited to traffic
+// from the sandbox subnet or the sandbox bridge; nothing may touch anyone else's packets.
+func TestRulesOnlyEverDropSandboxTraffic(t *testing.T) {
+	for _, mode := range []string{ModeOpen, ModeNone, ModeAllowlist} {
+		for _, br := range []string{"", "br-0123456789ab"} {
+			pol := Policy{Mode: mode, Allowlist: []string{"203.0.113.0/24"}, BridgeGateway: ip("172.30.0.1"), Bridge: br,
+				ExtraBlocked: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("2001:db8::/32")}}
+			rs, err := Nftables("t", netip.MustParsePrefix("172.30.0.0/24"), ip("172.30.0.2"), pol)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, l := range strings.Split(rs.Text, "\n") {
+				l = strings.TrimSpace(l)
+				if !strings.HasSuffix(l, "drop") && !strings.HasSuffix(l, "reject") {
+					continue
+				}
+				if !strings.HasPrefix(l, "ip saddr 172.30.0.0/24 ") && !(br != "" && strings.HasPrefix(l, `iifname "`+br+`" `)) {
+					t.Errorf("mode %s bridge %q: rule can affect traffic that is not from a sandbox: %s", mode, br, l)
+				}
+			}
+			for _, chainPolicy := range []string{"policy drop", "policy reject"} {
+				if strings.Contains(rs.Text, chainPolicy) {
+					t.Errorf("a chain must never default to dropping: %s", chainPolicy)
+				}
+			}
+		}
+	}
+	if bridgeName(`br0"; flush ruleset; "`) != "" {
+		t.Fatal("an unsafe interface name was accepted")
+	}
+}

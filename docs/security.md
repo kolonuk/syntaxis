@@ -38,7 +38,7 @@ Limits, honestly:
 - Rules are applied on the Docker host, not by Syntaxis. The health check tests them by behaviour every five minutes: a short-lived sandbox tries to connect to the Docker host, which only times out when the current ruleset is loaded. `SYNTAXIS_NETWORK_RULES_APPLIED=true` is used only when no test sandbox can be started.
 - The firewall enforces the **instance** mode (`SYNTAXIS_EGRESS_MODE`). A per-user `none` starts that user's sandboxes with no network at all. A per-user `allowlist` on an `open` instance is applied by the DNS resolver only: names off the list do not resolve, but a connection to a literal public IP address is not stopped.
 - In `allowlist` mode the firewall accepts the listed CIDRs and addresses. Hostname entries are enforced by the resolver, and the firewall's `allowed_hosts` set is not yet fed from DNS answers, so connections to hostname-only entries are dropped. List the addresses or CIDRs you need as well, until this is finished (see `todo.md`).
-- IPv6 is not routed on the sandbox network by default; if you enable it, extend the rules.
+- The rules only ever match traffic from the sandbox subnet or the sandbox bridge; other containers and services on the host are not affected, and no default policy is changed. The sandbox network is IPv4 only, and any IPv6 from its bridge is dropped.
 - DNS over HTTPS or any allowed host that proxies traffic bypasses domain policy. `open` mode is not a substitute for trusting your users.
 
 ## The terminal

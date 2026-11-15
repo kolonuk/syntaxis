@@ -31,6 +31,12 @@ until SUBNET=$(docker network inspect "$NET" -f '{{(index .IPAM.Config 0).Subnet
   sleep 2
 done
 GATEWAY=$(docker network inspect "$NET" -f '{{(index .IPAM.Config 0).Gateway}}')
+# the host side of the sandbox bridge, so IPv6 from it can be dropped without touching anything else
+BRIDGE=$(docker network inspect "$NET" -f '{{index .Options "com.docker.network.bridge.name"}}')
+if [ -z "$BRIDGE" ] || [ "$BRIDGE" = "<no value>" ]; then
+  BRIDGE="br-$(docker network inspect "$NET" -f '{{.Id}}' | cut -c1-12)"
+fi
+export SYNTAXIS_SANDBOX_BRIDGE="$BRIDGE"
 
 rules() {
   if command -v syntaxis >/dev/null 2>&1; then
@@ -39,9 +45,9 @@ rules() {
     IMAGE=$(envval SYNTAXIS_IMAGE); IMAGE="${IMAGE:-ghcr.io/kolonuk/syntaxis:latest}"
     set -- "$SUBNET" "$RESOLVER" "$GATEWAY" "$@"
     if [ -f .env ]; then
-      docker run --rm --network none --env-file .env "$IMAGE" egress-rules "$@"
+      docker run --rm --network none --env-file .env -e SYNTAXIS_SANDBOX_BRIDGE "$IMAGE" egress-rules "$@"
     else
-      docker run --rm --network none "$IMAGE" egress-rules "$@"
+      docker run --rm --network none -e SYNTAXIS_SANDBOX_BRIDGE "$IMAGE" egress-rules "$@"
     fi
   fi
 }

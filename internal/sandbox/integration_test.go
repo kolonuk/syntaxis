@@ -131,7 +131,9 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 	}
 	f := strings.Fields(string(out))
 	subnet, gw := netip.MustParsePrefix(f[0]), netip.MustParseAddr(f[1])
-	rs, err := egress.Nftables("syntaxis_it", subnet, netip.Addr{}, egress.Policy{Mode: egress.ModeOpen, BridgeGateway: gw})
+	netID, _ := exec.Command("docker", "network", "inspect", m.Cfg.Network, "-f", "{{.Id}}").Output()
+	bridge := "br-" + strings.TrimSpace(string(netID))[:12]
+	rs, err := egress.Nftables("syntaxis_it", subnet, netip.Addr{}, egress.Policy{Mode: egress.ModeOpen, BridgeGateway: gw, Bridge: bridge})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +209,26 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 		before := accepted.Load()
 		if reach(target) || accepted.Load() != before {
 			t.Errorf("%s (%s) is reachable from the sandbox", name, target)
+		}
+	}
+	// The host runs other applications: an ordinary container on Docker's default bridge
+	// must still reach the same host service, and the host must still reach the LAN.
+	defGW, err := exec.Command("docker", "network", "inspect", "bridge", "-f", "{{(index .IPAM.Config 0).Gateway}}").Output()
+	if err == nil {
+		before := accepted.Load()
+		out, err := exec.Command("docker", "run", "--rm", "--network", "bridge", m.Cfg.Image,
+			"curl", "-s", "-m", "5", "-o", "/dev/null", "http://"+strings.TrimSpace(string(defGW))+":"+hostPort+"/").CombinedOutput()
+		if accepted.Load() == before {
+			t.Errorf("an ordinary container could not reach a host service with the sandbox rules loaded (%v): %s", err, out)
+		}
+	}
+	before := accepted.Load()
+	if c, err := net.DialTimeout("tcp", net.JoinHostPort(lan, hostPort), 3*time.Second); err != nil {
+		t.Errorf("the host cannot reach its own LAN address with the sandbox rules loaded: %v", err)
+	} else {
+		_ = c.Close()
+		for i := 0; i < 20 && accepted.Load() == before; i++ {
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
