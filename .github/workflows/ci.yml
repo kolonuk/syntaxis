@@ -53,6 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans every commit in a push, so it needs their history
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
