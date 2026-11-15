@@ -277,15 +277,7 @@ function Shell({
           {sessions === null ? (
             <Skeleton />
           ) : sessions.length === 0 ? (
-            <EmptyState
-              title="No sessions yet"
-              hint="Start one to give the agent a sandbox."
-              action={
-                <Button variant="primary" onClick={() => setCreating(true)}>
-                  New session
-                </Button>
-              }
-            />
+            <EmptyState title="No sessions yet" hint="Your sessions appear here." />
           ) : (
             sessions.map((s) => (
               <button
@@ -328,8 +320,12 @@ function Shell({
           ) : (
             <>
               <EmptyState
-                title="Pick a session"
-                hint="Open the session list (menu button on a phone), or press N to start a new one."
+                title={sessions?.length ? "Pick a session" : "Start your first session"}
+                hint={
+                  sessions?.length
+                    ? "Choose one from the list (the menu button on a phone), or press N to start a new one."
+                    : "Describe a task and the agent works on it in its own sandbox. Press N at any time to start a new session."
+                }
                 action={
                   <Button variant="primary" onClick={() => setCreating(true)}>
                     New session

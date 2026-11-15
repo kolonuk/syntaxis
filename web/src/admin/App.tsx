@@ -1042,7 +1042,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
           </Badge>
         )}
         <VersionLabel />
-        <span className="muted">{name}</span>
+        <span className="muted account-name">{name}</span>
         <Button variant="ghost" onClick={signOut}>
           Sign out
         </Button>

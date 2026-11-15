@@ -26,6 +26,7 @@
   --accent-text: #ffffff;
   --danger: #c92a2a;
   --danger-hover: #a61e1e;
+  --danger-text: #fff;
   --success: #2b8a3e;
   --warn: #b36b00;
   --info: #1971c2;
@@ -47,6 +48,7 @@
   --accent-text: #0b0d12;
   --danger: #ff6b6b;
   --danger-hover: #ff8787;
+  --danger-text: #0b0d12; /* white on this red is 2.8:1; near-black is above 7:1 */
   --success: #51cf66;
   --warn: #fcc419;
   --info: #74c0fc;
@@ -136,7 +138,7 @@ a {
 }
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-text);
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--danger-hover);
@@ -729,6 +731,15 @@ pre {
   .topbar {
     padding: var(--s2) var(--s3);
     gap: var(--s1);
+    flex-wrap: wrap;
+  }
+  /* the version stays in Settings / the admin Health page; the header keeps only what fits */
+  .topbar .version-label,
+  .topbar .account-name {
+    display: none;
+  }
+  .topbar .badge {
+    white-space: nowrap;
   }
   .topbar .label {
     display: none;
