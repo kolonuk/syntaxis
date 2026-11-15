@@ -25,7 +25,7 @@ ABIND=${SYNTAXIS_ADMIN_BIND:-$(envval SYNTAXIS_ADMIN_BIND)}
 case "$ABIND" in ''|0.0.0.0) ABIND=127.0.0.1 ;; esac
 APORT=${SYNTAXIS_ADMIN_PORT:-$(envval SYNTAXIS_ADMIN_PORT)}; APORT=${APORT:-8081}
 URL="http://$ABIND:$APORT"
-INTERVAL=${FW_INTERVAL:-3}
+INTERVAL=${FW_INTERVAL:-1}
 
 # Turn state lines into nft commands. Anything that is not exactly a valid line is skipped.
 build() {
@@ -36,6 +36,7 @@ build() {
       for (i = 1; i <= 4; i++) if (p[i] !~ /^[0-9]+$/ || p[i] + 0 > 255) return 0
       return 1
     }
+    NF == 0 { next }
     $1 == "sandbox" && NF == 3 && ip4($2) && ($3 == "none" || $3 == "allow" || $3 == "open") { s[$3] = s[$3] (s[$3] == "" ? "" : ", ") $2; next }
     $1 == "host" && NF == 3 && ip4($2) && $3 ~ /^[0-9]+$/ { t = ($3 + 0 > 3600) ? 3600 : $3 + 0; if (t > 0) h = h (h == "" ? "" : ", ") $2 " timeout " t "s"; next }
     { bad++ }

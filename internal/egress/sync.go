@@ -75,8 +75,9 @@ type HostTracker struct {
 // HostTTL is how long a resolved address stays allowed after its last answer.
 const HostTTL = 10 * time.Minute
 
-// Add records resolver answers.
-func (t *HostTracker) Add(ips []netip.Addr, now time.Time) {
+// Add records resolver answers and reports whether any address was not already allowed, which
+// is when the host firewall has to be told before the sandbox connects.
+func (t *HostTracker) Add(ips []netip.Addr, now time.Time) (fresh bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.m == nil {
@@ -84,9 +85,15 @@ func (t *HostTracker) Add(ips []netip.Addr, now time.Time) {
 	}
 	for _, ip := range ips {
 		if ip.Is4() {
-			t.m[ip.Unmap()] = now.Add(HostTTL)
+			ip = ip.Unmap()
+			// an address whose entry is about to lapse counts as new, so it is refreshed in time
+			if until, ok := t.m[ip]; !ok || until.Sub(now) < HostTTL/2 {
+				fresh = true
+			}
+			t.m[ip] = now.Add(HostTTL)
 		}
 	}
+	return fresh
 }
 
 // Snapshot returns the live entries and forgets expired ones.

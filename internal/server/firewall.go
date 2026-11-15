@@ -90,6 +90,26 @@ func (a *App) handleFirewallLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int{"recorded": n})
 }
 
+// AwaitFirewallFetch blocks (up to max) until the host firewall has fetched its state after
+// since, so an address that has just been allowed is in the firewall before the sandbox that
+// asked for it tries to connect. It returns at once when the sync service is not running.
+func (a *App) AwaitFirewallFetch(since time.Time, max time.Duration) {
+	if a.Cfg.FirewallToken == "" || a.FirewallSyncAge() > 15*time.Second {
+		return
+	}
+	deadline := time.Now().Add(max)
+	for time.Now().Before(deadline) {
+		a.fwMu.Lock()
+		seen := a.fwSeen
+		a.fwMu.Unlock()
+		if seen.After(since) {
+			time.Sleep(200 * time.Millisecond) // let the script apply what it just fetched
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // waitForFirewall holds a new sandbox for a user with a restricted egress mode until the
 // host firewall has picked it up, so it is never briefly open. It does nothing when the sync
 // service is not running (the health check reports that) and gives up after a few seconds.

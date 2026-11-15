@@ -294,11 +294,16 @@ func TestFormatStateIsPlainValidatedLines(t *testing.T) {
 func TestHostTrackerExpires(t *testing.T) {
 	var h HostTracker
 	t0 := time.Unix(1000, 0)
-	h.Add([]netip.Addr{ip("93.184.216.34")}, t0)
+	if !h.Add([]netip.Addr{ip("93.184.216.34")}, t0) {
+		t.Fatal("a new address must be reported as fresh")
+	}
+	if h.Add([]netip.Addr{ip("93.184.216.34")}, t0.Add(time.Minute)) {
+		t.Fatal("a repeat lookup must not be reported as fresh")
+	}
 	if s := h.Snapshot(t0.Add(time.Minute)); len(s) != 1 || s[0].TTL > HostTTL {
 		t.Fatalf("%+v", s)
 	}
-	if s := h.Snapshot(t0.Add(HostTTL + time.Second)); len(s) != 0 {
+	if s := h.Snapshot(t0.Add(time.Minute + HostTTL + time.Second)); len(s) != 0 {
 		t.Fatalf("expired entry kept: %+v", s)
 	}
 }

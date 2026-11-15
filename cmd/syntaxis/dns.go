@@ -178,7 +178,12 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 			info, ok := ips.m[src]
 			ips.mu.Unlock()
 			if ok && modeFor(info.user) == egress.ModeAllowlist {
-				hosts.Add(answers, time.Now())
+				since := app.Now()
+				if hosts.Add(answers, time.Now()) {
+					// hold the answer until the firewall has the address, so the first connection
+					// is not dropped and has to be retried
+					app.AwaitFirewallFetch(since, 2*time.Second)
+				}
 			}
 		},
 		Upstream: upstreamDNS(cfg),
