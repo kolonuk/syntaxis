@@ -216,8 +216,15 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 	defGW, err := exec.Command("docker", "network", "inspect", "bridge", "-f", "{{(index .IPAM.Config 0).Gateway}}").Output()
 	if err == nil {
 		before := accepted.Load()
-		out, err := exec.Command("docker", "run", "--rm", "--network", "bridge", m.Cfg.Image,
-			"curl", "-s", "-m", "5", "-o", "/dev/null", "http://"+strings.TrimSpace(string(defGW))+":"+hostPort+"/").CombinedOutput()
+		plain := exec.Command("docker", "run", "--rm", "--network", "bridge", m.Cfg.Image,
+			"curl", "-s", "-m", "5", "-o", "/dev/null", "http://"+strings.TrimSpace(string(defGW))+":"+hostPort+"/")
+		// another application's container: straight to the daemon, not through the Syntaxis proxy
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "DOCKER_HOST=") {
+				plain.Env = append(plain.Env, kv)
+			}
+		}
+		out, err := plain.CombinedOutput()
 		if accepted.Load() == before {
 			t.Errorf("an ordinary container could not reach a host service with the sandbox rules loaded (%v): %s", err, out)
 		}
