@@ -187,7 +187,10 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if _, err := a.Auth.Authenticate(context.Background(), principal(r).Account.Kind, cookie.Value); err != nil {
+				if _, err := a.Auth.Authenticate(ctx, principal(r).Account.Kind, cookie.Value); err != nil {
+					if ctx.Err() != nil {
+						return // closing for another reason; keep that reason
+					}
 					cur.setReason("Signed out.")
 					cancel()
 					return
