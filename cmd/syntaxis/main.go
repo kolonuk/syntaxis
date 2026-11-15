@@ -369,7 +369,7 @@ func cmdDoctor(out io.Writer) error {
 		return err
 	}
 	defer st.Close()
-	fs := collectHealth(context.Background(), cfg, st, nil, nil)
+	fs := collectHealth(context.Background(), cfg, st, nil, nil, nil)
 	if len(fs) == 0 {
 		fmt.Fprintln(out, "All checks passed.")
 		return nil
@@ -395,7 +395,7 @@ func newRuntime(cfg *config.Config) sandbox.Runtime {
 	return rt
 }
 
-func collectHealth(ctx context.Context, cfg *config.Config, st store.Store, rt sandbox.Runtime, mgr *sandbox.Manager) []health.Finding {
+func collectHealth(ctx context.Context, cfg *config.Config, st store.Store, rt sandbox.Runtime, mgr *sandbox.Manager, syncAge func() time.Duration) []health.Finding {
 	if rt == nil {
 		rt = newRuntime(cfg)
 	}
@@ -408,6 +408,10 @@ func collectHealth(ctx context.Context, cfg *config.Config, st store.Store, rt s
 		d.ProbeFirewall = mgr.ProbeFirewall
 	}
 	state := doctor.Collect(ctx, d)
+	if cfg.FirewallToken != "" && syncAge != nil {
+		state.Sandbox.FirewallSyncExpected = true
+		state.Sandbox.FirewallSyncStale = syncAge() > time.Minute
+	}
 	return health.NewEngine(health.DefaultThresholds()).Run(state)
 }
 
@@ -484,7 +488,7 @@ func cmdServe() error {
 		scfg := sandboxConfig(cfg)
 		app.Sandbox = sandbox.NewManager(rt, scfg, log)
 		app.Sandbox.SetDNS([]string{cfg.DNSFallback}) // until the resolver is up
-		go startDNS(ctx, cfg, st, app.Sandbox, log)
+		go startDNS(ctx, cfg, st, app.Sandbox, app, log)
 		mon := sandbox.NewMonitor(rt, sandbox.NewWatchdog(sandbox.DefaultWatchdogConfig()), scfg.Limits.CPUs, log)
 		mon.OnCPU = func(user, secs int64) { _ = q.RecordCPUTime(ctx, user, secs) }
 		mon.OnEvent = app.SandboxEvent
@@ -492,6 +496,7 @@ func cmdServe() error {
 			u, err := st.GetUser(ctx, user)
 			return err == nil && q.CPUExhausted(ctx, u)
 		}
+		mon.DiskBytes = func(c context.Context, id string) (int64, error) { return sandbox.WorkspaceBytes(c, rt, id) }
 		app.Monitor = mon
 		go mon.Run(ctx)
 	} else {
@@ -501,7 +506,7 @@ func cmdServe() error {
 
 	bootstrapAdmin(ctx, cfg, as, st, log)
 
-	go loop(ctx, 5*time.Minute, func() { app.SetHealth(collectHealth(ctx, cfg, st, rt, app.Sandbox)) })
+	go loop(ctx, 5*time.Minute, func() { app.SetHealth(collectHealth(ctx, cfg, st, rt, app.Sandbox, app.FirewallSyncAge)) })
 	if app.Sandbox != nil {
 		go loop(ctx, 10*time.Minute, func() { reap(ctx, app, st, cfg, log) })
 		go func() { // on boot: clean up orphans (Docker may still be starting; the periodic loop retries)

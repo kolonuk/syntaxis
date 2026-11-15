@@ -17,6 +17,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/config"
 	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
+	"github.com/kolonuk/syntaxis/internal/server"
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
@@ -105,7 +106,7 @@ func upstreamDNS(cfg *config.Config) string {
 // protection, and query logging into the egress log. It also points new
 // sandboxes at it. Failure to bind is logged, not fatal; the health check
 // reports sandboxes without the resolver as having no DNS policy/logging.
-func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sandbox.Manager, log *slog.Logger) {
+func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sandbox.Manager, app *server.App, log *slog.Logger) {
 	// the Docker socket proxy may still be starting: retry for a while
 	var subnet, gw string
 	var err error
@@ -149,7 +150,37 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 	})
 	_ = subnet
 
+	modeFor := func(uid int64) string {
+		if u, err := st.GetUser(ctx, uid); err == nil && u.EgressMode != "" {
+			return u.EgressMode
+		}
+		return cfg.EgressMode
+	}
+	// what the host firewall's per-sandbox sets and allowed_hosts set should hold right now
+	hosts := &egress.HostTracker{}
+	app.FirewallState = func(c context.Context) ([]egress.SandboxEntry, []egress.HostEntry) {
+		ips.refreshMu.Lock()
+		ips.refresh(c, mgr.RT, cfg.Docker.Network)
+		ips.refreshMu.Unlock()
+		ips.mu.Lock()
+		var sb []egress.SandboxEntry
+		for a, v := range ips.m {
+			sb = append(sb, egress.SandboxEntry{IP: a, User: v.user, Session: v.session, Mode: modeFor(v.user)})
+		}
+		ips.mu.Unlock()
+		return sb, hosts.Snapshot(time.Now())
+	}
+
 	r := &egress.Resolver{
+		// addresses that allowlisted names resolve to are let through the host firewall too
+		OnAnswer: func(src netip.Addr, _ string, answers []netip.Addr) {
+			ips.mu.Lock()
+			info, ok := ips.m[src]
+			ips.mu.Unlock()
+			if ok && modeFor(info.user) == egress.ModeAllowlist {
+				hosts.Add(answers, time.Now())
+			}
+		},
 		Upstream: upstreamDNS(cfg),
 		PolicyFor: func(src netip.Addr) (egress.Policy, bool) {
 			uid, _, ok := ips.lookup(ctx, mgr.RT, cfg.Docker.Network, src)

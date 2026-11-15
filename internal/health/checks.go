@@ -291,6 +291,11 @@ func checkSandbox(s *State, _ Thresholds) []Finding {
 		out = append(out, Finding{CheckID: CheckNetworkRules, Severity: Error, Message: msg,
 			Fix: "Apply the rules with scripts/apply-egress.sh (or the syntaxis-egress systemd unit from the installer) as described in docs/getting-started.md."})
 	}
+	if sb.FirewallSyncExpected && sb.FirewallSyncStale {
+		out = append(out, Finding{CheckID: CheckFirewallSync, Severity: Warning,
+			Message: "The firewall sync service is not running. Per-user egress modes and allowlisted hostnames are not enforced by the firewall, new connections are not logged, and sandboxes for allowlist users start without a network.",
+			Fix:     "Start it with `systemctl enable --now syntaxis-firewall-sync` (installed by scripts/install.sh), or re-run the installer."})
+	}
 	if sb.DockerReachable && !sb.ImagePresent {
 		out = append(out, Finding{CheckID: CheckSandboxImage, Severity: Error, Message: "The sandbox image is not present on the Docker host.",
 			Fix: "Build or pull the image configured in SYNTAXIS_SANDBOX_IMAGE.", UserMessage: user})

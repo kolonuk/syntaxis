@@ -58,11 +58,15 @@ func TestWatchdogCPUCapRelative(t *testing.T) {
 	}
 }
 
-func TestWatchdogDiskFullKillsImmediately(t *testing.T) {
-	w := NewWatchdog(DefaultWatchdogConfig())
-	evs := w.Observe("s", 1, Stats{}, 6<<30, 2, time.Unix(0, 0))
+func TestWatchdogDiskOverCapWarnsAndRunawayFillIsStopped(t *testing.T) {
+	w := NewWatchdog(DefaultWatchdogConfig()) // 5 GiB cap
+	evs := w.Observe("s", 1, Stats{}, 5<<30+1<<29, 2, time.Unix(0, 0))
+	if len(evs) != 1 || evs[0].Action != ActionWarn {
+		t.Fatalf("a workspace just over its cap must be warned, not stopped (the user needs the sandbox to clean up): %+v", evs)
+	}
+	evs = w.Observe("s", 1, Stats{}, 7<<30, 2, time.Unix(1, 0))
 	if len(evs) != 1 || evs[0].Action != ActionKill {
-		t.Fatalf("disk fill not contained: %+v", evs)
+		t.Fatalf("runaway disk fill not contained: %+v", evs)
 	}
 }
 

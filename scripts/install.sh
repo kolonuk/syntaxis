@@ -112,6 +112,8 @@ if [ -n "$LLM" ]; then
   setenv SYNTAXIS_EGRESS_BLOCK "$blocks"
 fi
 
+[ -n "$(getenv SYNTAXIS_FIREWALL_TOKEN)" ] || setenv SYNTAXIS_FIREWALL_TOKEN "$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+
 # ---- images ----
 if [ -n "$VERSION" ]; then
   say "Pulling version $VERSION"
@@ -163,6 +165,9 @@ if [ "$FIREWALL" = 1 ]; then
   systemctl enable --now syntaxis-egress.path syntaxis-egress.timer >/dev/null
   systemctl enable syntaxis-egress.service >/dev/null
   systemctl restart syntaxis-egress.service
+  sed "s#@ROOT@#$ROOT#g" deploy/systemd/syntaxis-firewall-sync.service > /etc/systemd/system/syntaxis-firewall-sync.service
+  systemctl daemon-reload
+  systemctl enable --now syntaxis-firewall-sync.service >/dev/null
   systemctl --no-pager --lines=0 status syntaxis-egress.service | head -3 || true
 else
   echo "skipped (--no-firewall): apply scripts/apply-egress.sh yourself, at every boot"

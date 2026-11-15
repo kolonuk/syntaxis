@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -129,5 +130,28 @@ func TestMonitorPausedSandboxGetsAFreshStartThenIsStoppedIfOverloadedAgain(t *te
 	}
 	if last := mf.events[len(mf.events)-1]; last.Action != ActionKill {
 		t.Fatalf("%+v", last)
+	}
+}
+
+func TestMonitorWarnsWhenWorkspaceIsOverItsLimit(t *testing.T) {
+	mf := newMonFixture(t)
+	mf.f.ExecHook = func(_ *FakeContainer, e ExecSpec) (ExecResult, bool) {
+		if len(e.Cmd) > 0 && e.Cmd[0] == "du" {
+			return ExecResult{Stdout: "5767168\t/workspace\n"}, true // 5.5 GiB
+		}
+		return ExecResult{}, false
+	}
+	mf.m.DiskBytes = func(ctx context.Context, id string) (int64, error) { return WorkspaceBytes(ctx, mf.f, id) }
+	mf.m.DiskEvery = time.Second
+	mf.step(0)
+	mf.step(0.1)
+	var warned bool
+	for _, e := range mf.events {
+		if e.Action == ActionWarn && strings.Contains(e.Reason, "size limit") {
+			warned = true
+		}
+	}
+	if !warned || !mf.f.Containers[mf.id].Info.Running {
+		t.Fatalf("an over-limit workspace must warn and keep running: %+v", mf.events)
 	}
 }

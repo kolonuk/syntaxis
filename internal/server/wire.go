@@ -412,9 +412,20 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 	if mode == "" {
 		mode = a.Cfg.EgressMode
 	}
-	id, err := a.Sandbox.Create(ctx, u.ID, s.ID, nil, mode == "none")
+	created := a.Now()
+	noNetwork := mode == "none"
+	if mode == "allowlist" && a.Cfg.FirewallToken != "" && a.FirewallSyncAge() > time.Minute {
+		// the host firewall is meant to enforce this user's allowlist but its sync service is not
+		// running, so the sandbox would be open until it is: fail closed instead
+		noNetwork = true
+		a.Log.Warn("firewall sync is not running; starting an allowlist sandbox without a network", "session", s.ID)
+	}
+	id, err := a.Sandbox.Create(ctx, u.ID, s.ID, nil, noNetwork)
 	if err != nil {
 		return "", err
+	}
+	if mode != "open" && mode != "none" {
+		a.waitForFirewall(ctx, created) // an allowlisted sandbox must never be briefly open
 	}
 	if cur, err := a.Store.GetChatSession(bg, s.ID); err == nil {
 		cur.SandboxID = id

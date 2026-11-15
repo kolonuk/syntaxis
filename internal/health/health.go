@@ -55,6 +55,7 @@ const (
 	CheckDockerAccess    = "sandbox.docker"
 	CheckSocketProxy     = "sandbox.socket-proxy"
 	CheckNetworkRules    = "sandbox.network-rules"
+	CheckFirewallSync    = "sandbox.firewall-sync"
 	CheckSandboxImage    = "sandbox.image"
 	CheckDisk            = "sandbox.disk"
 	CheckMemory          = "sandbox.memory"

@@ -74,6 +74,8 @@ type SandboxState struct {
 	NetworkRulesApplied   bool
 	NetworkRulesProbed    bool   // NetworkRulesApplied was measured by a test sandbox, not taken from configuration
 	NetworkProbeErr       string // why the test sandbox could not run
+	FirewallSyncExpected  bool   // SYNTAXIS_FIREWALL_TOKEN is set, so the host sync service should be polling
+	FirewallSyncStale     bool   // it has not polled recently
 	ImagePresent          bool
 	DiskFreePct           float64
 	MemFreeMB             int

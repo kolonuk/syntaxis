@@ -80,6 +80,8 @@ cp -p .env ".env.pre-update-$TS"
 VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$CID")
 
 # ---- apply ----
+# installs from before the firewall sync service get its token
+[ -n "$(getenv SYNTAXIS_FIREWALL_TOKEN)" ] || setenv SYNTAXIS_FIREWALL_TOKEN "$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
 if [ "$SOURCE" = 1 ]; then
   SYNTAXIS_COMMIT="$WANT"
   SYNTAXIS_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -107,6 +109,14 @@ healthy() {
 }
 if healthy; then
   say "updated: $(curl -fsS "http://127.0.0.1:$port/api/version")"
+  if [ -f /etc/systemd/system/syntaxis-egress.service ]; then
+    # keep the host firewall's units in step with the checkout
+    ROOT=$(pwd)
+    sed "s#@ROOT@#$ROOT#g" deploy/systemd/syntaxis-firewall-sync.service > /etc/systemd/system/syntaxis-firewall-sync.service
+    systemctl daemon-reload
+    systemctl enable syntaxis-firewall-sync.service >/dev/null 2>&1 || true
+    systemctl restart syntaxis-egress.service syntaxis-firewall-sync.service || true
+  fi
   exit 0
 fi
 

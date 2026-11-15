@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 )
 
 func ip(s string) netip.Addr { return netip.MustParseAddr(s) }
@@ -147,7 +148,7 @@ func TestNftablesOpen(t *testing.T) {
 			t.Errorf("ruleset missing %q\n%s", want, txt)
 		}
 	}
-	if strings.Contains(txt, "allowed_hosts") || strings.HasSuffix(strings.TrimSpace(txt), "counter drop\n  }") {
+	if strings.HasSuffix(strings.TrimSpace(txt), "counter drop\n  }") {
 		t.Error("open mode must not end in a default drop")
 	}
 	if !strings.Contains(txt, "ct state established,related accept") || strings.Index(txt, "ct state established,related accept") > strings.Index(txt, "ip daddr 172.30.0.0/24 counter drop") {
@@ -276,5 +277,44 @@ func TestRulesOnlyEverDropSandboxTraffic(t *testing.T) {
 	}
 	if bridgeName(`br0"; flush ruleset; "`) != "" {
 		t.Fatal("an unsafe interface name was accepted")
+	}
+}
+
+func TestFormatStateIsPlainValidatedLines(t *testing.T) {
+	out := FormatState(
+		[]SandboxEntry{{IP: ip("172.30.0.9"), Mode: ModeNone}, {IP: ip("172.30.0.5"), Mode: ModeAllowlist}, {IP: ip("172.30.0.7"), Mode: ModeOpen}, {IP: ip("fd00::1"), Mode: ModeOpen}},
+		[]HostEntry{{IP: ip("93.184.216.34"), TTL: 90 * time.Second}, {IP: ip("93.184.216.35"), TTL: 0}},
+	)
+	want := "sandbox 172.30.0.5 allow\nsandbox 172.30.0.7 open\nsandbox 172.30.0.9 none\nhost 93.184.216.34 90\n"
+	if out != want {
+		t.Fatalf("%q", out)
+	}
+}
+
+func TestHostTrackerExpires(t *testing.T) {
+	var h HostTracker
+	t0 := time.Unix(1000, 0)
+	h.Add([]netip.Addr{ip("93.184.216.34")}, t0)
+	if s := h.Snapshot(t0.Add(time.Minute)); len(s) != 1 || s[0].TTL > HostTTL {
+		t.Fatalf("%+v", s)
+	}
+	if s := h.Snapshot(t0.Add(HostTTL + time.Second)); len(s) != 0 {
+		t.Fatalf("expired entry kept: %+v", s)
+	}
+}
+
+func TestParseConnLog(t *testing.T) {
+	l, ok := ParseConnLog("syxa: IN=br-abc OUT=eth0 MAC=aa SRC=172.30.0.5 DST=93.184.216.34 LEN=60 TOS=0x00 PREC=0x00 TTL=63 ID=1 DF PROTO=TCP SPT=41234 DPT=443 WINDOW=64240")
+	if !ok || !l.Allowed || l.Src != ip("172.30.0.5") || l.Dst != ip("93.184.216.34") || l.Proto != "tcp" || l.DPort != 443 {
+		t.Fatalf("%+v %v", l, ok)
+	}
+	l, ok = ParseConnLog("Nov 15 10:00:01 host kernel: syxd:  IN=br-abc SRC=172.30.0.5 DST=169.254.169.254 PROTO=ICMP TYPE=8")
+	if !ok || l.Allowed || l.Proto != "icmp" || l.DPort != 0 {
+		t.Fatalf("%+v %v", l, ok)
+	}
+	for _, bad := range []string{"", "something else", "syxa: SRC=zz DST=1.2.3.4 PROTO=TCP"} {
+		if _, ok := ParseConnLog(bad); ok {
+			t.Errorf("accepted %q", bad)
+		}
 	}
 }

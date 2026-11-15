@@ -447,3 +447,19 @@ func TestCPUOnlyModelIsNotASpill(t *testing.T) {
 		t.Fatal("a model with no GPU memory at all is CPU-only by design")
 	}
 }
+
+func TestFirewallSyncCheck(t *testing.T) {
+	s := healthy()
+	s.Sandbox.FirewallSyncExpected, s.Sandbox.FirewallSyncStale = true, true
+	if f := find(run(s), CheckFirewallSync); f == nil || f.Severity != Warning {
+		t.Fatalf("a stale sync service must be flagged: %+v", f)
+	}
+	s.Sandbox.FirewallSyncStale = false
+	if find(run(s), CheckFirewallSync) != nil {
+		t.Fatal("a running sync service must not be flagged")
+	}
+	s.Sandbox.FirewallSyncExpected, s.Sandbox.FirewallSyncStale = false, true
+	if find(run(s), CheckFirewallSync) != nil {
+		t.Fatal("no token configured means the sync service is not expected")
+	}
+}

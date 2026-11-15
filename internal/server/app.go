@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/config"
+	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/lifecycle"
 	"github.com/kolonuk/syntaxis/internal/mail"
@@ -42,27 +43,32 @@ const (
 
 // App holds shared dependencies.
 type App struct {
-	Cfg         *config.Config
-	Store       store.Store
-	Auth        *auth.Service
-	Quota       *quota.Service
-	Secrets     *secrets.Service
-	Signing     *signing.Service
-	Mail        mail.Mailer
-	Health      *health.Engine
-	Sandbox     *sandbox.Manager // may be nil (sandboxes unavailable)
-	Terms       *Terminals       // open interactive terminals
-	Monitor     *sandbox.Monitor // CPU/memory sampling and limits; may be nil
-	Log         *slog.Logger
-	Runs        *Runs
-	Web         http.Handler // embedded frontend (may be nil)
-	Now         func() time.Time
-	RunAgent    RunFunc
-	Queues      *Queues
-	MCPSource   mcp.Source
-	Lifecycle   *lifecycle.Job
-	AdminWeb    http.Handler
-	NewProvider func(p *store.Provider) (provider.Provider, error)
+	Cfg     *config.Config
+	Store   store.Store
+	Auth    *auth.Service
+	Quota   *quota.Service
+	Secrets *secrets.Service
+	Signing *signing.Service
+	Mail    mail.Mailer
+	Health  *health.Engine
+	Sandbox *sandbox.Manager // may be nil (sandboxes unavailable)
+	// FirewallState describes the running sandboxes and allowlisted addresses for the host
+	// firewall sync service; nil when the resolver is not running.
+	FirewallState func(ctx context.Context) ([]egress.SandboxEntry, []egress.HostEntry)
+	fwMu          sync.Mutex
+	fwSeen        time.Time
+	Terms         *Terminals       // open interactive terminals
+	Monitor       *sandbox.Monitor // CPU/memory sampling and limits; may be nil
+	Log           *slog.Logger
+	Runs          *Runs
+	Web           http.Handler // embedded frontend (may be nil)
+	Now           func() time.Time
+	RunAgent      RunFunc
+	Queues        *Queues
+	MCPSource     mcp.Source
+	Lifecycle     *lifecycle.Job
+	AdminWeb      http.Handler
+	NewProvider   func(p *store.Provider) (provider.Provider, error)
 	// TerminalRecheck is how often open terminals re-check their sign-in (0 = default).
 	TerminalRecheck time.Duration
 

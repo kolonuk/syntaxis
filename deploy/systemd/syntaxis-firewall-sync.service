@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Keeps the egress firewall's per-sandbox sets in step with Syntaxis and forwards the firewall's
+# connection log. Installed by scripts/install.sh, which replaces @ROOT@ with the checkout directory.
+[Unit]
+Description=Syntaxis firewall sync
+Documentation=https://github.com/kolonuk/syntaxis/blob/main/docs/security.md#egress
+After=docker.service syntaxis-egress.service
+Wants=syntaxis-egress.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@
+ExecStart=/bin/sh @ROOT@/scripts/firewall-sync.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

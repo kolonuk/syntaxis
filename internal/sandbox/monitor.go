@@ -4,10 +4,12 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,6 +46,8 @@ type track struct {
 	pauses    int // times the watchdog (not the allowance) has paused this sandbox
 	last      Stats
 	checkedAt time.Time
+	diskAt    time.Time
+	disk      int64
 }
 
 // Monitor samples every running sandbox, tracks CPU use (so it can be metered
@@ -65,6 +69,9 @@ type Monitor struct {
 	OnEvent func(session string, ev Event)
 	// Exhausted reports whether the user's daily compute allowance is used up.
 	Exhausted func(user int64) bool
+	// DiskBytes measures a sandbox's workspace (nil = not checked). It runs at most every DiskEvery.
+	DiskBytes func(ctx context.Context, containerID string) (int64, error)
+	DiskEvery time.Duration // default 60s
 
 	mu     sync.Mutex
 	tracks map[string]*track
@@ -168,6 +175,24 @@ func (m *Monitor) observe(ctx context.Context, session string, user int64, id st
 	if checkQuota {
 		t.checkedAt = now
 	}
+	every := m.DiskEvery
+	if every <= 0 {
+		every = time.Minute
+	}
+	checkDisk := m.DiskBytes != nil && now.Sub(t.diskAt) >= every
+	if checkDisk {
+		t.diskAt = now
+	}
+	m.mu.Unlock()
+	if checkDisk {
+		if n, err := m.DiskBytes(ctx, id); err == nil {
+			m.mu.Lock()
+			t.disk = n
+			m.mu.Unlock()
+		}
+	}
+	m.mu.Lock()
+	disk := t.disk
 	m.mu.Unlock()
 
 	if whole > 0 && m.OnCPU != nil {
@@ -192,7 +217,7 @@ func (m *Monitor) observe(ctx context.Context, session string, user int64, id st
 	}
 	obs := st
 	obs.CPUPercent = median
-	for _, ev := range m.Watchdog.Observe(session, user, obs, 0, capNow, now) {
+	for _, ev := range m.Watchdog.Observe(session, user, obs, disk, capNow, now) {
 		m.apply(ctx, session, id, ev)
 	}
 }
@@ -268,4 +293,21 @@ func percentile(xs []float64, p float64) float64 {
 		i = 0
 	}
 	return s[i]
+}
+
+// WorkspaceBytes measures the size of a sandbox's workspace with du, run inside the sandbox.
+func WorkspaceBytes(ctx context.Context, rt Runtime, containerID string) (int64, error) {
+	r, err := rt.Exec(ctx, containerID, ExecSpec{Cmd: []string{"du", "-sk", WorkspacePath}, WorkingDir: "/", Timeout: 30 * time.Second, MaxOutput: 4096})
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(r.Stdout)
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("du gave no output (exit %d)", r.ExitCode)
+	}
+	kb, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return kb * 1024, nil
 }

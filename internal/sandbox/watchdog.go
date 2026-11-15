@@ -88,26 +88,30 @@ func (w *Watchdog) Observe(session string, user int64, st Stats, diskBytes int64
 		kind   string
 		breach bool
 		reason string
-		hard   bool // immediate kill (disk full)
+		hard   bool // immediate kill (runaway disk use)
+		warn   bool // immediate warning only
 	}
 	var checks []check
 	if cfg.CPUPercentHigh > 0 && cpuCap > 0 {
 		pct := st.CPUPercent / cpuCap
-		checks = append(checks, check{"cpu", pct >= cfg.CPUPercentHigh, fmt.Sprintf("CPU at %.0f%% of its cap", pct), false})
+		checks = append(checks, check{"cpu", pct >= cfg.CPUPercentHigh, fmt.Sprintf("CPU at %.0f%% of its cap", pct), false, false})
 	}
 	if cfg.MemoryPercentHigh > 0 && st.MemoryLimit > 0 {
 		pct := 100 * float64(st.MemoryBytes) / float64(st.MemoryLimit)
-		checks = append(checks, check{"memory", pct >= cfg.MemoryPercentHigh, fmt.Sprintf("memory at %.0f%% of its limit", pct), false})
+		checks = append(checks, check{"memory", pct >= cfg.MemoryPercentHigh, fmt.Sprintf("memory at %.0f%% of its limit", pct), false, false})
 	}
 	if cfg.DiskWriteHigh > 0 {
-		checks = append(checks, check{"diskwrite", st.BlockWriteRate >= cfg.DiskWriteHigh, fmt.Sprintf("sustained disk writes of %.0f MB/s", st.BlockWriteRate/(1<<20)), false})
+		checks = append(checks, check{"diskwrite", st.BlockWriteRate >= cfg.DiskWriteHigh, fmt.Sprintf("sustained disk writes of %.0f MB/s", st.BlockWriteRate/(1<<20)), false, false})
 	}
 	if cfg.PidsPercentHigh > 0 && st.PidsLimit > 0 {
 		pct := 100 * float64(st.Pids) / float64(st.PidsLimit)
-		checks = append(checks, check{"pids", pct >= cfg.PidsPercentHigh, fmt.Sprintf("process count at %.0f%% of its limit (fork bomb?)", pct), false})
+		checks = append(checks, check{"pids", pct >= cfg.PidsPercentHigh, fmt.Sprintf("process count at %.0f%% of its limit (fork bomb?)", pct), false, false})
 	}
 	if cfg.DiskBytesLimit > 0 {
-		checks = append(checks, check{"disk", diskBytes >= cfg.DiskBytesLimit, fmt.Sprintf("workspace full (%d MiB of %d MiB)", diskBytes>>20, cfg.DiskBytesLimit>>20), true})
+		// Over the cap the user is told to clear space (the sandbox keeps running so they can). Only
+		// well past it, which means something is filling the disk, is the sandbox stopped.
+		checks = append(checks, check{kind: "disk", breach: diskBytes >= cfg.DiskBytesLimit, reason: fmt.Sprintf("the workspace is over its size limit (%d MiB of %d MiB); delete files to free space", diskBytes>>20, cfg.DiskBytesLimit>>20), warn: true})
+		checks = append(checks, check{kind: "diskfill", breach: diskBytes >= cfg.DiskBytesLimit+cfg.DiskBytesLimit/4, reason: fmt.Sprintf("the workspace is far over its size limit (%d MiB of %d MiB)", diskBytes>>20, cfg.DiskBytesLimit>>20), hard: true})
 	}
 	m := w.breaches[session]
 	if m == nil {
@@ -127,6 +131,8 @@ func (w *Watchdog) Observe(session string, user int64, st Stats, diskBytes int64
 		act := w.escalate(now.Sub(b.since))
 		if c.hard {
 			act = ActionKill
+		} else if c.warn {
+			act = ActionWarn
 		}
 		if act > b.last {
 			b.last = act

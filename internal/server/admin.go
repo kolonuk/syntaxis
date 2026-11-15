@@ -41,6 +41,8 @@ func (a *App) AdminHandler() http.Handler {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": buildinfo.Get()})
 	})
 	r.Get("/api/version", handleVersion)
+	r.Get("/internal/firewall", a.handleFirewallState)
+	r.Post("/internal/firewall/log", a.handleFirewallLog)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", a.handleLogin(store.KindAdmin))
 		r.Post("/login/mfa", a.handleMFA(store.KindAdmin))

@@ -36,7 +36,7 @@ func (a *App) SandboxEvent(session string, ev sandbox.Event) {
 	msg := ""
 	switch ev.Action {
 	case sandbox.ActionWarn:
-		msg = "Your sandbox is using a lot of CPU (" + ev.Reason + ")."
+		msg = "Heads up: " + ev.Reason + "."
 	case sandbox.ActionThrottle:
 		msg = "Your sandbox is being slowed down because it has been busy for a while (" + ev.Reason + ")."
 	case sandbox.ActionPause:

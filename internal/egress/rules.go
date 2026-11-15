@@ -43,6 +43,11 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	}
 	table = SanitizeName(table)
 	var b strings.Builder
+	// logNew records new connections from sandboxes (rate-limited) in the kernel log, where the
+	// firewall sync service picks them up for the egress log. "syxa" = allowed, "syxd" = denied.
+	logNew := func(match, prefix string) {
+		fmt.Fprintf(&b, "    %s ct state new limit rate 20/second burst 40 packets log prefix \"%s \"\n", match, prefix)
+	}
 	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", table, table)
 	fmt.Fprintf(&b, "table inet %s {\n", table)
 	fmt.Fprintf(&b, "  chain egress {\n    type filter hook forward priority -10; policy accept;\n")
@@ -63,6 +68,7 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "    ip saddr %s tcp dport { 53, 853 } counter drop\n", subnet)
 	}
 	// SMTP out is blocked in every mode
+	logNew(fmt.Sprintf("ip saddr %s tcp dport { %s }", subnet, joinInts(BlockedSMTPPorts)), "syxd:")
 	fmt.Fprintf(&b, "    ip saddr %s tcp dport { %s } counter drop\n", subnet, joinInts(BlockedSMTPPorts))
 	// intra-sandbox-network traffic between sandboxes is dropped (isolation between users);
 	// the Syntaxis container itself (the resolver address) may open connections to sandboxes
@@ -93,6 +99,7 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	}
 	sort.Strings(v4)
 	sort.Strings(v6)
+	logNew(fmt.Sprintf("ip saddr %s ip daddr { %s }", subnet, strings.Join(v4, ", ")), "syxd:")
 	fmt.Fprintf(&b, "    ip saddr %s ip daddr { %s } counter drop\n", subnet, strings.Join(v4, ", "))
 	// IPv6: the sandbox network has none, and an IPv6 rule cannot be limited by the IPv4
 	// subnet, so it is tied to the sandbox bridge or left out. (An unqualified ip6 drop would
@@ -101,26 +108,47 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	if br := bridgeName(p.Bridge); br != "" {
 		fmt.Fprintf(&b, "    iifname %q meta nfproto ipv6 counter drop\n", br)
 	}
-	// mode-specific tail
+	// Per-sandbox overrides. The firewall sync service keeps these sets in step with the running
+	// containers, so a user's own egress mode is enforced here and not only by DNS. Anything not
+	// listed falls through to the instance-wide mode below.
+	// Each rule is also tied to the sandbox subnet, so a wrong set entry can never affect other traffic.
+	per := func(set, rest string) string { return fmt.Sprintf("ip saddr %s ip saddr @%s%s", subnet, set, rest) }
+	logNew(per("sandbox_none", ""), "syxd:")
+	fmt.Fprintf(&b, "    %s counter drop\n", per("sandbox_none", ""))
+	logNew(per("sandbox_allow", " ip daddr @allowed_hosts"), "syxa:")
+	fmt.Fprintf(&b, "    %s accept\n", per("sandbox_allow", " ip daddr @allowed_hosts"))
+	logNew(per("sandbox_allow", " ip daddr @allow_nets"), "syxa:")
+	fmt.Fprintf(&b, "    %s accept\n", per("sandbox_allow", " ip daddr @allow_nets"))
+	logNew(per("sandbox_allow", ""), "syxd:")
+	fmt.Fprintf(&b, "    %s counter drop\n", per("sandbox_allow", ""))
+	logNew(per("sandbox_open", ""), "syxa:")
+	fmt.Fprintf(&b, "    %s accept\n", per("sandbox_open", ""))
+	// instance-wide mode
+	var allow []string
+	for _, e := range p.Allowlist {
+		if _, err := netip.ParsePrefix(e); err == nil {
+			allow = append(allow, e)
+		} else if a, err := netip.ParseAddr(e); err == nil {
+			allow = append(allow, a.String())
+		}
+		// hostnames are enforced by the DNS resolver, which only returns addresses for listed
+		// names, and by the allowed_hosts set that the firewall sync fills from its answers
+	}
 	switch p.Mode {
 	case ModeNone:
+		logNew(fmt.Sprintf("ip saddr %s", subnet), "syxd:")
 		fmt.Fprintf(&b, "    ip saddr %s counter drop\n", subnet)
 	case ModeAllowlist:
-		var allow []string
-		for _, e := range p.Allowlist {
-			if _, err := netip.ParsePrefix(e); err == nil {
-				allow = append(allow, e)
-			} else if a, err := netip.ParseAddr(e); err == nil {
-				allow = append(allow, a.String())
-			}
-			// hostnames are enforced by the DNS resolver, which only returns
-			// addresses for listed names, and by an IP set the resolver feeds
-		}
 		if len(allow) > 0 {
+			logNew(fmt.Sprintf("ip saddr %s ip daddr { %s }", subnet, strings.Join(allow, ", ")), "syxa:")
 			fmt.Fprintf(&b, "    ip saddr %s ip daddr { %s } accept\n", subnet, strings.Join(allow, ", "))
 		}
+		logNew(fmt.Sprintf("ip saddr %s ip daddr @allowed_hosts", subnet), "syxa:")
 		fmt.Fprintf(&b, "    ip saddr %s ip daddr @allowed_hosts accept\n", subnet)
+		logNew(fmt.Sprintf("ip saddr %s", subnet), "syxd:")
 		fmt.Fprintf(&b, "    ip saddr %s counter drop\n", subnet)
+	default:
+		logNew(fmt.Sprintf("ip saddr %s", subnet), "syxa:")
 	}
 	fmt.Fprintf(&b, "  }\n")
 	// Connections addressed to the Docker host itself (the bridge gateway, the host's LAN
@@ -138,9 +166,15 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "    iifname %q meta nfproto ipv6 counter drop\n", br)
 	}
 	fmt.Fprintf(&b, "    ip saddr %s counter drop\n  }\n", subnet)
-	if p.Mode == ModeAllowlist {
-		fmt.Fprintf(&b, "  set allowed_hosts {\n    type ipv4_addr\n    flags timeout\n  }\n")
+	for _, set := range []string{"sandbox_none", "sandbox_allow", "sandbox_open"} {
+		fmt.Fprintf(&b, "  set %s {\n    type ipv4_addr\n  }\n", set)
 	}
+	fmt.Fprintf(&b, "  set allowed_hosts {\n    type ipv4_addr\n    flags timeout\n  }\n")
+	fmt.Fprintf(&b, "  set allow_nets {\n    type ipv4_addr\n    flags interval\n")
+	if len(allow) > 0 {
+		fmt.Fprintf(&b, "    elements = { %s }\n", strings.Join(allow, ", "))
+	}
+	fmt.Fprintf(&b, "  }\n")
 	fmt.Fprintf(&b, "}\n")
 	// Traffic between two sandboxes on the same bridge is switched at layer 2 and only reaches
 	// the forward hook above when the br_netfilter kernel module is loaded and enabled, which
