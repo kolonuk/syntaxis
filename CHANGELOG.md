@@ -18,11 +18,16 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - MCP servers, each in its own gVisor sandbox, with registry browsing and admin approval.
 
 ### Changed
+- Base images are pinned by digest; tagged releases sign images and checksums with Sigstore keyless signing and attach SBOMs, with release notes taken from this changelog.
+- The sandbox network name, subnet and resolver address and the server image are configurable in Compose.
+- Getting started now uses the installer; the manual steps remain documented.
 - The health check verifies the egress firewall by behaviour (a short-lived sandbox tries to reach the Docker host) instead of trusting `SYNTAXIS_NETWORK_RULES_APPLIED`, so a missing or outdated ruleset is reported.
 - Secrets are read fresh for every command, so adding, changing or removing one applies immediately instead of needing a new session.
 - Simpler getting started guide and README.
 
 ### Fixed
+- Accessibility and layout (browser review on phone and desktop, light and dark, with axe-core): dark-mode danger buttons were 2.8:1 contrast, the admin header overflowed on phones and most admin tabs were out of sight, and the chat home had three identical calls to action with phone-only wording.
+- The admin exposure health check reported the Compose deployment as public; it now uses the published bind address.
 - **Security:** sandboxes could open connections to services listening on the Docker host itself (via the bridge gateway or the host's LAN address), because that traffic takes the input path, which the egress rules did not filter. The ruleset now has an input chain; re-apply it with `scripts/apply-egress.sh`.
 - Sandboxes on the same network could reach each other on hosts without `br_netfilter` loaded; the egress rules now also filter at the bridge.
 - Chat jitter while a reply streamed (only the chat log scrolls now).

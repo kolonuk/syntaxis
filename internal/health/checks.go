@@ -327,7 +327,7 @@ func checkSecurity(s *State, _ Thresholds) []Finding {
 		out = append(out, Finding{CheckID: CheckMasterKey, Severity: Warning, Message: "The master key file lives inside the data directory, so one backup or leak exposes both the data and the key.", Fix: "Store the key outside the data directory."})
 	}
 	if !sc.HTTPSDetected {
-		out = append(out, Finding{CheckID: CheckHTTPS, Severity: Warning, Message: "HTTPS was not detected (no TLS/X-Forwarded-Proto=https). Secure cookies and the PWA need HTTPS.", Fix: "Put Syntaxis behind a TLS-terminating reverse proxy."})
+		out = append(out, Finding{CheckID: CheckHTTPS, Severity: Warning, Message: "HTTPS was not detected (no TLS/X-Forwarded-Proto=https). Secure cookies and the PWA need HTTPS.", Fix: "Put Syntaxis behind a TLS-terminating reverse proxy; `scripts/install.sh --https <domain>` adds one with automatic certificates."})
 	}
 	if sc.AdminListenPublic {
 		out = append(out, Finding{CheckID: CheckAdminExposed, Severity: Error, Message: "The admin listener is bound to a public address.", Fix: "Bind SYNTAXIS_ADMIN_LISTEN to loopback, a LAN or a VPN address."})

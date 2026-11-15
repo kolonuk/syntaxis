@@ -11,10 +11,8 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] CI fully green, including the gVisor integration job, on every push.
 - [ ] Verify on real gVisor: pause and stop of sustained CPU load, and the daily compute allowance cut-off.
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] Fresh-checkout `docker compose up` verified automatically in CI.
 - [ ] Lighthouse audit (PWA, accessibility, performance) run in CI against a started instance.
 - [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
-- [ ] Pin base image digests and publish an SBOM.
 
 ## 2. Access model
 
@@ -36,6 +34,12 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 ## 4. Agent and workflow
 
+Compared with Jules and Claude Code, these are missing or weaker (background runs, approvals, project instructions, skills, MCP, checkpoints and usage visibility already exist):
+
+- [ ] Plan mode: the agent proposes a plan the user approves or edits before it changes files.
+- [ ] Parallel tasks: several runs of one task (or several tasks) at once, each in its own sandbox, with a side-by-side comparison.
+- [ ] Diff review in the UI before a push: per-file diff, comments that go back to the agent.
+
 - [ ] Scheduled runs and triggers: cron schedules, webhooks and GitHub events start a run with a stored prompt, with the same quotas and approvals, and results visible in the session list.
 - [ ] `devcontainer.json` support and per-project image templates.
 - [ ] Prompt presets.
@@ -48,7 +52,11 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 ## 5. Operations
 
-- [ ] Fully automated deployment: see the review prompt in [docs/review-prompt.md](docs/review-prompt.md).
+- [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
+- [ ] Ansible role (or Terraform module) for a single host, wrapping `scripts/install.sh`.
+- [ ] Run the Playwright and accessibility (axe-core) suites in CI against the instance the fresh-install job creates; add a Lighthouse PWA check.
+- [ ] Publish versioned docs with each release.
+- [ ] Docker proxy: filter the container list to Syntaxis containers, so a compromised server cannot see other containers on the host.
 - [ ] Admin log viewer beyond audit and egress; log retention and rotation settings.
 - [ ] Connection-level egress logging (today only DNS queries are logged).
 - [ ] Feed the firewall's `allowed_hosts` set from the resolver's answers so hostname entries work in `allowlist` mode (today only CIDR and address entries pass the firewall), and enforce per-user egress modes in the firewall, not only in DNS.
