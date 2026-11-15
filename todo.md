@@ -60,9 +60,6 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 ## 6. Operations
 
 - [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
-- [ ] Ansible role (or Terraform module) for a single host, wrapping `scripts/install.sh`.
 - [ ] Run the Playwright and accessibility (axe-core) suites in CI against the instance the fresh-install job creates; add a Lighthouse PWA check.
-- [ ] Publish versioned docs with each release.
 - [ ] Docker proxy: filter the container list to Syntaxis containers, so a compromised server cannot see other containers on the host.
-- [ ] Admin log viewer beyond audit and egress; log retention and rotation settings.
 - [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute, a warning is shown at the limit and the sandbox is stopped when far over it.
