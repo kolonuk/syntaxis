@@ -27,6 +27,29 @@ type ipMap struct {
 		user    int64
 		session string
 	}
+	refreshMu   sync.Mutex
+	lastRefresh time.Time
+}
+
+// lookup returns the owner of a sandbox address. A miss refreshes the map at most once
+// a second, so a sandbox that has just started resolves names straight away instead of
+// waiting for the periodic refresh.
+func (i *ipMap) lookup(ctx context.Context, rt sandbox.Runtime, network string, a netip.Addr) (int64, string, bool) {
+	get := func() (int64, string, bool) {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		v, ok := i.m[a]
+		return v.user, v.session, ok
+	}
+	if u, s, ok := get(); ok {
+		return u, s, true
+	}
+	i.refreshMu.Lock()
+	if time.Since(i.lastRefresh) >= time.Second {
+		i.refresh(ctx, rt, network)
+	}
+	i.refreshMu.Unlock()
+	return get()
 }
 
 func (i *ipMap) refresh(ctx context.Context, rt sandbox.Runtime, network string) {
@@ -59,6 +82,7 @@ func (i *ipMap) refresh(ctx context.Context, rt sandbox.Runtime, network string)
 	i.mu.Lock()
 	i.m = m
 	i.mu.Unlock()
+	i.lastRefresh = time.Now()
 }
 
 func upstreamDNS(cfg *config.Config) string {
@@ -118,20 +142,22 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 	gwAddr, _ := netip.ParseAddr(gw)
 	ips := &ipMap{}
 	ips.refresh(ctx, mgr.RT, cfg.Docker.Network)
-	go loop(ctx, 5*time.Second, func() { ips.refresh(ctx, mgr.RT, cfg.Docker.Network) })
+	go loop(ctx, 5*time.Second, func() {
+		ips.refreshMu.Lock()
+		ips.refresh(ctx, mgr.RT, cfg.Docker.Network)
+		ips.refreshMu.Unlock()
+	})
 	_ = subnet
 
 	r := &egress.Resolver{
 		Upstream: upstreamDNS(cfg),
 		PolicyFor: func(src netip.Addr) (egress.Policy, bool) {
-			ips.mu.Lock()
-			info, ok := ips.m[src]
-			ips.mu.Unlock()
+			uid, _, ok := ips.lookup(ctx, mgr.RT, cfg.Docker.Network, src)
 			if !ok {
 				return egress.Policy{}, false
 			}
 			mode := cfg.EgressMode
-			if u, err := st.GetUser(ctx, info.user); err == nil && u.EgressMode != "" {
+			if u, err := st.GetUser(ctx, uid); err == nil && u.EgressMode != "" {
 				mode = u.EgressMode
 			}
 			return egress.Policy{Mode: mode, Allowlist: cfg.EgressAllow, ExtraBlocked: blocked, BridgeGateway: gwAddr}, true

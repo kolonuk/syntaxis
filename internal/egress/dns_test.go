@@ -156,3 +156,45 @@ func TestResolverIgnoresUnknownSources(t *testing.T) {
 		t.Fatal("garbage answered")
 	}
 }
+
+// A sandbox flooding the resolver must not make Syntaxis start unbounded work.
+func TestResolverBoundsConcurrentQueries(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	r := &Resolver{Upstream: "127.0.0.1:9", MaxInFlight: 1,
+		PolicyFor: func(src netip.Addr) (Policy, bool) {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+			<-release
+			return Policy{Mode: ModeNone}, true
+		}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = r.Serve(ctx, "127.0.0.1:0") }()
+	for i := 0; i < 100 && r.Addr() == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.Addr() == nil {
+		t.Fatal("resolver did not start")
+	}
+	c, err := net.Dial("udp", r.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	n, _ := dnsmessage.NewName("example.com.")
+	b, _ := (&dnsmessage.Message{Questions: []dnsmessage.Question{{Name: n, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}}}).Pack()
+	for i := 0; i < 20; i++ {
+		_, _ = c.Write(b)
+	}
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	close(release)
+	if got != 1 {
+		t.Fatalf("handled %d queries at once with a limit of 1", got)
+	}
+}

@@ -22,6 +22,9 @@ type DNSLogEntry struct {
 	Answers []netip.Addr
 }
 
+// DefaultMaxInFlight is the default bound on concurrently handled queries.
+const DefaultMaxInFlight = 256
+
 // Resolver is the Syntaxis-run DNS forwarder on the sandbox network. It
 // enforces per-sandbox domain policy, refuses answers that point into blocked
 // ranges (DNS rebinding to the LAN or metadata endpoints) and logs queries.
@@ -35,6 +38,10 @@ type Resolver struct {
 	Log func(DNSLogEntry)
 	// OnAnswer lets the nft allowed_hosts set be fed in allowlist mode.
 	OnAnswer func(src netip.Addr, name string, ips []netip.Addr)
+	// MaxInFlight bounds the queries handled at once (0 = DefaultMaxInFlight). Queries
+	// beyond it are dropped, as a busy resolver would, so a sandbox flooding the
+	// resolver cannot make Syntaxis start unbounded goroutines.
+	MaxInFlight int
 
 	mu   sync.Mutex
 	conn net.PacketConn
@@ -50,6 +57,11 @@ func (r *Resolver) Serve(ctx context.Context, addr string) error {
 	r.conn = pc
 	r.mu.Unlock()
 	go func() { <-ctx.Done(); _ = pc.Close() }()
+	limit := r.MaxInFlight
+	if limit <= 0 {
+		limit = DefaultMaxInFlight
+	}
+	slots := make(chan struct{}, limit)
 	buf := make([]byte, 4096)
 	for {
 		n, from, err := pc.ReadFrom(buf)
@@ -59,8 +71,14 @@ func (r *Resolver) Serve(ctx context.Context, addr string) error {
 			}
 			return err
 		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			continue // overloaded: drop, the client retries
+		}
 		pkt := append([]byte(nil), buf[:n]...)
 		go func() {
+			defer func() { <-slots }()
 			if resp := r.Handle(pkt, from); resp != nil {
 				_, _ = pc.WriteTo(resp, from)
 			}
