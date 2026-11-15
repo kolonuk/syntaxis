@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// ReasonAllowance is the event reason used when a user's daily compute allowance runs out.
+const ReasonAllowance = "your daily compute allowance is used up"
+
 // Resources is what the UI shows about a session's sandbox.
 type Resources struct {
 	CPUPercent   float64 // latest sample, percent of one core
@@ -38,6 +41,7 @@ type track struct {
 	total     float64
 	throttled bool
 	paused    bool
+	pauses    int // times the watchdog (not the allowance) has paused this sandbox
 	last      Stats
 	checkedAt time.Time
 }
@@ -128,7 +132,13 @@ func (m *Monitor) observe(ctx context.Context, session string, user int64, id st
 		t = &track{user: user, id: id}
 		m.tracks[session] = t
 	}
-	t.paused = false
+	if t.paused {
+		// it was resumed after a pause: give it a fresh start rather than judging it on the old load
+		t.paused = false
+		t.samples = nil
+		t.lastNanos = 0
+		m.Watchdog.Forget(session)
+	}
 	pct := st.CPUPercent
 	if st.CPUNanos > 0 {
 		if t.lastNanos > 0 && now.After(t.lastAt) && st.CPUNanos >= t.lastNanos {
@@ -164,7 +174,7 @@ func (m *Monitor) observe(ctx context.Context, session string, user int64, id st
 		m.OnCPU(user, whole)
 	}
 	if checkQuota && m.Exhausted(user) {
-		m.apply(ctx, session, id, Event{Session: session, User: user, Action: ActionPause, Reason: "your daily compute allowance is used up"})
+		m.apply(ctx, session, id, Event{Session: session, User: user, Action: ActionPause, Reason: ReasonAllowance})
 		return
 	}
 	// A throttled sandbox that has calmed down gets its full cap back.
@@ -200,9 +210,22 @@ func (m *Monitor) apply(ctx context.Context, session, id string, ev Event) {
 			m.mu.Unlock()
 		}
 	case ActionPause:
+		m.mu.Lock()
+		t := m.tracks[session]
+		repeat := t != nil && t.pauses >= 1 && ev.Reason != ReasonAllowance
+		if t != nil && ev.Reason != ReasonAllowance {
+			t.pauses++
+		}
+		m.mu.Unlock()
+		if repeat {
+			// paused once already and overloaded again after being resumed: stop it
+			ev = Event{Session: session, User: ev.User, Action: ActionKill, Reason: ev.Reason + " (again after being paused)"}
+			_ = m.RT.Stop(ctx, id, time.Second)
+			break
+		}
 		if err := m.RT.Pause(ctx, id); err == nil {
 			m.mu.Lock()
-			if t := m.tracks[session]; t != nil {
+			if t != nil {
 				t.paused = true
 			}
 			m.mu.Unlock()

@@ -17,6 +17,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/checkpoint"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/queue"
+	"github.com/kolonuk/syntaxis/internal/quota"
 	"github.com/kolonuk/syntaxis/internal/rules"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/scanner"
@@ -394,6 +395,9 @@ func toProviderMessage(m store.Message) provider.Message {
 
 func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.User) (string, error) {
 	bg := context.Background()
+	if a.Quota.CPUExhausted(ctx, u) {
+		return "", &quota.ExhaustedError{Kind: quota.KindCPUTime}
+	}
 	if s.SandboxID != "" {
 		if err := a.Sandbox.Resume(ctx, s.ID, s.SandboxID); err == nil {
 			return s.SandboxID, nil

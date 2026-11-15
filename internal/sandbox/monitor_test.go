@@ -101,3 +101,33 @@ func TestMonitorPausesWhenAllowanceUsedUp(t *testing.T) {
 		t.Fatal("sandbox kept running after the daily compute allowance ran out")
 	}
 }
+
+func TestMonitorPausedSandboxGetsAFreshStartThenIsStoppedIfOverloadedAgain(t *testing.T) {
+	mf := newMonFixture(t)
+	mf.step(0)
+	for i := 0; i < 14; i++ { // sustained load: throttled, then paused
+		mf.step(2)
+		if mf.f.Containers[mf.id].Info.Paused {
+			break
+		}
+	}
+	if !mf.f.Containers[mf.id].Info.Paused {
+		t.Fatalf("not paused: %+v", mf.events)
+	}
+	// the user resumes it; the old load must not count against it
+	_ = mf.f.Unpause(context.Background(), mf.id)
+	mf.step(2)
+	if mf.f.Containers[mf.id].Info.Paused || !mf.f.Containers[mf.id].Info.Running {
+		t.Fatal("a resumed sandbox was punished for load from before the pause")
+	}
+	// overloaded again: now it is stopped rather than paused a second time
+	for i := 0; i < 20 && mf.f.Containers[mf.id].Info.Running; i++ {
+		mf.step(2)
+	}
+	if mf.f.Containers[mf.id].Info.Running {
+		t.Fatalf("second overload should stop the sandbox: %+v", mf.events)
+	}
+	if last := mf.events[len(mf.events)-1]; last.Action != ActionKill {
+		t.Fatalf("%+v", last)
+	}
+}

@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -270,5 +271,81 @@ func TestIntegrationDNSWorksOnUserDefinedNetworkUnderGVisor(t *testing.T) {
 	r, _ := m.Exec(ctx, "it-dns", id, ExecSpec{Cmd: []string{"sh", "-c", "curl -s -m 8 -o /dev/null -w '%{http_code}' https://example.com/"}, Timeout: 30 * time.Second})
 	if strings.TrimSpace(r.Stdout) != "200" {
 		t.Skipf("no internet from containers on this host (got %q)", r.Stdout)
+	}
+}
+
+// monitorFixture starts a real gVisor sandbox with busy loops and a Monitor with short windows.
+func monitorFixture(t *testing.T, session string, uid int64) (*Manager, *Docker, string, *Monitor) {
+	t.Helper()
+	m, d := integrationManager(t)
+	ctx := context.Background()
+	id, err := m.Create(ctx, uid, session, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, session, id); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid)) })
+	// three busy loops against a two-core cap
+	if r, err := m.Exec(ctx, session, id, ExecSpec{Cmd: []string{"sh", "-c", "for i in 1 2 3; do (while :; do :; done) >/dev/null 2>&1 & done; echo started"}, Timeout: 10 * time.Second}); err != nil || r.ExitCode != 0 {
+		t.Fatalf("%v %+v", err, r)
+	}
+	cfg := DefaultWatchdogConfig()
+	cfg.WarnAfter, cfg.ThrottleAfter, cfg.PauseAfter, cfg.KillAfter, cfg.MinerAfter = 3*time.Second, 6*time.Second, 14*time.Second, 40*time.Second, 0
+	mon := NewMonitor(d, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
+	mon.Interval, mon.Window = time.Second, 4
+	return m, d, id, mon
+}
+
+func nanoCPUs(t *testing.T, id string) int64 {
+	t.Helper()
+	out, err := exec.Command("docker", "inspect", "-f", "{{.HostConfig.NanoCpus}}", id).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	_, _ = fmt.Sscan(strings.TrimSpace(string(out)), &n)
+	return n
+}
+
+func TestIntegrationMonitorThrottlesThenPausesSustainedLoadAndMetersCPU(t *testing.T) {
+	_, d, id, mon := monitorFixture(t, "it-mon", 910010)
+	ctx := context.Background()
+	var cpu int64
+	mon.OnCPU = func(_ int64, s int64) { cpu += s }
+	var acts []Action
+	mon.OnEvent = func(_ string, e Event) { acts = append(acts, e.Action) }
+	deadline := time.Now().Add(60 * time.Second)
+	throttled := false
+	for time.Now().Before(deadline) {
+		mon.Tick(ctx, time.Now())
+		if !throttled && nanoCPUs(t, id) == int64(DefaultLimits().CPUs*0.5*1e9) {
+			throttled = true
+		}
+		if ci, err := d.Inspect(ctx, id); err == nil && ci.Paused {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !throttled {
+		t.Errorf("sustained load was never throttled; events %v", acts)
+	}
+	ci, err := d.Inspect(ctx, id)
+	if err != nil || !ci.Paused {
+		t.Fatalf("sustained load was never paused (events %v, err %v)", acts, err)
+	}
+	if cpu < 10 {
+		t.Errorf("only %d CPU-seconds metered for a sandbox that ran flat out", cpu)
+	}
+}
+
+func TestIntegrationMonitorPausesWhenDailyAllowanceIsUsedUp(t *testing.T) {
+	_, d, id, mon := monitorFixture(t, "it-allow", 910012)
+	ctx := context.Background()
+	mon.Exhausted = func(int64) bool { return true }
+	for i := 0; i < 5; i++ {
+		mon.Tick(ctx, time.Now())
+		time.Sleep(time.Second)
+	}
+	if ci, err := d.Inspect(ctx, id); err != nil || !ci.Paused {
+		t.Fatalf("a user over their compute allowance kept running: %+v %v", ci, err)
 	}
 }
