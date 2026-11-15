@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Re-applies the egress firewall regularly, in case something flushed the ruleset.
+[Unit]
+Description=Re-apply the Syntaxis egress firewall regularly
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Unit=syntaxis-egress.service
+
+[Install]
+WantedBy=timers.target

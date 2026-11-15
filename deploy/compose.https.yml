@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Optional HTTPS front end: Caddy obtains and renews certificates automatically for
+# SYNTAXIS_DOMAIN and proxies only the chat app. The admin app is not proxied and
+# stays on the address set by SYNTAXIS_ADMIN_BIND (loopback by default).
+# Enabled by `scripts/install.sh --https <domain>`, which sets in .env:
+#   COMPOSE_FILE=docker-compose.yml:deploy/compose.https.yml
+#   SYNTAXIS_DOMAIN=<domain>  SYNTAXIS_CHAT_BIND=127.0.0.1  SYNTAXIS_PROXY_TRUSTED=172.31.250.2
+# Ports 80 and 443 must reach this host, and the domain must point at it.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      SYNTAXIS_DOMAIN: ${SYNTAXIS_DOMAIN:?set SYNTAXIS_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      edge:
+        ipv4_address: ${SYNTAXIS_EDGE_PROXY:-172.31.250.2}
+    depends_on: [syntaxis]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+
+  syntaxis:
+    networks:
+      edge: {}
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${SYNTAXIS_EDGE_SUBNET:-172.31.250.0/29}
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Chat app only. Caddy replaces any client-supplied X-Forwarded-For with the real
+# client address, which Syntaxis trusts from this proxy (SYNTAXIS_PROXY_TRUSTED).
+{$SYNTAXIS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy syntaxis:8080 {
+		# replies and the terminal stream; never buffer
+		flush_interval -1
+	}
+}

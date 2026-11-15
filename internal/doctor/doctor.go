@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -205,6 +206,11 @@ func collectSecurity(ctx context.Context, d Deps, s *health.State) {
 	}
 	sc.HTTPSDetected = d.HTTPS || strings.HasPrefix(c.BaseURL, "https://")
 	sc.AdminListenPublic = isPublicBind(c.AdminListen)
+	// In the Compose deployment the server listens on all interfaces inside its own
+	// container, and what the host exposes is the published port's bind address.
+	if b := os.Getenv("SYNTAXIS_ADMIN_BIND"); b != "" && sc.AdminListenPublic {
+		sc.AdminListenPublic = isPublicBind(net.JoinHostPort(b, "0"))
+	}
 	sc.ScanMode, sc.EgressMode = c.SecretScanMode, c.EgressMode
 	sc.ProxyAuthEnabled = c.ProxyAuth.Enabled
 	sc.ProxyTrustedEmpty = len(c.ProxyAuth.Trusted) == 0

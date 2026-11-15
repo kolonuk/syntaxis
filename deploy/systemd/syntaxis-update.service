@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Updates Syntaxis with backup and automatic rollback (scripts/update.sh).
+[Unit]
+Description=Update Syntaxis
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/bin/sh @ROOT@/scripts/update.sh --auto

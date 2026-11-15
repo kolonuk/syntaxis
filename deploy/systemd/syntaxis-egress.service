@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Applies the Syntaxis sandbox egress firewall. Installed by scripts/install.sh, which
+# replaces @ROOT@ with the checkout directory. Started at boot, whenever Docker starts,
+# when .env changes (syntaxis-egress.path) and every 15 minutes (syntaxis-egress.timer).
+[Unit]
+Description=Syntaxis sandbox egress firewall
+Documentation=https://github.com/kolonuk/syntaxis/blob/main/docs/security.md#egress
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/bin/sh @ROOT@/scripts/apply-egress.sh
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target docker.service

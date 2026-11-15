@@ -189,3 +189,15 @@ func TestFirewallProbeDecidesTheNetworkFinding(t *testing.T) {
 		}
 	}
 }
+
+// Inside the Compose container the admin app listens on 0.0.0.0, but the host publishes
+// it on the address in SYNTAXIS_ADMIN_BIND; that is what decides exposure.
+func TestAdminExposureUsesThePublishedBind(t *testing.T) {
+	cfg := &config.Config{AdminListen: "0.0.0.0:8081"}
+	for bind, public := range map[string]bool{"127.0.0.1": false, "0.0.0.0": true, "": true} {
+		t.Setenv("SYNTAXIS_ADMIN_BIND", bind)
+		if got := Collect(context.Background(), Deps{Cfg: cfg}).Security.AdminListenPublic; got != public {
+			t.Errorf("bind %q: public=%v, want %v", bind, got, public)
+		}
+	}
+}

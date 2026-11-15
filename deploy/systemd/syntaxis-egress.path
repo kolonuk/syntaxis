@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Re-applies the egress firewall when the settings change.
+[Unit]
+Description=Re-apply the Syntaxis egress firewall when .env changes
+
+[Path]
+PathChanged=@ROOT@/.env
+Unit=syntaxis-egress.service
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,7 @@
 # for what this does and does not protect.
 services:
   syntaxis:
-    image: ghcr.io/kolonuk/syntaxis:latest
+    image: ${SYNTAXIS_IMAGE:-ghcr.io/kolonuk/syntaxis:latest}
     build:
       context: .
       args:
@@ -20,11 +20,11 @@ services:
       SYNTAXIS_DOCKER_HOST: tcp://docker-socket-proxy:2375
       # the sandbox DNS resolver (domain policy, rebinding protection, query log) listens on this container's
       # address on the sandbox network; sandboxes are pointed at it
-      SYNTAXIS_DNS_LISTEN: 172.30.0.2:53
+      SYNTAXIS_DNS_LISTEN: ${SYNTAXIS_SANDBOX_RESOLVER:-172.30.0.2}:53
       # inside the container both apps listen on all interfaces; what is reachable from outside is decided by the published ports below
       SYNTAXIS_LISTEN: 0.0.0.0:8080
       SYNTAXIS_ADMIN_LISTEN: 0.0.0.0:8081
-      SYNTAXIS_SANDBOX_NETWORK: syntaxis-sandbox
+      SYNTAXIS_SANDBOX_NETWORK: ${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}
     ports:
       - "${SYNTAXIS_CHAT_BIND:-0.0.0.0}:${SYNTAXIS_CHAT_PORT:-8080}:8080"   # chat app: put it behind a TLS reverse proxy
       - "${SYNTAXIS_ADMIN_BIND:-127.0.0.1}:${SYNTAXIS_ADMIN_PORT:-8081}:8081" # admin app: loopback by default; use a VPN/LAN address for remote admin
@@ -40,7 +40,7 @@ services:
     networks:
       control: {}
       sandbox:
-        ipv4_address: 172.30.0.2
+        ipv4_address: ${SYNTAXIS_SANDBOX_RESOLVER:-172.30.0.2}
 
   docker-socket-proxy:
     # The validating Docker API proxy built into Syntaxis (`syntaxis docker-proxy`). It is
@@ -48,8 +48,8 @@ services:
     # and validates container, exec, volume and network requests so that only hardened
     # gVisor sandboxes can be created or started: no privileged containers, host mounts,
     # host namespaces, extra capabilities or published ports. See docs/security.md.
-    image: ghcr.io/kolonuk/syntaxis:latest
-    command: ["docker-proxy", "-listen", "0.0.0.0:2375", "-network", "syntaxis-sandbox"]
+    image: ${SYNTAXIS_IMAGE:-ghcr.io/kolonuk/syntaxis:latest}
+    command: ["docker-proxy", "-listen", "0.0.0.0:2375", "-network", "${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}"]
     restart: unless-stopped
     user: "0:0"   # to open the root-owned socket; no capabilities are kept
     volumes:
@@ -63,7 +63,7 @@ networks:
   control:
     internal: false
   sandbox:
-    name: syntaxis-sandbox
+    name: ${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}
     driver_opts:
       # ICC must stay on so sandboxes can reach the Syntaxis DNS resolver on this network.
       # Sandbox-to-sandbox traffic is dropped by the egress ruleset (see docs/getting-started.md),
@@ -71,7 +71,7 @@ networks:
       com.docker.network.bridge.enable_icc: "true"
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: ${SYNTAXIS_SANDBOX_SUBNET:-172.30.0.0/24}
 
 volumes:
   syntaxis-data:
