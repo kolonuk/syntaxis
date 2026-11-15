@@ -101,7 +101,7 @@ jobs:
           Images and `SHA256SUMS` are signed with Sigstore keyless signing by this repository's release workflow:
           `cosign verify ghcr.io/kolonuk/syntaxis:<version> --certificate-identity-regexp 'https://github.com/kolonuk/syntaxis/.github/workflows/release.yml@.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com`
           EOF
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           body_path: notes.md
