@@ -9,7 +9,9 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,15 +171,36 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 	if !reach("http://1.1.1.1/") {
 		t.Skip("no internet from the sandbox on this host")
 	}
+	// A listener on every host interface: connections addressed to the host itself take the
+	// input path, not the forward path, and must be dropped too. Counting accepted
+	// connections is exact, unlike curl's exit code against a non-HTTP service.
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var accepted atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted.Add(1)
+			_ = c.Close()
+		}
+	}()
+	hostPort := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 	lan := hostLANAddr(t)
 	for name, target := range map[string]string{
-		"docker bridge gateway": "http://" + gw.String() + ":2375/",
-		"host LAN address":      "http://" + lan + ":22/",
-		"cloud metadata":        "http://169.254.169.254/latest/meta-data/",
-		"SMTP to a public host": "telnet://1.1.1.1:25",
-		"private range":         "http://10.255.255.1/",
+		"host service via the bridge gateway": "http://" + gw.String() + ":" + hostPort + "/",
+		"host service via its LAN address":    "http://" + lan + ":" + hostPort + "/",
+		"cloud metadata":                      "http://169.254.169.254/latest/meta-data/",
+		"SMTP to a public host":               "telnet://1.1.1.1:25",
+		"private range":                       "http://10.255.255.1/",
 	} {
-		if reach(target) {
+		before := accepted.Load()
+		if reach(target) || accepted.Load() != before {
 			t.Errorf("%s (%s) is reachable from the sandbox", name, target)
 		}
 	}

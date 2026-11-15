@@ -51,6 +51,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] Fully automated deployment: see the review prompt in [docs/review-prompt.md](docs/review-prompt.md).
 - [ ] Admin log viewer beyond audit and egress; log retention and rotation settings.
 - [ ] Connection-level egress logging (today only DNS queries are logged).
+- [ ] Feed the firewall's `allowed_hosts` set from the resolver's answers so hostname entries work in `allowlist` mode (today only CIDR and address entries pass the firewall), and enforce per-user egress modes in the firewall, not only in DNS.
 - [ ] Workspace size cap enforced by the filesystem, not only by the watchdog.
 - [ ] Abuse alerts and admin notification emails.
 - [ ] Maintenance banner.

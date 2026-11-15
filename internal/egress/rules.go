@@ -118,6 +118,18 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 		fmt.Fprintf(&b, "    ip saddr %s counter drop\n", subnet)
 	}
 	fmt.Fprintf(&b, "  }\n")
+	// Connections addressed to the Docker host itself (the bridge gateway, the host's LAN
+	// address, anything listening on all interfaces such as an LLM server or SSH) are
+	// delivered locally and never pass the forward hook, so they need their own chain.
+	// Only replies to connections the host opened may come back from a sandbox. The
+	// Syntaxis container (the resolver address) is exempt: it is trusted and may share
+	// the subnet.
+	fmt.Fprintf(&b, "  chain host {\n    type filter hook input priority -10; policy accept;\n")
+	if resolverIP.IsValid() {
+		fmt.Fprintf(&b, "    ip saddr %s accept\n", resolverIP)
+	}
+	fmt.Fprintf(&b, "    ip saddr %s ct state established,related accept\n", subnet)
+	fmt.Fprintf(&b, "    ip saddr %s counter drop\n  }\n", subnet)
 	if p.Mode == ModeAllowlist {
 		fmt.Fprintf(&b, "  set allowed_hosts {\n    type ipv4_addr\n    flags timeout\n  }\n")
 	}

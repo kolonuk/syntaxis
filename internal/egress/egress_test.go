@@ -188,6 +188,32 @@ func TestNftablesNoneAndAllowlist(t *testing.T) {
 	}
 }
 
+// Traffic to the Docker host's own addresses takes the input hook, not forward. Without
+// this chain a sandbox reaches every service listening on the host (SSH, an LLM server).
+func TestRulesBlockConnectionsToTheHostItself(t *testing.T) {
+	for _, mode := range []string{ModeOpen, ModeNone} {
+		rs, err := Nftables("t", netip.MustParsePrefix("172.30.0.0/24"), ip("172.30.0.2"), Policy{Mode: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		txt := rs.Text
+		i := strings.Index(txt, "hook input")
+		if i < 0 {
+			t.Fatalf("%s: no input chain:\n%s", mode, txt)
+		}
+		chain := txt[i:]
+		chain = chain[:strings.Index(chain, "}")]
+		est := strings.Index(chain, "ip saddr 172.30.0.0/24 ct state established,related accept")
+		drop := strings.Index(chain, "ip saddr 172.30.0.0/24 counter drop")
+		if est < 0 || drop < 0 || est > drop {
+			t.Fatalf("%s: input chain must accept replies, then drop the sandbox subnet:\n%s", mode, chain)
+		}
+		if r := strings.Index(chain, "ip saddr 172.30.0.2 accept"); r < 0 || r > drop {
+			t.Fatalf("%s: the Syntaxis resolver address must be exempt before the drop:\n%s", mode, chain)
+		}
+	}
+}
+
 func TestSanitizeName(t *testing.T) {
 	if got := SanitizeName("a b;c-d"); got != "a_b_c_d" {
 		t.Fatal(got)
