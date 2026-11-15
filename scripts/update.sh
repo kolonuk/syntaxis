@@ -47,6 +47,7 @@ esac
 if [ "$SOURCE" = 1 ]; then
   [ -z "$VERSION" ] || git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null || git fetch -q --tags
   OLD_REV=$(git rev-parse HEAD)
+  OLD_REF=$(git symbolic-ref -q --short HEAD || echo "$OLD_REV")
   if [ -n "$VERSION" ]; then
     git checkout -q "$VERSION"
   else
@@ -118,7 +119,13 @@ docker run --rm --user 0 --network none -v "$VOL:/data" --entrypoint sh "$SANDBO
 cp -p ".env.pre-update-$TS" .env
 if [ "$SOURCE" = 1 ]; then
   docker tag syntaxis:rollback syntaxis:local
-  echo "the source checkout is now at $NEW_REV; the running image is the previous build ($OLD_REV)" >&2
+  # the Compose file and scripts come from the checkout too: put it back where it was
+  # (--keep refuses rather than discard local changes)
+  if [ -n "$VERSION" ]; then
+    git checkout -q "$OLD_REF" || echo "could not return the checkout to $OLD_REF; do it by hand" >&2
+  else
+    git reset -q --keep "$OLD_REV" || echo "could not return the checkout to $OLD_REV; do it by hand" >&2
+  fi
 else
   docker tag syntaxis:rollback "$IMAGE"
 fi
