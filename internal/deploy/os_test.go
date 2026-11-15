@@ -17,7 +17,8 @@ func detect(t *testing.T, osRelease, arch string) string {
 	if err := os.WriteFile(f, []byte(osRelease), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", `. ./scripts/os.sh; echo "$OS_ID $OS_FAMILY $OS_CODENAME $CPU_ARCH $(docker_repo_id)"`)
+	// VERSION, NAME and ID are variables in os-release: sourcing the helper must not change the caller's own
+	cmd := exec.Command("sh", "-c", `VERSION=mine; ID=mine; . ./scripts/os.sh; echo "$OS_ID $OS_FAMILY $OS_CODENAME $CPU_ARCH $(docker_repo_id) $VERSION $ID"`)
 	cmd.Dir = "../.."
 	cmd.Env = append(os.Environ(), "OS_RELEASE_FILE="+f, "SYNTAXIS_TEST_ARCH="+arch)
 	out, err := cmd.CombinedOutput()
@@ -41,8 +42,8 @@ func TestOSDetection(t *testing.T) {
 		{"unknown", "ID=plan9\n", "riscv64", "plan9 unknown  unsupported centos"},
 	}
 	for _, c := range cases {
-		if got := detect(t, c.release, c.arch); got != c.want {
-			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		if got := detect(t, c.release, c.arch); got != c.want+" mine mine" {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want+" mine mine")
 		}
 	}
 }

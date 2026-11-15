@@ -9,17 +9,22 @@
 
 # shellcheck disable=SC2034   # these are read by the script that sources this file
 OS_ID=unknown OS_FAMILY=unknown OS_CODENAME=""
-if [ -r "${OS_RELEASE_FILE:-/etc/os-release}" ]; then
+# shellcheck disable=SC1090   # os-release is read from a variable path on purpose (tests point it elsewhere)
+_osr=${OS_RELEASE_FILE:-/etc/os-release}
+if [ -r "$_osr" ]; then
+  # os-release defines VERSION, NAME, ID and more; read it in subshells so none of that leaks
+  # into the script that sources this file (it once overwrote the installer's own VERSION)
   # shellcheck disable=SC1090
-  . "${OS_RELEASE_FILE:-/etc/os-release}"
-  OS_ID=${ID:-unknown}
-  OS_CODENAME=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
-  case " $OS_ID ${ID_LIKE:-} " in
+  OS_ID=$( . "$_osr"; printf '%s' "${ID:-unknown}" )
+  # shellcheck disable=SC1090
+  OS_CODENAME=$( . "$_osr"; printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}" )
+  # shellcheck disable=SC1090
+  _like=$( . "$_osr"; printf '%s' "${ID_LIKE:-}" )
+  case " $OS_ID $_like " in
     *" debian "*|*" ubuntu "*|*" raspbian "*) OS_FAMILY=debian ;;
     *" rhel "*|*" fedora "*|*" centos "*) OS_FAMILY=rhel ;;
   esac
 fi
-# shellcheck disable=SC2034
 case "${SYNTAXIS_TEST_ARCH:-$(uname -m)}" in
   x86_64|amd64) CPU_ARCH=amd64 ;;
   aarch64|arm64) CPU_ARCH=arm64 ;;
