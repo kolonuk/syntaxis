@@ -383,3 +383,11 @@ func TestResolvConfRejectsGarbage(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestFirewallVerdictOnlyTrustsATimeout(t *testing.T) {
+	for code, want := range map[int]bool{28: true, 7: false, 0: false, 52: false, 6: false} {
+		if FirewallVerdict(code) != want {
+			t.Errorf("curl exit %d: want %v", code, want)
+		}
+	}
+}

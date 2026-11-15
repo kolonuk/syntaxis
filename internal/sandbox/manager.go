@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -359,3 +360,36 @@ func (m *Manager) ensureDNS(ctx context.Context, dns []string) error {
 	m.mu.Unlock()
 	return nil
 }
+
+// ProbeFirewall checks that the egress ruleset is loaded on the Docker host, by
+// behaviour rather than by a setting: a short-lived sandbox tries to open a TCP
+// connection to the sandbox network's gateway, which is the host itself. With the
+// rules loaded the packet is dropped and the attempt times out; without them the
+// host answers at once (refused, or accepted if something listens there).
+func (m *Manager) ProbeFirewall(ctx context.Context) (bool, error) {
+	_, gw, err := m.RT.NetworkInfo(ctx, m.Cfg.Network)
+	if err != nil {
+		return false, err
+	}
+	if gw == "" {
+		return false, errors.New("the sandbox network has no gateway")
+	}
+	sid := "health-probe-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	id, err := m.Create(ctx, 0, sid, nil, false)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = m.Destroy(context.Background(), sid, id) }()
+	r, err := m.Exec(ctx, sid, id, ExecSpec{
+		Cmd:     []string{"curl", "-s", "-o", "/dev/null", "-m", "3", "http://" + net.JoinHostPort(gw, "9") + "/"},
+		Timeout: 20 * time.Second,
+	})
+	if err != nil {
+		return false, err
+	}
+	return FirewallVerdict(r.ExitCode), nil
+}
+
+// FirewallVerdict maps the probe's curl exit code to "rules loaded": only a timeout
+// (28) means the packet was dropped. Refused (7) or any answer means it reached the host.
+func FirewallVerdict(curlExit int) bool { return curlExit == 28 }

@@ -282,8 +282,14 @@ func checkSandbox(s *State, _ Thresholds) []Finding {
 			Fix: "Run `syntaxis docker-proxy` as the docker-socket-proxy service (see docker-compose.yml)."})
 	}
 	if sb.DockerReachable && !sb.NetworkRulesApplied {
-		out = append(out, Finding{CheckID: CheckNetworkRules, Severity: Error, Message: "Egress firewall rules are not applied to the sandbox network, so sandboxes might reach the host, LAN or metadata endpoints.",
-			Fix: "Run `syntaxis doctor --fix-network` or apply the rules documented in docs/security.md; sandboxes will not start until this passes."})
+		msg := "Egress firewall rules are not applied to the sandbox network, so sandboxes might reach the host, LAN or metadata endpoints."
+		if sb.NetworkRulesProbed {
+			msg = "The egress firewall is not loaded or is out of date: a test sandbox reached the Docker host. Sandboxes might reach the host, LAN or metadata endpoints."
+		} else if sb.NetworkProbeErr != "" {
+			msg += " (A test sandbox could not check: " + sb.NetworkProbeErr + ".)"
+		}
+		out = append(out, Finding{CheckID: CheckNetworkRules, Severity: Error, Message: msg,
+			Fix: "Apply the rules with scripts/apply-egress.sh (or the syntaxis-egress systemd unit from the installer) as described in docs/getting-started.md."})
 	}
 	if sb.DockerReachable && !sb.ImagePresent {
 		out = append(out, Finding{CheckID: CheckSandboxImage, Severity: Error, Message: "The sandbox image is not present on the Docker host.",

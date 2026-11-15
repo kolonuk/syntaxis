@@ -72,6 +72,8 @@ type SandboxState struct {
 	SocketProxyTooOpen    bool // proxy permits dangerous endpoints (exec on host, privileged, etc.)
 	RawSocketMounted      bool
 	NetworkRulesApplied   bool
+	NetworkRulesProbed    bool   // NetworkRulesApplied was measured by a test sandbox, not taken from configuration
+	NetworkProbeErr       string // why the test sandbox could not run
 	ImagePresent          bool
 	DiskFreePct           float64
 	MemFreeMB             int

@@ -14,6 +14,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - MCP servers, each in its own gVisor sandbox, with registry browsing and admin approval.
 
 ### Changed
+- The health check verifies the egress firewall by behaviour (a short-lived sandbox tries to reach the Docker host) instead of trusting `SYNTAXIS_NETWORK_RULES_APPLIED`, so a missing or outdated ruleset is reported.
 - Secrets are read fresh for every command, so adding, changing or removing one applies immediately instead of needing a new session.
 - Simpler getting started guide and README.
 

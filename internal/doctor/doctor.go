@@ -32,6 +32,9 @@ type Deps struct {
 	NewProv      func(p store.Provider) (provider.Provider, error)
 	HTTPS        bool // detected on a request
 	ProbeTimeout time.Duration
+	// ProbeFirewall checks by behaviour that the egress ruleset is loaded (a short-lived
+	// sandbox tries to reach the Docker host). Nil falls back to SYNTAXIS_NETWORK_RULES_APPLIED.
+	ProbeFirewall func(ctx context.Context) (bool, error)
 }
 
 // Collect builds the State.
@@ -153,9 +156,20 @@ func collectSandbox(ctx context.Context, d Deps, s *health.State) {
 			sb.SocketProxyTooOpen = !ProxyIsStrict(cctx, d.Cfg.Docker.Host)
 		}
 	}
-	// Network rules are applied by the operator on the Docker host and cannot be
-	// seen through the socket proxy; the sandbox manager probes them at start.
+	// Network rules are applied on the Docker host and cannot be read through the Docker
+	// proxy, so they are tested by behaviour when a sandbox can be started; otherwise the
+	// operator's statement is all there is.
 	sb.NetworkRulesApplied = os.Getenv("SYNTAXIS_NETWORK_RULES_APPLIED") == "true"
+	if d.ProbeFirewall != nil && sb.RunscRegistered && sb.ImagePresent {
+		pctx, pcancel := context.WithTimeout(ctx, 60*time.Second)
+		ok, err := d.ProbeFirewall(pctx)
+		pcancel()
+		if err == nil {
+			sb.NetworkRulesApplied, sb.NetworkRulesProbed = ok, true
+		} else {
+			sb.NetworkProbeErr = err.Error()
+		}
+	}
 	if d.Cfg != nil {
 		sb.DiskFreePct = diskFreePct(d.Cfg.DataDir)
 	}

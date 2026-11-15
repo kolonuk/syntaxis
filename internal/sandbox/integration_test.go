@@ -145,6 +145,11 @@ func TestIntegrationEgressBlocksLANHostMetadataSMTP(t *testing.T) {
 		_ = exec.Command("sudo", "-n", "nft", "delete", "table", "bridge", "syntaxis_it_l2").Run()
 	})
 
+	// the health check's behavioural probe sees the loaded rules
+	if ok, err := m.ProbeFirewall(ctx); err != nil || !ok {
+		t.Errorf("firewall probe with the rules loaded: ok=%v err=%v", ok, err)
+	}
+
 	const uid = 910004
 	id, err := m.Create(ctx, uid, "it-egress", nil, false)
 	if err != nil {

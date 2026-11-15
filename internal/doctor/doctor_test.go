@@ -160,3 +160,32 @@ func TestProxyStrictnessProbe(t *testing.T) {
 		t.Fatal("the strict proxy was not recognised")
 	}
 }
+
+// The firewall finding must follow what a test sandbox measured, not a setting.
+func TestFirewallProbeDecidesTheNetworkFinding(t *testing.T) {
+	cfg := &config.Config{EgressMode: "open"}
+	cfg.Docker.Runtime, cfg.Docker.Image = "runsc", "syntaxis-sandbox:latest"
+	t.Setenv("SYNTAXIS_NETWORK_RULES_APPLIED", "true") // a stale statement must not win over the probe
+	for _, tc := range []struct {
+		loaded  bool
+		finding bool
+	}{{true, false}, {false, true}} {
+		d := Deps{Cfg: cfg, Runtime: sandbox.NewFake(), ProbeFirewall: func(context.Context) (bool, error) { return tc.loaded, nil }}
+		state := Collect(context.Background(), d)
+		if !state.Sandbox.NetworkRulesProbed {
+			t.Fatal("the probe result was not used")
+		}
+		found := false
+		for _, f := range health.NewEngine(health.DefaultThresholds()).Run(state) {
+			if f.CheckID == health.CheckNetworkRules {
+				found = true
+				if !strings.Contains(f.Message, "test sandbox reached the Docker host") {
+					t.Fatalf("message: %s", f.Message)
+				}
+			}
+		}
+		if found != tc.finding {
+			t.Fatalf("rules loaded=%v: finding=%v", tc.loaded, found)
+		}
+	}
+}
