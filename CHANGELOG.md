@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - MCP servers, each in its own gVisor sandbox, with registry browsing and admin approval.
 
 ### Changed
+- Frontend toolchain: React 19, Vite 8, Vitest 5, ESLint 10 (Node 22 or newer is needed to build the web apps).
 - Base images are pinned by digest; tagged releases sign images and checksums with Sigstore keyless signing and attach SBOMs, with release notes taken from this changelog.
 - The sandbox network name, subnet and resolver address and the server image are configurable in Compose.
 - Getting started now uses the installer; the manual steps remain documented.

@@ -18,7 +18,7 @@ go vet ./...
 gofmt -l .
 golangci-lint run ./...
 
-# frontend (Node 18+; CI uses 22)
+# frontend (Node 22+)
 cd web && npm ci && npm test && npm run lint && npm run typecheck && npm run build
 ```
 

@@ -322,7 +322,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 /** Registers keyboard shortcuts; ignored while typing in a field. */
 export function useShortcuts(map: Record<string, () => void>) {
   const ref = useRef(map);
-  ref.current = map;
+  useEffect(() => {
+    ref.current = map; // the latest handlers, without re-registering the listener
+  });
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;

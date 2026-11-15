@@ -127,6 +127,7 @@ export function Chat({
   const [lines, setLines] = useState<string[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [question, setQuestion] = useState("");
+  const [phase, setPhase] = useState<Phase | null>(null);
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [panel, setPanel] = useState("output");
@@ -235,7 +236,6 @@ export function Chat({
 
   // Keep the log pinned to the bottom only while the reader is already there, and scroll
   // the log itself: scrollIntoView also moves the page, which made the chat jitter on phones.
-  const [phase, setPhase] = useState<Phase | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const onLogScroll = () => {
@@ -641,7 +641,7 @@ const PHASE_TEXT: Record<string, string> = {
 
 /** What the run is doing right now, with how long it has been doing it. */
 function Progress({ phase }: { phase: Phase | null }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/// <reference types="vitest" />
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 

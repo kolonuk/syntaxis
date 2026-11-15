@@ -14,6 +14,11 @@ export default tseslint.config(
     plugins: { "react-hooks": reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Screens start their data loads from effects on purpose (fetch on mount and on
+      // navigation). This React Compiler oriented rule flags that pattern; the app does not
+      // use the compiler, and the loads are async, so the cascading render it warns about
+      // does not happen in practice.
+      "react-hooks/set-state-in-effect": "off",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
