@@ -8,6 +8,8 @@ package doctor
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kolonuk/syntaxis/internal/config"
+	"github.com/kolonuk/syntaxis/internal/dockerproxy"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
@@ -146,6 +149,9 @@ func collectSandbox(ctx context.Context, d Deps, s *health.State) {
 		sb.SocketProxyUsed = strings.HasPrefix(d.Cfg.Docker.Host, "tcp://")
 		sb.SocketProxyReachable = true // Ping succeeded through it
 		sb.RawSocketMounted = strings.HasPrefix(d.Cfg.Docker.Host, "unix://") || d.Cfg.Docker.Host == ""
+		if sb.SocketProxyUsed {
+			sb.SocketProxyTooOpen = !ProxyIsStrict(cctx, d.Cfg.Docker.Host)
+		}
 	}
 	// Network rules are applied by the operator on the Docker host and cannot be
 	// seen through the socket proxy; the sandbox manager probes them at start.
@@ -153,6 +159,23 @@ func collectSandbox(ctx context.Context, d Deps, s *health.State) {
 	if d.Cfg != nil {
 		sb.DiskFreePct = diskFreePct(d.Cfg.DataDir)
 	}
+}
+
+// ProxyIsStrict reports whether the Docker API at host (tcp://...) is the validating
+// Syntaxis proxy: it must refuse a harmless request that a generic proxy would pass on.
+func ProxyIsStrict(ctx context.Context, host string) bool {
+	u := "http://" + strings.TrimPrefix(host, "tcp://") + dockerproxy.ProbePath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // the configured Docker host
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode == http.StatusForbidden && strings.Contains(string(b), dockerproxy.RefusalMarker)
 }
 
 func collectSecurity(ctx context.Context, d Deps, s *health.State) {

@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kolonuk/syntaxis/internal/config"
+	"github.com/kolonuk/syntaxis/internal/dockerproxy"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
@@ -136,5 +138,25 @@ func TestNoDockerReported(t *testing.T) {
 	state := Collect(context.Background(), Deps{Cfg: &config.Config{}})
 	if state.Sandbox.DockerReachable || state.Sandbox.DockerErr == "" {
 		t.Fatalf("%+v", state.Sandbox)
+	}
+}
+
+// A generic socket proxy lets a compromised server create privileged containers; the
+// health check must notice when the validating proxy is not the one in front of Docker.
+func TestProxyStrictnessProbe(t *testing.T) {
+	permissive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"No such container"}`, http.StatusNotFound)
+	}))
+	defer permissive.Close()
+	strict := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"`+dockerproxy.RefusalMarker+`: endpoint not allowed"}`, http.StatusForbidden)
+	}))
+	defer strict.Close()
+	tcp := func(u string) string { return "tcp://" + strings.TrimPrefix(u, "http://") }
+	if ProxyIsStrict(context.Background(), tcp(permissive.URL)) {
+		t.Fatal("a permissive proxy was reported as strict")
+	}
+	if !ProxyIsStrict(context.Background(), tcp(strict.URL)) {
+		t.Fatal("the strict proxy was not recognised")
 	}
 }

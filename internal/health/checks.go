@@ -278,8 +278,8 @@ func checkSandbox(s *State, _ Thresholds) []Finding {
 	} else if sb.SocketProxyUsed && !sb.SocketProxyReachable {
 		out = append(out, Finding{CheckID: CheckSocketProxy, Severity: Error, Message: "The Docker socket proxy is configured but unreachable.", Fix: "Start the docker-socket-proxy service and check SYNTAXIS_DOCKER_HOST.", UserMessage: user})
 	} else if sb.SocketProxyTooOpen {
-		out = append(out, Finding{CheckID: CheckSocketProxy, Severity: Warning, Message: "The Docker socket proxy permits more API calls than Syntaxis needs (e.g. exec on arbitrary containers, privileged creation).",
-			Fix: "Restrict the proxy to containers, volumes, networks and images only (see docker-compose.yml)."})
+		out = append(out, Finding{CheckID: CheckSocketProxy, Severity: Warning, Message: "The Docker API proxy is not the validating Syntaxis proxy, so a compromised server could create privileged containers through it.",
+			Fix: "Run `syntaxis docker-proxy` as the docker-socket-proxy service (see docker-compose.yml)."})
 	}
 	if sb.DockerReachable && !sb.NetworkRulesApplied {
 		out = append(out, Finding{CheckID: CheckNetworkRules, Severity: Error, Message: "Egress firewall rules are not applied to the sandbox network, so sandboxes might reach the host, LAN or metadata endpoints.",

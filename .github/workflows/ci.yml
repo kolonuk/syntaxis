@@ -128,6 +128,17 @@ jobs:
         run: docker build -t syntaxis-sandbox:latest images/sandbox
       - name: Isolation and containment tests against real gVisor
         run: SYNTAXIS_IT_EGRESS=1 go test -count=1 -v -run Integration ./internal/sandbox/... ./internal/server/...
+      - name: The same sandbox tests through the validating Docker proxy
+        run: |
+          go build -o bin/syntaxis ./cmd/syntaxis
+          sudo ./bin/syntaxis docker-proxy -listen 127.0.0.1:2375 -network syntaxis-sandbox &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:2375/_ping && break; sleep 0.5; done
+          # a privileged container must be refused
+          if DOCKER_HOST=tcp://127.0.0.1:2375 docker run --rm --privileged -v /:/host alpine:3.20 true; then
+            echo "the proxy allowed a privileged container"; exit 1
+          fi
+          DOCKER_HOST=tcp://127.0.0.1:2375 SYNTAXIS_IT_EGRESS=1 go test -count=1 -v \
+            -run 'TestIntegration(GVisorIsolation|ForkBomb|Egress|AgentRun)' ./internal/sandbox/... ./internal/server/...
 
   e2e:
     name: Playwright

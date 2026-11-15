@@ -12,7 +12,7 @@ flowchart LR
     CORE --- DB[(SQLite)]
   end
   CORE -->|OpenAI / Ollama API| LLM[Your LLM server]
-  CORE -->|restricted API| SP[docker-socket-proxy]
+  CORE -->|validated API| SP[docker proxy]
   SP --> D[Docker + gVisor]
   D --> S1[Sandbox: session A]
   D --> S2[Sandbox: session B]
@@ -67,7 +67,7 @@ SQLite is the default: the target is a handful of users on one server, and a bac
 ```
 
 - The sandbox never holds provider keys, the master key or the signing key, and never talks to the LLM server directly.
-- Only the Syntaxis process and the socket proxy touch Docker.
+- Only the Syntaxis process and the validating Docker proxy (`syntaxis docker-proxy`) touch Docker; the proxy alone holds the socket.
 - The admin app is a different listener, cookie, route set and account table.
 
 ## Concurrency model

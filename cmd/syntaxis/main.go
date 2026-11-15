@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"github.com/kolonuk/syntaxis/internal/config"
+	"github.com/kolonuk/syntaxis/internal/dockerproxy"
 	"github.com/kolonuk/syntaxis/internal/doctor"
 	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/health"
@@ -56,6 +58,7 @@ Usage:
   syntaxis backup <dest.db>            write a consistent database backup
   syntaxis rotate-key <old-key-file> <new-key-file>   re-encrypt all secrets under a new master key
   syntaxis egress-rules <subnet> [resolver-ip] [gateway-ip] [llm-cidr...]   print the nftables ruleset for the sandbox network (apply as root on the Docker host with nft -f -)
+  syntaxis docker-proxy [-listen addr] [-socket path] [-network name]   run the validating Docker API proxy (see docs/security.md)
   syntaxis version
 `
 
@@ -92,6 +95,8 @@ func run(args []string, out, errw io.Writer) error {
 		return cmdRotate(args[1:], out)
 	case "egress-rules":
 		return cmdEgressRules(args[1:], out)
+	case "docker-proxy":
+		return cmdDockerProxy(args[1:])
 	}
 	fmt.Fprintf(errw, usage, version())
 	return fmt.Errorf("unknown command %q", args[0])
@@ -297,6 +302,43 @@ func cmdEgressRules(args []string, out io.Writer) error {
 	}
 	fmt.Fprint(out, rs.Text)
 	return nil
+}
+
+func cmdDockerProxy(args []string) error {
+	fs := flag.NewFlagSet("docker-proxy", flag.ContinueOnError)
+	listen := fs.String("listen", "0.0.0.0:2375", "address to serve the Docker API on (keep it on a private network)")
+	socket := fs.String("socket", "/var/run/docker.sock", "Docker daemon socket")
+	netName := fs.String("network", envOr("SYNTAXIS_SANDBOX_NETWORK", "syntaxis-sandbox"), "the sandbox network")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	p := dockerproxy.New(dockerproxy.Config{Network: *netName, Log: log,
+		Dial: func(ctx context.Context) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", *socket)
+		}})
+	srv := &http.Server{Addr: *listen, Handler: p, ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(sctx)
+	}()
+	log.Info("docker proxy", "listen", *listen, "socket", *socket, "network", *netName)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }
 
 func cmdDoctor(out io.Writer) error {

@@ -419,7 +419,7 @@ func (d *Docker) WriteVolumeFile(ctx context.Context, vol, name, content, image 
 	if err := d.EnsureVolume(ctx, vol, map[string]string{LabelManaged: "true"}); err != nil {
 		return err
 	}
-	resp, err := d.cli.ContainerCreate(ctx, &container.Config{Image: image, Cmd: []string{"true"}, User: "0"},
+	resp, err := d.cli.ContainerCreate(ctx, &container.Config{Image: image, Cmd: []string{"true"}, User: "0", Labels: map[string]string{LabelHelper: "true"}},
 		&container.HostConfig{Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol, Target: "/vol"}}, NetworkMode: "none", CapDrop: []string{"ALL"}}, nil, nil, "")
 	if err != nil {
 		return err

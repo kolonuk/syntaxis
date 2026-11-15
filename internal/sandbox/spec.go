@@ -19,6 +19,9 @@ const (
 	LabelUser    = "io.syntaxis.user"
 	LabelSession = "io.syntaxis.session"
 	LabelCreated = "io.syntaxis.created"
+	// LabelHelper marks the short-lived, never-started container used to write a file
+	// into a volume. The Docker proxy refuses to start it.
+	LabelHelper = "io.syntaxis.helper"
 )
 
 // WorkspacePath is where the user's workspace volume is mounted.

@@ -11,7 +11,7 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_MASTER_KEY` / `_FILE` | – | 32-byte base64 key (`syntaxis keygen`). Required for `serve`. Keep outside the data dir |
 | `SYNTAXIS_LOG_LEVEL` / `_FORMAT` | `info` / `json` | `text` for pretty dev output |
 | `SYNTAXIS_SMTP_HOST` `_PORT` `_USER` `_PASSWORD` `_FROM` | empty / 587 | Empty host = dev mode: emails are logged, not sent |
-| `SYNTAXIS_DOCKER_HOST` | environment | Use the socket proxy: `tcp://docker-socket-proxy:2375` |
+| `SYNTAXIS_DOCKER_HOST` | environment | The validating Docker proxy: `tcp://docker-socket-proxy:2375` (Compose sets it) |
 | `SYNTAXIS_SANDBOX_RUNTIME` | `runsc` | OCI runtime for sandboxes. Only gVisor runtimes are accepted by the spec validator |
 | `SYNTAXIS_SANDBOX_IMAGE` | `syntaxis-sandbox:latest` | Sandbox image |
 | `SYNTAXIS_SANDBOX_NETWORK` | `syntaxis-sandbox` | Dedicated Docker network |

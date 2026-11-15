@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # One-command start:  cp .env.example .env && docker compose up -d
 #
-# The Syntaxis container never mounts the raw Docker socket. Only the socket
-# proxy does, and it forwards an allow-list of API calls (containers, volumes,
-# networks, images, exec). See docs/security.md for what this does and does not protect.
+# The Syntaxis container never mounts the raw Docker socket. Only the validating
+# Docker proxy does (the docker-socket-proxy service below). See docs/security.md
+# for what this does and does not protect.
 services:
   syntaxis:
     image: ghcr.io/kolonuk/syntaxis:latest
@@ -43,23 +43,21 @@ services:
         ipv4_address: 172.30.0.2
 
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
+    # The validating Docker API proxy built into Syntaxis (`syntaxis docker-proxy`). It is
+    # the only service with the socket. It refuses every endpoint Syntaxis does not use,
+    # and validates container, exec, volume and network requests so that only hardened
+    # gVisor sandboxes can be created or started: no privileged containers, host mounts,
+    # host namespaces, extra capabilities or published ports. See docs/security.md.
+    image: ghcr.io/kolonuk/syntaxis:latest
+    command: ["docker-proxy", "-listen", "0.0.0.0:2375", "-network", "syntaxis-sandbox"]
     restart: unless-stopped
-    environment:
-      CONTAINERS: 1
-      VOLUMES: 1
-      NETWORKS: 1
-      IMAGES: 1
-      EXEC: 1
-      INFO: 1
-      VERSION: 1
-      POST: 1
-      # everything else stays at the proxy default (denied): swarm, services, secrets, plugins, build, commit, ...
+    user: "0:0"   # to open the root-owned socket; no capabilities are kept
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [control]
     read_only: true
-    tmpfs: [/run, /tmp]   # haproxy writes its generated config to /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 networks:
   control:

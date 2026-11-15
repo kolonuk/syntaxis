@@ -53,7 +53,14 @@ Users can open an interactive terminal on a session's sandbox. It is a shell in 
 
 ## The Docker socket
 
-The Syntaxis container does not mount the raw socket. A `docker-socket-proxy` does, exposing only containers, volumes, networks, images and exec. **This is still powerful**: anyone who can reach the proxy can run containers on the host. It is kept on a private Compose network, never published. A stricter allow-list proxy is future work.
+The Syntaxis container does not mount the raw socket. Only the `docker-socket-proxy` service does, and it runs `syntaxis docker-proxy`, a validating proxy (`internal/dockerproxy`):
+
+- Every endpoint Syntaxis does not use is refused (image builds and pulls, commits, exports, swarm, plugins, secrets, killing arbitrary containers, and so on).
+- Container creation is read and checked, then re-encoded so only what was checked reaches the daemon. A container must be labelled as a Syntaxis sandbox, use gVisor, run as a non-root user with a read-only root, drop all capabilities, set `no-new-privileges`, have memory, CPU and process limits, join only the sandbox network (or none), and mount only Syntaxis volumes. Privileged mode, host binds (other than the read-only resolver file from the resolver volume), devices, host namespaces, sysctls, extra hosts and published ports are refused.
+- Start, stop, exec, attach, logs, stats and removal work only on Syntaxis containers, and only gVisor sandboxes can be started. Exec as root or privileged exec is refused.
+- Volumes and networks can be created only with Syntaxis names, without driver options (which can bind host paths).
+
+So a compromise of the Syntaxis server can run more gVisor sandboxes with the same limits, read and change Syntaxis volumes (which it can already do), and see the list of containers on the host, but it cannot get a privileged container or the host filesystem through Docker. The proxy is kept on a private Compose network, never published. The admin Health page warns when the proxy in front of Docker is not this one (a probe request it must refuse). The unit tests try each dangerous request and fail if it is forwarded; the gVisor integration tests run through the proxy.
 
 ## Prompt injection
 
