@@ -94,3 +94,33 @@ func TestTerminalRoundTripAndTakeover(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// An open terminal outlives the HTTP request that opened it, so it must notice when
+// that sign-in stops being valid (sign out everywhere, password change, disabled account).
+func TestTerminalClosesWhenTheSignInIsRevoked(t *testing.T) {
+	e := newEnv(t)
+	e.app.TerminalRecheck = 50 * time.Millisecond
+	seedModel(e)
+	e.app.Sandbox = sandbox.NewManager(sandbox.NewFake(), sandbox.DefaultConfig(), nil)
+	u := e.userSession("a@example.com")
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	id := s["id"].(string)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(e.user.URL, "http")+"/api/sessions/"+id+"/terminal", &websocket.DialOptions{HTTPClient: u.hc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if code, _, _ := u.do("POST", "/api/logout-all", nil); code != 200 {
+		t.Fatalf("logout-all: %d", code)
+	}
+	for {
+		if _, _, err := c.Read(ctx); err != nil {
+			if !strings.Contains(err.Error(), "Signed out") {
+				t.Fatalf("terminal should close with a reason after sign-out: %v", err)
+			}
+			return
+		}
+	}
+}

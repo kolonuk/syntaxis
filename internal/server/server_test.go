@@ -623,6 +623,30 @@ func TestDisablingUserRevokesSessions(t *testing.T) {
 	}
 }
 
+// A run already in progress must not keep spending tokens for a disabled account.
+func TestDisablingUserStopsRunningWork(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	stopped := make(chan struct{})
+	e.app.RunAgent = func(ctx context.Context, run *Run, s *store.ChatSession, u *store.User, msg string) {
+		<-ctx.Done()
+		close(stopped)
+	}
+	u := e.userSession("a@example.com")
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	if code, _, _ := u.do("POST", "/api/sessions/"+s["id"].(string)+"/messages", map[string]string{"text": "hi"}); code != 202 {
+		t.Fatalf("send: %d", code)
+	}
+	adm := e.makeAdminSession()
+	users, _ := e.st.ListUsers(context.Background())
+	adm.do("PATCH", "/api/users/"+itoa(users[0].ID), map[string]any{"disabled": true})
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the disabled user's run is still going")
+	}
+}
+
 func TestProviderKeysEncryptedAndNeverReturned(t *testing.T) {
 	e := newEnv(t)
 	adm := e.makeAdminSession()

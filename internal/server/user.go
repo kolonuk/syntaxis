@@ -268,7 +268,11 @@ func (a *App) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		Value string `json:"value"`
 	}
-	if !decode(w, r, &b) || b.Value == "" {
+	if !decode(w, r, &b) {
+		return
+	}
+	if b.Value == "" {
+		writeErr(w, 400, "the value is empty")
 		return
 	}
 	if err := a.Secrets.Put(r.Context(), secrets.ScopeUser, principal(r).Account.ID, chi.URLParam(r, "name"), b.Value); err != nil {

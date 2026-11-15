@@ -216,6 +216,14 @@ func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
 		_ = a.Store.UpdateAccount(r.Context(), acc)
 		if *b.Disabled {
 			_ = a.Store.DeleteAuthSessionsFor(r.Context(), store.KindUser, u.ID)
+			if ss, err := a.Store.ListChatSessions(r.Context(), u.ID); err == nil {
+				for _, cs := range ss {
+					if run := a.Runs.Get(cs.ID); run != nil {
+						run.Stop()
+					}
+					a.Terms.CloseSession(cs.ID, "Your account was disabled.")
+				}
+			}
 			if a.Sandbox != nil {
 				_, _ = a.Sandbox.KillUser(r.Context(), u.ID)
 			}

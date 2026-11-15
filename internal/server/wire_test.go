@@ -194,6 +194,8 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCookie, gotPath = r.Header.Get("Cookie"), r.URL.Path
 		http.SetCookie(w, &http.Cookie{Name: "evil", Value: "x"})
+		w.Header().Set("Clear-Site-Data", `"cookies", "storage"`) // would sign the user out of Syntaxis
+		w.Header().Set("Service-Worker-Allowed", "/")             // would widen a worker's scope to the whole app
 		w.Write([]byte("hello from dev server"))
 	}))
 	defer dev.Close()
@@ -235,6 +237,9 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 	resp.Body.Close()
 	if resp.Header.Get("Set-Cookie") != "" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatal("previewed content must be sandboxed and unable to set cookies on our origin")
+	}
+	if resp.Header.Get("Clear-Site-Data") != "" || resp.Header.Get("Service-Worker-Allowed") != "" {
+		t.Fatal("previewed content must not be able to clear our site data or widen a service worker's scope")
 	}
 }
 

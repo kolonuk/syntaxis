@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -19,6 +20,12 @@ import (
 
 // terminalIdle closes a terminal nobody has typed into for this long.
 const terminalIdle = 15 * time.Minute
+
+// terminalRecheck is how often an open terminal re-checks that the sign-in it was
+// opened with is still valid, so signing out everywhere, a password change, an
+// expired session or a disabled account also closes the shell (App.TerminalRecheck
+// overrides it in tests).
+const terminalRecheck = 30 * time.Second
 
 // Terminals tracks open interactive terminals, at most one per session.
 type Terminals struct {
@@ -165,22 +172,34 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	// keep the sandbox from being reaped while the terminal is open
+	// keep the sandbox from being reaped while the terminal is open, and close the
+	// terminal once the sign-in that opened it is no longer valid
+	cookie, _ := r.Cookie(CookieUser) // present: requireAuth accepted it
 	go func() {
-		t := time.NewTicker(30 * time.Second)
+		every := a.TerminalRecheck
+		if every <= 0 {
+			every = terminalRecheck
+		}
+		t := time.NewTicker(every)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if _, err := a.Auth.Authenticate(context.Background(), principal(r).Account.Kind, cookie.Value); err != nil {
+					cur.setReason("Signed out.")
+					cancel()
+					return
+				}
 				a.Sandbox.Touch(s.ID)
 			}
 		}
 	}()
 
 	// browser -> shell
-	last := time.Now()
+	var last atomic.Int64 // unix nanoseconds of the last input
+	last.Store(time.Now().UnixNano())
 	go func() { // idle watchdog
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -189,7 +208,7 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if time.Since(last) > terminalIdle {
+				if time.Since(time.Unix(0, last.Load())) > terminalIdle {
 					cur.setReason("Closed after 15 minutes without input.")
 					cancel()
 					return
@@ -210,7 +229,7 @@ func (a *App) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		last = time.Now()
+		last.Store(time.Now().UnixNano())
 		switch typ {
 		case websocket.MessageBinary:
 			if _, err := tty.Conn.Write(data); err != nil && !errors.Is(err, io.EOF) {

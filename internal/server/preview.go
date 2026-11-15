@@ -50,6 +50,8 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: func(resp *http.Response) error {
 			// the previewed app is untrusted content: sandbox it and keep it out of our origin's privileges
 			resp.Header.Del("Set-Cookie")
+			resp.Header.Del("Clear-Site-Data")        // could sign the user out of Syntaxis
+			resp.Header.Del("Service-Worker-Allowed") // could widen a worker's scope beyond the preview path
 			resp.Header.Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups")
 			resp.Header.Set("X-Content-Type-Options", "nosniff")
 			return nil

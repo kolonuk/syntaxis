@@ -63,6 +63,8 @@ type App struct {
 	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler
 	NewProvider func(p *store.Provider) (provider.Provider, error)
+	// TerminalRecheck is how often open terminals re-check their sign-in (0 = default).
+	TerminalRecheck time.Duration
 
 	mu         sync.Mutex
 	healthSnap []health.Finding
