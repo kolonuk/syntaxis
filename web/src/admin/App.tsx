@@ -18,7 +18,7 @@ import {
   useToast,
   type Tone,
 } from "../ui/ui";
-import { AuthFrame, Login, TwoFactorSetup } from "../user/Auth";
+import { AuthFrame, Login, SetPassword, TwoFactorSetup } from "../user/Auth";
 import { useMe } from "../user/hooks";
 
 interface Finding {
@@ -1079,8 +1079,15 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
   );
 }
 
+/** The installer's single-use link: #setup=<token> (a fragment, so it never reaches a server log). */
+function readSetupToken(): string {
+  const m = /^#setup=([A-Za-z0-9_-]+)$/.exec(window.location.hash);
+  return m?.[1] ?? "";
+}
+
 export default function AdminApp() {
   const { me, reload, clear } = useMe();
+  const [setupToken, setSetupToken] = useState(readSetupToken);
   useEffect(() => {
     applyTheme(loadPref());
   }, []);
@@ -1098,6 +1105,18 @@ export default function AdminApp() {
       <AuthFrame title="Syntaxis admin">
         <Skeleton />
       </AuthFrame>
+    );
+  else if (me === null && setupToken)
+    body = (
+      <SetPassword
+        kind="setup"
+        token={setupToken}
+        go={() => {
+          // drop the used token from the address bar and history
+          window.history.replaceState(null, "", window.location.pathname);
+          setSetupToken("");
+        }}
+      />
     );
   else if (me === null)
     body = <Login prefix="Admin" go={() => undefined} onDone={() => void reload()} />;

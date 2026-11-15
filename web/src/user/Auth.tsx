@@ -152,13 +152,19 @@ export function Forgot({ go }: { go: (p: string) => void }) {
   );
 }
 
-/** Used for both the invite link and the reset link. */
+const setPasswordEndpoint = {
+  invite: "/invite/accept",
+  reset: "/password/reset",
+  setup: "/setup",
+} as const;
+
+/** Used for the invite link, the reset link and the admin setup link. */
 export function SetPassword({
   kind,
   token,
   go,
 }: {
-  kind: "invite" | "reset";
+  kind: "invite" | "reset" | "setup";
   token: string;
   go: (p: string) => void;
 }) {
@@ -176,7 +182,7 @@ export function SetPassword({
     setBusy(true);
     setErr("");
     try {
-      await post(kind === "invite" ? "/invite/accept" : "/password/reset", { token, password: pw });
+      await post(setPasswordEndpoint[kind], { token, password: pw });
       setDone(true);
     } catch (x) {
       setErr(errText(x));
@@ -194,7 +200,7 @@ export function SetPassword({
       </AuthFrame>
     );
   return (
-    <AuthFrame title={kind === "invite" ? "Welcome — choose a password" : "Choose a new password"}>
+    <AuthFrame title={kind === "reset" ? "Choose a new password" : "Welcome — choose a password"}>
       <form onSubmit={submit}>
         {err && <Banner tone="danger">{err}</Banner>}
         <Input

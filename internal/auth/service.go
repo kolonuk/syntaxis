@@ -22,6 +22,9 @@ import (
 const (
 	TokenInvite = "invite"
 	TokenReset  = "reset"
+	// TokenAdminSetup is the single-use link the installer prints so the first admin
+	// chooses their own password in the browser, instead of on a command line.
+	TokenAdminSetup = "admin_setup"
 )
 
 // Tunables (var so tests can shorten them).
@@ -90,6 +93,37 @@ func (s *Service) CreateAdmin(ctx context.Context, email, name, password string)
 	return id, nil
 }
 
+// AdminSetupLink creates an admin account without a password (or reuses one that has
+// never set a password) and returns a single-use token to choose it. The token is
+// shown once to whoever runs the command; it is never emailed.
+func (s *Service) AdminSetupLink(ctx context.Context, email, name string, ttl time.Duration) (int64, string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if !strings.Contains(email, "@") || strings.ContainsAny(email, " \r\n") {
+		return 0, "", errors.New("invalid email")
+	}
+	var id int64
+	if a, err := s.Store.GetAccountByEmail(ctx, store.KindAdmin, email); err == nil {
+		if a.PasswordHash != "" {
+			return 0, "", errors.New("that admin has already set a password; use the password reset in the admin app or `syntaxis admin create` for a new admin")
+		}
+		id = a.ID
+	} else {
+		id, err = s.Store.CreateAccount(ctx, store.Account{Kind: store.KindAdmin, Email: email, Name: name, CreatedAt: s.now()})
+		if err != nil {
+			return 0, "", err
+		}
+	}
+	tok, hash, err := NewToken()
+	if err != nil {
+		return 0, "", err
+	}
+	if err := s.Store.PutToken(ctx, store.Token{Hash: hash, Kind: TokenAdminSetup, UserID: id, ExpiresAt: s.now().Add(ttl)}); err != nil {
+		return 0, "", err
+	}
+	_, _ = s.Store.AppendAudit(ctx, "cli", "admin.setup-link", fmt.Sprintf("admin:%d", id), email)
+	return id, tok, nil
+}
+
 // ---- invite / reset ----
 
 // InviteUser creates a chat user without a password and emails an invite link.
@@ -151,7 +185,12 @@ func (s *Service) RequestReset(ctx context.Context, email string) error {
 
 // CompleteToken consumes an invite or reset token and sets the password.
 func (s *Service) CompleteToken(ctx context.Context, kind, token, newPassword string) (*store.Account, error) {
-	if kind != TokenInvite && kind != TokenReset {
+	acctKind := store.KindUser
+	switch kind {
+	case TokenInvite, TokenReset:
+	case TokenAdminSetup:
+		acctKind = store.KindAdmin
+	default:
 		return nil, ErrInvalidToken
 	}
 	// Validate the password BEFORE consuming the token so a weak attempt does not burn the link.
@@ -160,7 +199,7 @@ func (s *Service) CompleteToken(ctx context.Context, kind, token, newPassword st
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
-	u, err := s.Store.GetAccount(ctx, store.KindUser, tk.UserID)
+	u, err := s.Store.GetAccount(ctx, acctKind, tk.UserID)
 	if err != nil || u.Disabled {
 		return nil, ErrInvalidToken
 	}
@@ -178,9 +217,9 @@ func (s *Service) CompleteToken(ctx context.Context, kind, token, newPassword st
 	if err := s.Store.UpdateAccount(ctx, *u); err != nil {
 		return nil, err
 	}
-	_ = s.Store.DeleteAuthSessionsFor(ctx, store.KindUser, u.ID)
-	_ = s.Store.ClearAttempt(ctx, attemptKeyAccount(store.KindUser, u.Email))
-	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("user:%d", u.ID), "password."+kind, fmt.Sprintf("user:%d", u.ID), "")
+	_ = s.Store.DeleteAuthSessionsFor(ctx, acctKind, u.ID)
+	_ = s.Store.ClearAttempt(ctx, attemptKeyAccount(acctKind, u.Email))
+	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("%s:%d", acctKind, u.ID), "password."+kind, fmt.Sprintf("%s:%d", acctKind, u.ID), "")
 	return u, nil
 }
 

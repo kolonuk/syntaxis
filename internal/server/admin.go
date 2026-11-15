@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kolonuk/syntaxis/internal/audit"
+	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/bench"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/mail"
@@ -44,6 +45,7 @@ func (a *App) AdminHandler() http.Handler {
 		r.Post("/login", a.handleLogin(store.KindAdmin))
 		r.Post("/login/mfa", a.handleMFA(store.KindAdmin))
 		r.Post("/logout", a.handleLogout(store.KindAdmin))
+		r.Post("/setup", a.publicPost(a.handleToken(auth.TokenAdminSetup)))
 		r.Group(func(r chi.Router) {
 			r.Use(a.requireAuth(store.KindAdmin), a.enforceAdmin2FA)
 			r.Get("/me", a.handleMe)

@@ -53,6 +53,7 @@ const usage = `syntaxis ` + "%s" + `
 Usage:
   syntaxis serve                       run the server
   syntaxis admin create <email> <name> create the first/another admin (password from SYNTAXIS_NEW_ADMIN_PASSWORD or stdin)
+  syntaxis admin setup-link <email> <name>   create an admin and print a single-use link to choose the password
   syntaxis keygen                      print a new master key
   syntaxis doctor                      check Docker, gVisor, providers, SMTP and configuration
   syntaxis backup <dest.db>            write a consistent database backup
@@ -162,8 +163,8 @@ func readPassword() (string, error) {
 }
 
 func cmdAdmin(args []string, out io.Writer) error {
-	if len(args) != 3 || args[0] != "create" {
-		return errors.New("usage: syntaxis admin create <email> <name>")
+	if len(args) != 3 || (args[0] != "create" && args[0] != "setup-link") {
+		return errors.New("usage: syntaxis admin create|setup-link <email> <name>")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -171,6 +172,23 @@ func cmdAdmin(args []string, out io.Writer) error {
 	}
 	if len(cfg.MasterKey) != 32 {
 		return errors.New("a master key is required (SYNTAXIS_MASTER_KEY or _FILE); generate one with `syntaxis keygen`")
+	}
+	if args[0] == "setup-link" {
+		st, err := openStore(cfg)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		v, _ := vault.New(cfg.MasterKey)
+		as := auth.NewService(st, v, mail.Console{}, cfg.BaseURL)
+		_, tok, err := as.AdminSetupLink(context.Background(), args[1], args[2], 24*time.Hour)
+		if err != nil {
+			return err
+		}
+		base := strings.TrimRight(envOr("SYNTAXIS_ADMIN_URL", "http://127.0.0.1:8081"), "/")
+		// the token is in the fragment, so it never reaches a server log or a Referer header
+		fmt.Fprintf(out, "Open this link within 24 hours to choose the admin password (single use):\n\n  %s/#setup=%s\n\nThen set up two-factor authentication when asked.\n", base, tok)
+		return nil
 	}
 	pw, err := readPassword()
 	if err != nil {

@@ -77,6 +77,21 @@ func TestAdminCreateAndBackup(t *testing.T) {
 	}
 }
 
+func TestAdminSetupLinkCommand(t *testing.T) {
+	var key bytes.Buffer
+	_ = run([]string{"keygen"}, &key, &key)
+	t.Setenv("SYNTAXIS_DATA_DIR", t.TempDir())
+	t.Setenv("SYNTAXIS_MASTER_KEY", strings.TrimSpace(key.String()))
+	t.Setenv("SYNTAXIS_ADMIN_URL", "https://admin.example.com/")
+	var out bytes.Buffer
+	if err := run([]string{"admin", "setup-link", "first@example.com", "First"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "https://admin.example.com/#setup=") {
+		t.Fatalf("%q", out.String())
+	}
+}
+
 func TestAdminCreateNeedsMasterKey(t *testing.T) {
 	t.Setenv("SYNTAXIS_DATA_DIR", t.TempDir())
 	t.Setenv("SYNTAXIS_MASTER_KEY", "")

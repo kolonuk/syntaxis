@@ -881,3 +881,41 @@ func TestVersionIsPublicOnBothApps(t *testing.T) {
 		}
 	}
 }
+
+// The installer's single-use admin setup link: it sets an admin password once, only on
+// the admin app, and tokens of one kind never work for the other.
+func TestAdminSetupLink(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	userTok := e.invite("u@example.com") // a chat-user invite, for the cross-kind check below
+	_, tok, err := e.app.Auth.AdminSetupLink(ctx, "first@example.com", "First Admin", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonUser, anonAdmin := e.client(e.user.URL), e.client(e.admin.URL)
+	// an admin may not sign in before choosing a password
+	if code, _ := anonAdmin.login("/api/login", "first@example.com", ""); code == 200 {
+		t.Fatal("passwordless admin signed in")
+	}
+	// the chat app's invite endpoint must not accept an admin setup token
+	if code, _, _ := anonUser.do("POST", "/api/invite/accept", map[string]string{"token": tok, "password": pw}); code == 200 {
+		t.Fatal("admin setup token accepted by the chat app")
+	}
+	if code, _, raw := anonAdmin.do("POST", "/api/setup", map[string]string{"token": tok, "password": pw}); code != 200 {
+		t.Fatalf("setup: %d %s", code, raw)
+	}
+	if code, _, _ := anonAdmin.do("POST", "/api/setup", map[string]string{"token": tok, "password": pw + "x"}); code == 200 {
+		t.Fatal("setup token reused")
+	}
+	if code, m := anonAdmin.login("/api/login", "first@example.com", pw); code != 200 || m["must_setup_2fa"] != true {
+		t.Fatalf("login after setup: %d %v", code, m)
+	}
+	// a chat-user invite token does not set an admin password
+	if code, _, _ := anonAdmin.do("POST", "/api/setup", map[string]string{"token": userTok, "password": pw}); code == 200 {
+		t.Fatal("user invite token accepted by the admin setup endpoint")
+	}
+	// an admin that already has a password cannot be given a new link
+	if _, _, err := e.app.Auth.AdminSetupLink(ctx, "first@example.com", "x", time.Hour); err == nil {
+		t.Fatal("setup link issued for an admin with a password")
+	}
+}

@@ -50,6 +50,17 @@ describe("Login", () => {
 });
 
 describe("SetPassword", () => {
+  it("sends the admin setup token to the admin setup endpoint", async () => {
+    const seen = respond({ "/api/setup": { body: { ok: true } } });
+    render(<SetPassword kind="setup" token="tok" go={() => undefined} />);
+    for (const label of ["New password", "Repeat password"])
+      fireEvent.change(screen.getByLabelText(label), { target: { value: "one long passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save password" }));
+    expect(await screen.findByText("You can now sign in.")).toBeInTheDocument();
+    expect(seen).toEqual([
+      { url: "/api/setup", body: { token: "tok", password: "one long passphrase" } },
+    ]);
+  });
   it("rejects mismatched passwords without calling the server", async () => {
     const seen = respond({});
     render(<SetPassword kind="invite" token="t" go={() => undefined} />);
