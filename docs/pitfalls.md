@@ -64,6 +64,12 @@ Every sandbox has fixed CPU, memory and process limits. On top of that, Syntaxis
 
 Users are told in the chat when something is limited, and the actions are audited.
 
+## Distribution notes
+
+- **AlmaLinux, Rocky Linux, RHEL, Fedora:** SELinux is enforcing by default. The Docker proxy service runs unconfined (`label=disable` in `docker-compose.yml`) so it can reach the socket; if anything else is denied, look with `ausearch -m avc -ts recent` rather than turning SELinux off. firewalld may need the chat app's port opened for other machines (`firewall-cmd --permanent --add-port=8080/tcp && firewall-cmd --reload`). Use the AlmaLinux or Rocky releases; CentOS Stream also works but moves faster.
+- **Raspberry Pi OS:** use the 64-bit release. If the memory cgroup is off (sandbox memory limits cannot apply), add `cgroup_enable=memory cgroup_memory=1` to `/boot/firmware/cmdline.txt` and reboot; the installer tells you. A Pi has little memory and slow storage, so image builds take a while and only a couple of sessions fit.
+- **macOS and Windows:** not supported; gVisor needs a Linux kernel.
+
 ## Egress
 
 *Health checks: `sandbox.network-rules`, `security.egress-open`*

@@ -57,7 +57,9 @@ services:
     networks: [control]
     read_only: true
     cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+    # label=disable lets this one container reach the socket on hosts with SELinux enforcing
+    # (AlmaLinux, Rocky, RHEL, Fedora); it does nothing elsewhere
+    security_opt: ["no-new-privileges:true", "label=disable"]
 
 networks:
   control:

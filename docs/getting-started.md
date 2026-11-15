@@ -6,8 +6,8 @@ About 15 minutes, most of it image builds. You will end up with Syntaxis running
 
 | You need | Why |
 | --- | --- |
-| **A Linux machine you control** with Docker Engine 24+ and Docker Compose v2 | Syntaxis runs as containers and starts one more container for each coding session. Windows and macOS are not supported, because gVisor needs Linux. |
-| **gVisor** (`runsc`) registered with Docker | Agents run commands inside gVisor containers rather than directly on your machine. Syntaxis refuses to start sessions without it. The installer adds it on Debian and Ubuntu. |
+| **A Linux machine you control**: Debian, Ubuntu, Raspberry Pi OS, AlmaLinux, Rocky Linux, RHEL or Fedora, on x86-64 or arm64, with Docker Engine 24+ and Docker Compose v2 | Syntaxis runs as containers and starts one more container for each coding session. The installer adds Docker if it is missing. Windows and macOS are not supported, because gVisor needs Linux. |
+| **gVisor** (`runsc`) registered with Docker | Agents run commands inside gVisor containers rather than directly on your machine. Syntaxis refuses to start sessions without it. The installer adds it. |
 | **An LLM server you already run**: Ollama, llama.cpp, LiteLLM or anything OpenAI-compatible | Syntaxis does not include a model. It sends work to yours and never installs, loads or removes models. |
 | **nftables** (`nft`) and **systemd** | The firewall that stops sandboxes reaching your network, the Docker host and your LLM server, kept applied across reboots. |
 | *Optional:* **an SMTP server** | For invite and password-reset emails. Without one, the links are printed in the log. |
@@ -22,7 +22,7 @@ git clone https://github.com/kolonuk/syntaxis && cd syntaxis
 sudo sh scripts/install.sh --url http://<this-host>:8080 --admin-email you@example.com --llm <llm-server-address>
 ```
 
-The installer checks the requirements, installs gVisor if it is missing (it asks first), writes `.env` with a new master key, builds the images, starts Syntaxis, installs the firewall units and prints a single-use link for your admin account. It is safe to run again; it keeps your settings and data.
+The installer checks the requirements, shows what is missing and installs Docker, nftables and gVisor (it asks first; `--check` shows the plan and changes nothing), writes `.env` with a new master key, builds the images, starts Syntaxis, installs the firewall units and prints a single-use link for your admin account. It is safe to run again; it keeps your settings and data.
 
 Useful options (all of them: `sh scripts/install.sh --help`):
 
@@ -69,7 +69,7 @@ It backs up the database, pulls (source installs) or downloads (pinned installs)
 
 The installer only automates these steps, if you prefer to run them yourself:
 
-1. Install gVisor: `sh scripts/install-gvisor.sh` (Debian/Ubuntu), then check with `docker run --rm --runtime=runsc hello-world`.
+1. Install gVisor: `sh scripts/install-gvisor.sh` (any supported distribution), then check with `docker run --rm --runtime=runsc hello-world`.
 2. Build the sandbox image: `docker build -t syntaxis-sandbox:latest images/sandbox`.
 3. `cp .env.example .env`, set `SYNTAXIS_MASTER_KEY` (from `docker run --rm ghcr.io/kolonuk/syntaxis keygen`), `SYNTAXIS_BASE_URL`, and your LLM server's address in `SYNTAXIS_EGRESS_BLOCK` (for example `192.0.2.10/32`).
 4. `docker compose up -d`.

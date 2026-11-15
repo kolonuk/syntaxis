@@ -204,3 +204,22 @@ jobs:
           ./bin/syntaxis serve &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 1; done
       - run: cd web && npm run e2e
+
+  installer:
+    name: Installer on ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64, image: "debian:12" }
+          - { runner: ubuntu-latest, arch: amd64, image: "ubuntu:22.04" }
+          - { runner: ubuntu-latest, arch: amd64, image: "ubuntu:24.04" }
+          - { runner: ubuntu-latest, arch: amd64, image: "almalinux:9" }
+          - { runner: ubuntu-latest, arch: amd64, image: "rockylinux:9" }
+          - { runner: ubuntu-24.04-arm, arch: arm64, image: "debian:12" }
+          - { runner: ubuntu-24.04-arm, arch: arm64, image: "almalinux:9" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker, nftables and gVisor install from their repositories
+        run: docker run --rm -v "$PWD":/repo:ro ${{ matrix.image }} sh /repo/scripts/test-install-packages.sh

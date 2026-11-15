@@ -15,16 +15,17 @@
 #   --https DOMAIN       add the bundled Caddy reverse proxy with automatic certificates
 #   --auto-update        install a weekly timer that runs scripts/update.sh
 #   --no-firewall        do not install the egress firewall units (not recommended)
-#   --yes                do not ask before installing gVisor
+#   --yes                do not ask before installing Docker, gVisor and other packages
+#   --check              show what is missing and would be installed, change nothing
 #
-# What it does: checks Docker, Compose and nftables; installs and registers gVisor
-# if it is missing; writes .env with a fresh master key; builds or pulls the images;
+# What it does: checks the system; installs Docker, nftables and gVisor if they are missing
+# (Debian, Ubuntu, Raspberry Pi OS, AlmaLinux, Rocky Linux, RHEL, Fedora; x86-64 and arm64); writes .env with a fresh master key; builds or pulls the images;
 # starts the stack; installs systemd units that keep the egress firewall applied; and
 # prints a link for the first admin. Nothing is sent anywhere except package and image
 # downloads.
 set -eu
 
-URL="" ADMIN_EMAIL="" ADMIN_NAME="Admin" VERSION="" HTTPS_DOMAIN="" AUTO_UPDATE=0 FIREWALL=1 YES=0 LLM=""
+URL="" ADMIN_EMAIL="" ADMIN_NAME="Admin" VERSION="" HTTPS_DOMAIN="" AUTO_UPDATE=0 FIREWALL=1 YES=0 LLM="" CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -36,7 +37,8 @@ while [ $# -gt 0 ]; do
     --auto-update) AUTO_UPDATE=1; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '3,26p' "$0"; exit 0 ;;
+    --check) CHECK=1; shift ;;
+    -h|--help) sed -n '3,28p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -49,17 +51,61 @@ ROOT=$(pwd)
 # ---- prerequisites ----
 say "Checking prerequisites"
 [ "$(uname -s)" = Linux ] || die "Syntaxis needs Linux (gVisor does not run on other systems)"
+# shellcheck disable=SC1091
+. scripts/os.sh
+echo "System: $OS_ID ($OS_FAMILY family), $CPU_ARCH"
+[ "$CPU_ARCH" != unsupported ] || die "unsupported CPU ($(uname -m)); Syntaxis needs x86-64 or arm64"
+MEM_MB=$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+[ "${MEM_MB:-0}" -ge 1500 ] || echo "warning: only ${MEM_MB:-?} MB of memory; sandboxes and image builds need more (2 GB or more is comfortable)"
+# memory limits for sandboxes need the memory cgroup controller (Raspberry Pi OS leaves it off by default)
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  grep -qw memory /sys/fs/cgroup/cgroup.controllers || die "the memory cgroup controller is off. On Raspberry Pi OS add 'cgroup_enable=memory cgroup_memory=1' to /boot/firmware/cmdline.txt and reboot"
+elif [ ! -d /sys/fs/cgroup/memory ]; then
+  die "cgroups with the memory controller are required"
+fi
+command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = Enforcing ] && \
+  echo "note: SELinux is enforcing. The Docker proxy service runs unconfined so it can reach the socket (see docker-compose.yml); report any other denial (ausearch -m avc -ts recent)."
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+  echo "note: firewalld is active. Docker manages its own rules; if users cannot reach the chat app, open its port: firewall-cmd --permanent --add-port=8080/tcp && firewall-cmd --reload"
+fi
+
+# what is missing, and so what this script will install
+NEED_DOCKER=0 NEED_GVISOR=0 NEED_PKGS=""
+command -v docker >/dev/null 2>&1 || NEED_DOCKER=1
+command -v curl >/dev/null 2>&1 || NEED_PKGS="$NEED_PKGS curl"
+if [ "$FIREWALL" = 1 ]; then
+  command -v nft >/dev/null 2>&1 || NEED_PKGS="$NEED_PKGS nftables"
+  command -v systemctl >/dev/null 2>&1 || die "systemd is needed to keep the firewall applied; pass --no-firewall and apply scripts/apply-egress.sh yourself"
+fi
+if [ "$NEED_DOCKER" = 1 ]; then
+  NEED_GVISOR=1
+elif docker info >/dev/null 2>&1; then
+  docker info --format '{{json .Runtimes}}' | grep -q '"runsc"' || NEED_GVISOR=1
+fi
+if [ "$NEED_DOCKER$NEED_GVISOR${NEED_PKGS:+1}" != "00" ] && [ "$OS_FAMILY" = unknown ]; then
+  die "cannot install packages on $OS_ID: install Docker Engine, Compose v2${NEED_PKGS:+, $NEED_PKGS} and gVisor yourself (docs/getting-started.md), then run this again"
+fi
+{
+  [ "$NEED_DOCKER" = 1 ] && echo "  - Docker Engine and Compose, from Docker's repository"
+  [ -n "$NEED_PKGS" ] && echo "  -$NEED_PKGS"
+  [ "$NEED_GVISOR" = 1 ] && echo "  - gVisor (runsc), registered with Docker"
+  true
+} > /tmp/.syntaxis-plan.$$
+if [ -s /tmp/.syntaxis-plan.$$ ]; then echo "To install:"; cat /tmp/.syntaxis-plan.$$; else echo "Everything needed is already installed."; fi
+rm -f /tmp/.syntaxis-plan.$$
+if [ "$CHECK" = 1 ]; then echo "(--check: nothing was changed)"; exit 0; fi
+
 [ "$(id -u)" = 0 ] || die "run as root (sudo sh scripts/install.sh ...)"
-command -v docker >/dev/null || die "Docker Engine is not installed: https://docs.docker.com/engine/install/"
+if [ "$NEED_DOCKER$NEED_GVISOR${NEED_PKGS:+1}" != "00" ] && [ "$YES" != 1 ]; then
+  printf 'Install the packages above now? [y/N] '
+  read -r a; case "$a" in y|Y|yes) ;; *) die "cannot continue without them" ;; esac
+fi
+[ -z "$NEED_PKGS" ] || { say "Installing$NEED_PKGS"; pkg_install $NEED_PKGS; }
+if [ "$NEED_DOCKER" = 1 ]; then say "Installing Docker"; install_docker; fi
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
 DV=$(docker version --format '{{.Server.Version}}' | cut -d. -f1)
 [ "${DV:-0}" -ge 24 ] || die "Docker Engine 24 or newer is needed (found $(docker version --format '{{.Server.Version}}'))"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is not installed (the docker-compose-plugin package)"
-command -v curl >/dev/null || die "curl is needed"
-if [ "$FIREWALL" = 1 ]; then
-  command -v nft >/dev/null || die "nftables (nft) is needed for the egress firewall; install the nftables package, or pass --no-firewall"
-  command -v systemctl >/dev/null || die "systemd is needed to keep the firewall applied; pass --no-firewall and apply scripts/apply-egress.sh yourself"
-fi
 echo "Docker $(docker version --format '{{.Server.Version}}'), $(docker compose version --short 2>/dev/null || echo 'Compose v2')"
 
 # ---- gVisor ----
@@ -67,11 +113,6 @@ if docker info --format '{{json .Runtimes}}' | grep -q '"runsc"'; then
   echo "gVisor (runsc) is registered with Docker"
 else
   say "Installing gVisor"
-  command -v apt-get >/dev/null || die "gVisor is not registered and this is not a Debian/Ubuntu host; install it from https://gvisor.dev/docs/user_guide/install/ and run this again"
-  if [ "$YES" != 1 ]; then
-    printf 'gVisor is not installed. Install it from the official repository and restart Docker now? [y/N] '
-    read -r a; case "$a" in y|Y|yes) ;; *) die "gVisor is required" ;; esac
-  fi
   sh scripts/install-gvisor.sh
 fi
 
