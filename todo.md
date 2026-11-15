@@ -9,7 +9,6 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 1. Fixes and verification
 
 - [ ] CI fully green, including the gVisor integration job, on every push.
-- [ ] Verify on real gVisor: pause and stop of sustained CPU load, and the daily compute allowance cut-off.
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
 - [ ] Lighthouse audit (PWA, accessibility, performance) run in CI against a started instance.
 - [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
@@ -58,9 +57,7 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 - [ ] Publish versioned docs with each release.
 - [ ] Docker proxy: filter the container list to Syntaxis containers, so a compromised server cannot see other containers on the host.
 - [ ] Admin log viewer beyond audit and egress; log retention and rotation settings.
-- [ ] Connection-level egress logging (today only DNS queries are logged).
-- [ ] Feed the firewall's `allowed_hosts` set from the resolver's answers so hostname entries work in `allowlist` mode (today only CIDR and address entries pass the firewall), and enforce per-user egress modes in the firewall, not only in DNS.
-- [ ] Workspace size cap enforced by the filesystem, not only by the watchdog.
+- [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute, a warning is shown at the limit and the sandbox is stopped when far over it.
 - [ ] Abuse alerts and admin notification emails.
 - [ ] Maintenance banner.
 - [ ] Usage reports.

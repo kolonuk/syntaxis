@@ -17,6 +17,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Build information (version, commit, date) in the binary, the apps, `/healthz` and `/api/version`.
 - MCP servers, each in its own gVisor sandbox, with registry browsing and admin approval.
 
+- Per-user egress modes and allowlisted hostnames are enforced by the host firewall, every new connection from a sandbox is logged (allowed or denied), and the workspace size is measured and enforced by the watchdog.
+
 ### Changed
 - Frontend toolchain: React 19, Vite 8, Vitest 5, ESLint 10 (Node 22 or newer is needed to build the web apps).
 - Base images are pinned by digest; tagged releases sign images and checksums with Sigstore keyless signing and attach SBOMs, with release notes taken from this changelog.
@@ -27,6 +29,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Simpler getting started guide and README.
 
 ### Fixed
+- A sandbox that was paused for sustained load and then resumed was judged on its old load; it now gets a fresh start, and is stopped if it overloads again.
+- Starting a session or terminal is refused while the daily compute allowance is used up.
 - **The egress ruleset could disrupt other applications on the host:** its IPv6 rule was not limited to sandbox traffic, so forwarded IPv6 to unique-local or link-local addresses was dropped for every container and VPN on the host. Every rule now matches only the sandbox subnet or the sandbox bridge (IPv6 from the bridge is dropped; the sandbox network is IPv4 only), a test enforces that, and the real-firewall test checks that an ordinary container still reaches host services. Re-apply with `scripts/apply-egress.sh`.
 - Accessibility and layout (browser review on phone and desktop, light and dark, with axe-core): dark-mode danger buttons were 2.8:1 contrast, the admin header overflowed on phones and most admin tabs were out of sight, and the chat home had three identical calls to action with phone-only wording.
 - The admin exposure health check reported the Compose deployment as public; it now uses the published bind address.

@@ -73,7 +73,7 @@ The installer only automates these steps, if you prefer to run them yourself:
 2. Build the sandbox image: `docker build -t syntaxis-sandbox:latest images/sandbox`.
 3. `cp .env.example .env`, set `SYNTAXIS_MASTER_KEY` (from `docker run --rm ghcr.io/kolonuk/syntaxis keygen`), `SYNTAXIS_BASE_URL`, and your LLM server's address in `SYNTAXIS_EGRESS_BLOCK` (for example `192.0.2.10/32`).
 4. `docker compose up -d`.
-5. Apply the firewall: `sudo sh scripts/apply-egress.sh`. It must be re-applied after every reboot; the units in `deploy/systemd` do that (replace `@ROOT@` with the checkout path).
+5. Apply the firewall: `sudo sh scripts/apply-egress.sh`. It must be re-applied after every reboot, and `scripts/firewall-sync.sh` must keep running (it needs `SYNTAXIS_FIREWALL_TOKEN` in `.env`). The units in `deploy/systemd` do both (replace `@ROOT@` with the checkout path).
 6. `docker compose exec syntaxis syntaxis admin setup-link you@example.com "Your Name"` and open the link.
 
 ## Next
