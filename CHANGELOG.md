@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- One-command installer (`scripts/install.sh`): checks prerequisites, installs gVisor if missing, writes `.env` with a fresh master key, builds or pulls version-pinned images, starts the stack, installs systemd units that keep the egress firewall applied (boot, Docker start, `.env` changes, every 15 minutes) and prints a single-use admin setup link. Optional `--https <domain>` adds a Caddy front end with automatic certificates; `--auto-update` adds a weekly update timer.
+- `scripts/update.sh`: database backup, update, health check against the expected version, and automatic rollback of image, database and checkout on failure.
+- CI installs from scratch on a clean machine with real gVisor and checks the firewall, the Docker proxy and idempotent re-runs.
 - `syntaxis admin setup-link <email> <name>` creates an admin and prints a single-use link (valid 24 hours) to choose the password in the browser; the admin app opens it from `#setup=…`.
 - **Security:** a validating Docker API proxy (`syntaxis docker-proxy`) replaces the generic socket proxy in Compose. Only hardened gVisor sandboxes can be created or started through it; privileged containers, host mounts, host namespaces, devices, published ports and unused endpoints are refused. The admin Health page warns when a different proxy is in front of Docker.
 - Interactive terminal tab in the session view, running in the session's own sandbox, with an admin switch per user.

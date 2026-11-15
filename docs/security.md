@@ -28,7 +28,7 @@ Syntaxis is **not** designed for hostile users or the open internet. gVisor is a
 
 Modes: `open` (default; full outbound internet), `allowlist`, `none`. In **every** mode these are blocked: RFC1918/LAN, loopback, link-local and **cloud metadata** (169.254.169.254 and friends), CGNAT/tailnet ranges, the Docker bridge gateway, other sandboxes, Syntaxis internals and the LLM server (except through Syntaxis), and outbound SMTP (25/465/587).
 
-How: `syntaxis egress-rules` generates an nftables ruleset that you apply **on the Docker host** ([getting started](getting-started.md#5-turn-on-the-firewall)). Syntaxis also runs a DNS resolver for the sandbox network that applies per-domain policy, refuses answers pointing into blocked ranges (DNS rebinding), and logs queries (names and answers only, never payloads).
+How: `syntaxis egress-rules` generates an nftables ruleset that is applied **on the Docker host** by `scripts/apply-egress.sh`, which the installer runs from systemd at boot, whenever Docker starts, when `.env` changes and every 15 minutes ([getting started](getting-started.md)). Syntaxis also runs a DNS resolver for the sandbox network that applies per-domain policy, refuses answers pointing into blocked ranges (DNS rebinding), and logs queries (names and answers only, never payloads).
 
 Sandboxes cannot reach each other: the rules filter that traffic both in the routing path and at the bridge, so isolation does not depend on the host loading the `br_netfilter` kernel module.
 

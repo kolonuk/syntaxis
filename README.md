@@ -38,18 +38,14 @@ It is not a hosted service, and a gVisor container is not a virtual machine. The
 
 ## Quick start
 
-You need Linux with Docker, [gVisor](https://gvisor.dev) and an LLM server you already run.
+You need Linux with Docker and an LLM server you already run. On the Docker host, as root:
 
 ```sh
 git clone https://github.com/kolonuk/syntaxis && cd syntaxis
-sh scripts/install-gvisor.sh
-docker build -t syntaxis-sandbox:latest images/sandbox
-cp .env.example .env        # add a key from: docker run --rm ghcr.io/kolonuk/syntaxis keygen
-docker compose up -d
-docker compose exec syntaxis syntaxis admin create you@example.com "Your Name"
+sudo sh scripts/install.sh --url http://<this-host>:8080 --admin-email you@example.com --llm <llm-server-address>
 ```
 
-Then open `http://127.0.0.1:8081`. The [getting started guide](docs/getting-started.md) explains each step and why it is needed.
+The installer adds gVisor if it is missing, generates the keys, starts everything, keeps the sandbox firewall applied across reboots, and prints a single-use link for your admin account. The [getting started guide](docs/getting-started.md) explains each step, the options (HTTPS, pinned versions, automatic updates) and how to do it by hand.
 
 ## Documentation
 
@@ -57,6 +53,6 @@ Then open `http://127.0.0.1:8081`. The [getting started guide](docs/getting-star
 
 ## Project
 
-v1 is under active development; [todo.md](todo.md) lists the work that is left, and [docs/review-prompt.md](docs/review-prompt.md) is a prompt for a thorough review with a large model. Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md). Changes are in the [changelog](CHANGELOG.md).
+v1 is under active development; [todo.md](todo.md) lists the work that is left. Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately: [SECURITY.md](SECURITY.md). Changes are in the [changelog](CHANGELOG.md).
 
 Licensed GPL-2.0-or-later. See [LICENSE](LICENSE).

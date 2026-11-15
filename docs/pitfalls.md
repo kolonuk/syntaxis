@@ -68,7 +68,7 @@ Users are told in the chat when something is limited, and the actions are audite
 
 *Health checks: `sandbox.network-rules`, `security.egress-open`*
 
-`open` means full outbound internet minus the always-blocked ranges (host, LAN, metadata, the LLM server, SMTP). It does not stop a user or a prompt-injected agent from sending workspace data to the internet. `allowlist` and `none` are stricter. The firewall is applied by you on the Docker host and must persist across reboots. DNS policy only works through the Syntaxis resolver; DNS-over-HTTPS and allowed hosts that proxy traffic bypass it. This is not a substitute for trusting your users. See [security.md](security.md#egress).
+`open` means full outbound internet minus the always-blocked ranges (host, LAN, metadata, the LLM server, SMTP). It does not stop a user or a prompt-injected agent from sending workspace data to the internet. `allowlist` and `none` are stricter. The firewall is applied on the Docker host; the installer's systemd units keep it applied across reboots and Docker restarts, and the health check tests that it is really loaded. DNS policy only works through the Syntaxis resolver; DNS-over-HTTPS and allowed hosts that proxy traffic bypass it. This is not a substitute for trusting your users. See [security.md](security.md#egress).
 
 ## Secrets and cloud credentials
 
@@ -85,6 +85,7 @@ Use least privilege and short-lived tokens, a dedicated cloud project with a bud
 - **Headers:** only trust `X-Forwarded-For` / proxy-auth headers from your proxy's address(es) (`SYNTAXIS_PROXY_TRUSTED`). Never enable header auth without a trusted list.
 - **CSP:** Syntaxis sets a strict Content-Security-Policy; don't override it with a looser one at the proxy.
 - **PWA:** installing the app and offline support need **HTTPS** (localhost excepted).
+- **Bundled proxy:** `scripts/install.sh --https <domain>` adds Caddy (`deploy/compose.https.yml`), which gets and renews certificates, proxies only the chat app without buffering, and is the only trusted `X-Forwarded-For` source.
 
 ## Email
 

@@ -142,6 +142,46 @@ jobs:
           DOCKER_HOST=tcp://127.0.0.1:2375 SYNTAXIS_IT_EGRESS=1 go test -count=1 -v \
             -run 'TestIntegration(GVisorIsolation|ForkBomb|Egress|AgentRun)' ./internal/sandbox/... ./internal/server/...
 
+  install:
+    name: Fresh install on a clean machine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the shell scripts
+        run: shellcheck -s sh scripts/*.sh
+      - name: Run the installer (installs gVisor, builds, starts, firewall units, admin link)
+        run: |
+          sudo sh scripts/install.sh --yes --url http://localhost:8080 \
+            --admin-email admin@example.com --llm 192.0.2.10 | tee install.log
+      - name: Verify the result
+        run: |
+          set -x
+          curl -fsS http://127.0.0.1:8080/healthz
+          grep -q '#setup=' install.log                      # single-use admin link printed
+          systemctl is-enabled syntaxis-egress.service syntaxis-egress.path syntaxis-egress.timer
+          sudo nft list table inet syntaxis_sandbox | grep -q 'hook input'
+          sudo grep -q '^SYNTAXIS_EGRESS_BLOCK=192.0.2.10/32' .env
+          [ "$(stat -c %a .env)" = 600 ]
+          sudo docker compose exec -T syntaxis syntaxis doctor > doctor.txt || true
+          cat doctor.txt
+          # the firewall is verified by a test sandbox and the strict Docker proxy is in front of Docker
+          for check in sandbox.network-rules sandbox.socket-proxy sandbox.runsc; do
+            if grep -q "$check" doctor.txt; then echo "unexpected finding: $check"; exit 1; fi
+          done
+      - name: Re-running the installer keeps settings and data
+        run: |
+          key=$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)
+          sudo sh scripts/install.sh --yes > /dev/null
+          [ "$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)" = "$key" ]
+          curl -fsS http://127.0.0.1:8080/healthz
+      - name: Firewall comes back after it is flushed
+        run: |
+          sudo nft delete table inet syntaxis_sandbox
+          sudo systemctl start syntaxis-egress.service
+          sudo nft list table inet syntaxis_sandbox | grep -q 'hook input'
+      - if: failure()
+        run: sudo docker compose logs --tail 200; sudo journalctl -u syntaxis-egress --no-pager | tail -50
+
   e2e:
     name: Playwright
     runs-on: ubuntu-latest
