@@ -4,13 +4,16 @@ package lifecycle
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/kolonuk/syntaxis/internal/mail"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 var ctx = context.Background()
@@ -18,7 +21,7 @@ var ctx = context.Background()
 type fx struct {
 	j    *Job
 	st   *store.SQLite
-	rt   *sandbox.Fake
+	rt   *sandbox.Docker
 	mail *mail.Recorder
 	now  time.Time
 	uid  int64
@@ -30,17 +33,35 @@ func newFx(t *testing.T, createdDaysAgo int) *fx {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	f := &fx{st: st, rt: sandbox.NewFake(), mail: &mail.Recorder{}, now: time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC)}
+	testenv.Docker(t)
+	rt, err := sandbox.NewDocker("")
+	if err != nil {
+		testenv.NotTested(t, "no Docker client: "+err.Error())
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+	// the workspace volumes are named after the user id: keep clear of any real instance on this Docker
+	if err := st.SetUserIDFloor(ctx, 930000+time.Now().UnixNano()%50000); err != nil {
+		t.Fatal(err)
+	}
+	f := &fx{st: st, rt: rt, mail: &mail.Recorder{}, now: time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC)}
 	f.uid, _ = st.CreateAccount(ctx, store.Account{Kind: store.KindUser, Email: "a@example.com", Name: "Alice", CreatedAt: f.now.Add(-time.Duration(createdDaysAgo) * 24 * time.Hour)})
-	_ = f.rt.EnsureVolume(ctx, sandbox.WorkspaceVolume(f.uid), nil)
+	if err := f.rt.EnsureVolume(ctx, sandbox.WorkspaceVolume(f.uid), map[string]string{sandbox.LabelManaged: "true", sandbox.LabelUser: strconv.FormatInt(f.uid, 10)}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.rt.RemoveVolume(ctx, sandbox.WorkspaceVolume(f.uid)) })
 	f.j = &Job{Store: st, Runtime: f.rt, Mail: f.mail, Policy: Policy{RetentionDays: 30, WarnDays: 3}, BaseURL: "https://syntaxis.example.com", Now: func() time.Time { return f.now }}
 	return f
+}
+
+// volume reports whether the user's workspace volume exists on the real Docker.
+func (f *fx) volume() bool {
+	return exec.Command("docker", "volume", "inspect", sandbox.WorkspaceVolume(f.uid)).Run() == nil
 }
 
 func TestRecentWorkspaceUntouched(t *testing.T) {
 	f := newFx(t, 5)
 	r, _ := f.j.Run(ctx)
-	if len(r.Warned)+len(r.Deleted) != 0 || f.rt.Volumes[sandbox.WorkspaceVolume(f.uid)] == nil {
+	if len(r.Warned)+len(r.Deleted) != 0 || !f.volume() {
 		t.Fatalf("%+v", r)
 	}
 }
@@ -51,7 +72,7 @@ func TestWarnsBeforeDeletingThenDeletes(t *testing.T) {
 	if len(r.Warned) != 1 || len(r.Deleted) != 0 || len(f.mail.Sent) != 1 {
 		t.Fatalf("%+v", r)
 	}
-	if f.rt.Volumes[sandbox.WorkspaceVolume(f.uid)] == nil {
+	if !f.volume() {
 		t.Fatal("deleted before the retention period")
 	}
 	// warned once only
@@ -61,7 +82,7 @@ func TestWarnsBeforeDeletingThenDeletes(t *testing.T) {
 	}
 	f.now = f.now.Add(3 * 24 * time.Hour)
 	r, _ = f.j.Run(ctx)
-	if len(r.Deleted) != 1 || f.rt.Volumes[sandbox.WorkspaceVolume(f.uid)] != nil {
+	if len(r.Deleted) != 1 || f.volume() {
 		t.Fatalf("expired workspace not deleted: %+v", r)
 	}
 	es, _ := f.st.ListAudit(ctx, 0)
@@ -95,10 +116,19 @@ func TestKeepFlagAndActivityResetClock(t *testing.T) {
 }
 
 func TestNeverDeletesUnderRunningSandbox(t *testing.T) {
+	testenv.GVisor(t)
 	f := newFx(t, 60)
-	id, _ := f.rt.Create(ctx, sandbox.Spec{Name: "c", Labels: map[string]string{sandbox.LabelManaged: "true", sandbox.LabelUser: "1"}})
-	_ = f.rt.Start(ctx, id)
-	if r, _ := f.j.Run(ctx); len(r.Deleted) != 0 || f.rt.Volumes[sandbox.WorkspaceVolume(f.uid)] == nil {
+	cfg := sandbox.DefaultConfig()
+	if ok, _ := f.rt.ImagePresent(ctx, cfg.Image); !ok {
+		testenv.NotTested(t, "the sandbox image "+cfg.Image+" is not built")
+	}
+	m := sandbox.NewManager(f.rt, cfg, nil)
+	id, err := m.Create(ctx, f.uid, "lifecycle-test", nil, false) // a real running gVisor sandbox for this user
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, "lifecycle-test", id) })
+	if r, _ := f.j.Run(ctx); len(r.Deleted) != 0 || !f.volume() {
 		t.Fatal("workspace deleted under a running sandbox")
 	}
 }
