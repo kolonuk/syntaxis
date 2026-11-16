@@ -37,7 +37,7 @@ func NewClient(allowPrivate bool) *http.Client {
 			if err != nil {
 				return nil, err
 			}
-			var lastErr error = errors.New("no address")
+			lastErr := errors.New("no address")
 			for _, ip := range ips {
 				a, ok := netip.AddrFromSlice(ip.IP)
 				if !ok {

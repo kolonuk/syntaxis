@@ -19,6 +19,7 @@ import {
   useToast,
 } from "../ui/ui";
 import { ChangePassword, Forgot, Login, SetPassword, TwoFactorSetup, AuthFrame } from "./Auth";
+import { Automations } from "./Automations";
 import { Chat } from "./Chat";
 import { RepoPicker, type RepoChoice } from "./RepoPicker";
 import { Settings, UsagePanel } from "./Settings";
@@ -165,7 +166,7 @@ function Shell({
 }) {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [current, setCurrent] = useState<string>("");
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "automations">("chat");
   const [creating, setCreating] = useState(false);
   const [pref, setPref] = useState<ThemePref>(loadPref());
   const [dismissed2fa, setDismissed2fa] = useState(false);
@@ -244,6 +245,15 @@ function Shell({
         </Button>
         <Button
           variant="ghost"
+          onClick={() => {
+            setView(view === "automations" ? "chat" : "automations");
+            setDrawer(false);
+          }}
+        >
+          {view === "automations" ? "Sessions" : "Automations"}
+        </Button>
+        <Button
+          variant="ghost"
           className="icon-only"
           aria-label={view === "settings" ? "Back to sessions" : "Settings"}
           onClick={() => {
@@ -318,6 +328,14 @@ function Shell({
         <main className="main" style={{ padding: view === "chat" && cur ? 0 : undefined }}>
           {view === "settings" ? (
             <Settings me={me} reload={() => void reload()} onLogout={logout} />
+          ) : view === "automations" ? (
+            <Automations
+              onOpenSession={(id) => {
+                setCurrent(id);
+                setView("chat");
+                void refresh();
+              }}
+            />
           ) : cur ? (
             <Chat
               key={cur.id}

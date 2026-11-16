@@ -265,10 +265,7 @@ func TestWatchFiresOnlyForWhatIsNew(t *testing.T) {
 }
 
 // rewriteTo sends every request to a fixed test server, whatever host it names.
-func rewriteTo(base string, rt http.RoundTripper) http.RoundTripper {
-	if rt == nil {
-		rt = http.DefaultTransport
-	}
+func rewriteTo(base string, _ http.RoundTripper) http.RoundTripper {
 	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		u := *r.URL
 		bu, _ := http.NewRequest("GET", base, nil)

@@ -20,7 +20,13 @@ interface Repo {
 }
 
 /** Optional: start the session from one of the user's repositories, or from a new one. */
-export function RepoPicker({ onChange }: { onChange: (r: RepoChoice | null) => void }) {
+export function RepoPicker({
+  onChange,
+  allowCreate = true,
+}: {
+  onChange: (r: RepoChoice | null) => void;
+  allowCreate?: boolean;
+}) {
   const { data } = useConnections();
   const [kind, setKind] = useState("");
   const [mode, setMode] = useState<"existing" | "new">("existing");
@@ -92,7 +98,7 @@ export function RepoPicker({ onChange }: { onChange: (r: RepoChoice | null) => v
             onChange={(e) => setMode(e.target.value as "existing" | "new")}
             options={[
               { value: "existing", label: "Use one of mine" },
-              { value: "new", label: "Create a new one" },
+              ...(allowCreate ? [{ value: "new", label: "Create a new one" }] : []),
             ]}
           />
           {mode === "existing" ? (

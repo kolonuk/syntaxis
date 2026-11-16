@@ -21,7 +21,6 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 - [ ] Parallel tasks: several runs of one task (or several tasks) at once, each in its own sandbox, with a side-by-side comparison.
 - [ ] Diff review in the UI before a push: per-file diff, comments that go back to the agent.
 
-- [ ] Scheduled runs and triggers: cron schedules, webhooks and GitHub events start a run with a stored prompt, with the same quotas and approvals, and results visible in the session list.
 - [ ] `devcontainer.json` support and per-project image templates.
 - [ ] Prompt presets.
 - [ ] Read-only session sharing.

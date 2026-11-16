@@ -318,7 +318,8 @@ func (a *App) fire(ctx context.Context, au store.Automation, source, event strin
 		_ = a.Store.UpdateAutomation(ctx, *fresh)
 	}
 	_, _ = a.Store.AppendAudit(ctx, fmt.Sprintf("user:%d", au.UserID), "automation.run", "automation:"+au.ID, source)
-	go a.afterAutomationRun(au, s.ID)
+	// the follow-up (state, IFTTT) outlives this request on purpose: it waits for the run to end
+	go a.afterAutomationRun(au, s.ID) // #nosec G118
 	return s.ID, nil
 }
 

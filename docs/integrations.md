@@ -30,6 +30,17 @@ Safety rails: the approval gate fires on `apply`/`deploy`/`delete`/`destroy`-sty
 
 Sandboxes have no Docker socket, and building images inside gVisor is untested. Use remote builds instead.
 
+## Automations: schedules, webhooks and watches
+
+An automation starts a session by itself, as its owner and within their limits (token and compute quotas, concurrent sessions, egress mode, approvals). Each run is an ordinary session in the owner's list. Set them up under **Automations**.
+
+- **Schedule:** a cron expression and a time zone, at most every 5 minutes. Example: `0 3 * * *` runs every night at 03:00.
+- **Watch:** Syntaxis checks a source every few minutes (at least 5, default 30) and starts a run when something is new. It remembers how things are when the automation is created, so it only fires for what is new from then on. Sources: a **GitHub release**, a **git branch or new tags** of any public repository, a **Docker Hub image** (optionally only tags matching a pattern), a **package release** on npm, PyPI or crates.io, an **RSS or Atom feed** (which covers release feeds, blogs and advisories), and a **web page or file** that changes. Watches use your GitHub connection, if you have one, to reach your private repositories and to avoid rate limits. They are made by the server through a client that refuses private, loopback, link-local and metadata addresses, so a watch cannot be pointed at your network.
+- **Webhook:** you get a secret address (`/hooks/<id>/<secret>` on the chat app's address) when you save; it is shown once and can be replaced. Anything that can send a web request can call it: an IFTTT "Make a web request" action, a GitHub webhook, a script. The request body is passed to the run as event data.
+- **Event data is untrusted.** Whatever a watch found or a webhook received is put into the run's prompt inside an `<event>` block that tells the agent it is information about what happened and never instructions. Policy (approvals, quotas, egress, secrets) is enforced by the server regardless.
+- **IFTTT:** connect your Webhooks key under **Settings → Connections**, then give an automation an IFTTT event name and it triggers that applet when the run finishes, with its name, outcome and a short summary.
+- **Limits:** up to 20 automations per user, 48 runs per automation per day, one run at a time per automation, and an automation that fails 5 times in a row is switched off (the reason is shown). Unattended runs at the "ask" autonomy level wait for you to approve.
+
 ## Security scanners (on demand)
 
 Trivy and `osv-scanner` live in the optional `images/sandbox-security` image and run only when asked ("Scan project" or the agent tool), never automatically and never in the base image.
