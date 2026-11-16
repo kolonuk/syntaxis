@@ -30,6 +30,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Simpler getting started guide and README.
 
 ### Fixed
+- The Docker proxy lists only Syntaxis containers, so a compromised server cannot see what else runs on the host.
 - A sandbox that was paused for sustained load and then resumed was judged on its old load; it now gets a fresh start, and is stopped if it overloads again.
 - Starting a session or terminal is refused while the daily compute allowance is used up.
 - **The egress ruleset could disrupt other applications on the host:** its IPv6 rule was not limited to sandbox traffic, so forwarded IPv6 to unique-local or link-local addresses was dropped for every container and VPN on the host. Every rule now matches only the sandbox subnet or the sandbox bridge (IPv6 from the bridge is dropped; the sandbox network is IPv4 only), a test enforces that, and the real-firewall test checks that an ordinary container still reaches host services. Re-apply with `scripts/apply-egress.sh`.

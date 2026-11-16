@@ -117,7 +117,7 @@ var routes = []route{
 	rt("POST", `/volumes/create`, checkVolumeCreate),
 	rt("DELETE", `/volumes/`+id, checkVolumeName),
 
-	rt("GET", `/containers/json`, nil),
+	rt("GET", `/containers/json`, checkContainerList),
 	rt("POST", `/containers/create`, checkContainerCreate),
 	rt("GET", `/containers/`+id+`/json`, checkManaged),
 	rt("GET", `/containers/`+id+`/stats`, checkManaged),
@@ -295,6 +295,46 @@ func checkVolumeName(_ *Proxy, _ *http.Request, m []string, _ []byte) ([]byte, e
 	if !volumeName.MatchString(m[1]) {
 		return nil, fmt.Errorf("volume %q is not a Syntaxis volume", m[1])
 	}
+	return nil, nil
+}
+
+// checkContainerList makes a container listing show only Syntaxis containers, whatever filters
+// were asked for, so a compromised server cannot learn what else runs on the host.
+func checkContainerList(_ *Proxy, r *http.Request, _ []string, _ []byte) ([]byte, error) {
+	q := r.URL.Query()
+	filters := map[string][]string{}
+	if raw := q.Get("filters"); raw != "" {
+		// the API accepts {"label":["a=b"]} and the older {"label":{"a=b":true}}
+		var generic map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &generic); err != nil {
+			return nil, errors.New("bad filters")
+		}
+		for k, v := range generic {
+			var list []string
+			var set map[string]bool
+			if json.Unmarshal(v, &list) == nil {
+				filters[k] = list
+			} else if json.Unmarshal(v, &set) == nil {
+				for s := range set {
+					filters[k] = append(filters[k], s)
+				}
+			} else {
+				return nil, errors.New("bad filters")
+			}
+		}
+	}
+	have := false
+	for _, l := range filters["label"] {
+		if l == LabelManaged+"=true" {
+			have = true
+		}
+	}
+	if !have {
+		filters["label"] = append(filters["label"], LabelManaged+"=true")
+	}
+	b, _ := json.Marshal(filters)
+	q.Set("filters", string(b))
+	r.URL.RawQuery = q.Encode()
 	return nil, nil
 }
 

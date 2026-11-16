@@ -19,6 +19,7 @@ import (
 type fakeDaemon struct {
 	mu         sync.Mutex
 	forwarded  []string
+	queries    map[string]string
 	bodies     map[string][]byte
 	containers map[string]string // id -> inspect JSON
 	execs      map[string]string // exec id -> container id
@@ -28,7 +29,7 @@ func (f *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
-	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/json"):
+	case r.Method == "GET" && r.URL.Path != "/containers/json" && strings.HasPrefix(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/json"):
 		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/containers/"), "/json")
 		if c, ok := f.containers[id]; ok {
 			_, _ = io.WriteString(w, c)
@@ -48,6 +49,10 @@ func (f *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b, _ := io.ReadAll(r.Body)
 	f.forwarded = append(f.forwarded, r.Method+" "+r.URL.Path)
+	if f.queries == nil {
+		f.queries = map[string]string{}
+	}
+	f.queries[r.Method+" "+r.URL.Path] = r.URL.RawQuery
 	f.bodies[r.Method+" "+r.URL.Path] = b
 	_, _ = io.WriteString(w, `{}`)
 }
@@ -240,5 +245,34 @@ func TestVolumeAndNetworkRules(t *testing.T) {
 	}
 	if code := do(t, srv, "POST", "/networks/create", map[string]any{"Name": "evil", "Driver": "macvlan"}); code != 403 {
 		t.Errorf("other network: %d", code)
+	}
+}
+
+func TestContainerListShowsOnlySyntaxisContainers(t *testing.T) {
+	for name, query := range map[string]string{
+		"no filters":       "all=1",
+		"other label":      "filters=" + `{"label":["app=web"]}`,
+		"old filter form":  "filters=" + `{"label":{"app=web":true},"status":{"running":true}}`,
+		"already asks for": "filters=" + `{"label":["io.syntaxis.managed=true"]}`,
+		"tries to widen":   "filters=" + `{"name":["x"]}`,
+	} {
+		f, srv := setup(t)
+		req, _ := http.NewRequest("GET", srv.URL+"/containers/json?"+query, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		raw := f.queries["GET /containers/json"]
+		if !strings.Contains(raw, "io.syntaxis.managed%3Dtrue") {
+			t.Errorf("%s: the daemon was asked for %q, which is not limited to Syntaxis containers", name, raw)
+		}
+		if strings.Count(raw, "io.syntaxis.managed") != 1 {
+			t.Errorf("%s: label added twice: %q", name, raw)
+		}
+	}
+	_, srv := setup(t)
+	if code := do(t, srv, "GET", "/containers/json?filters=not-json", nil); code != http.StatusForbidden {
+		t.Errorf("malformed filters must be refused, got %d", code)
 	}
 }
