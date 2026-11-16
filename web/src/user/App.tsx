@@ -249,6 +249,15 @@ function Shell({
           <Icon name={view === "settings" ? "back" : "gear"} />
           <span className="label">{view === "settings" ? "Back" : "Settings"}</span>
         </Button>
+        {me.admin_url && (
+          <a
+            className="btn btn-ghost"
+            href={me.admin_url}
+            title="Open the admin app (you sign in there)"
+          >
+            Admin mode
+          </a>
+        )}
         <Button variant="ghost" className="icon-only" aria-label="Sign out" onClick={logout}>
           <Icon name="logout" />
           <span className="label">Sign out</span>

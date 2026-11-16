@@ -6,6 +6,7 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | --- | --- | --- |
 | `SYNTAXIS_LISTEN` | `127.0.0.1:8080` | Chat app listen address |
 | `SYNTAXIS_ADMIN_LISTEN` | `127.0.0.1:8081` | Admin app listen address. A separate port so it can stay on loopback/LAN/VPN. Binding it publicly is flagged as an error by the health check |
+| `SYNTAXIS_ADMIN_URL` | – | Where admins open the admin app. Adds an "Admin mode" link in the chat app for users with the admin level. The admin app has its own sign-in and two-factor step; the link does not skip it |
 | `SYNTAXIS_BASE_URL` | `http://localhost:8080` | Public URL for email links; `https://` turns on Secure cookies and HSTS |
 | `SYNTAXIS_DATA_DIR` | `./data` | SQLite database and local state |
 | `SYNTAXIS_MASTER_KEY` / `_FILE` | – | 32-byte base64 key (`syntaxis keygen`). Required for `serve`. Keep outside the data dir |
@@ -29,6 +30,17 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
 | `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |
 | `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`; remove after use |
+
+## Levels, groups and per-user settings (admin UI)
+
+Every chat user has a **level** (`user`, `poweruser` or `admin`) and may be in one **group**. Levels and groups carry the same settings as a user: daily and monthly token quotas, concurrent sessions, daily compute minutes, egress mode, allowed models, and switches for the terminal and cloud tooling. Set them under **Levels & groups**; put a user in a group and pick their level under **Users → Edit**.
+
+How they combine, from least to most specific: instance defaults, the user's level, their group, the user's own settings.
+
+- Numbers and modes: the most specific layer that sets a value wins, so a setting on a user overrides their group, and a group overrides the level. `0` (or empty) means "not set here"; `-1` means unlimited.
+- On/off switches: off if any layer turns them off. A user cannot be given back something their level or group takes away; change the level or group instead.
+
+The `admin` level is for an admin's own chat account: it needs an admin account with the same email, and adds an "Admin mode" link to the chat app (see `SYNTAXIS_ADMIN_URL`) and a "Chat app" link in the admin app. Admin and chat accounts stay separate, with their own sign-in.
 
 ## Per-user policy (admin UI)
 

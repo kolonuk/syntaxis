@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
+	"github.com/kolonuk/syntaxis/internal/policy"
 	"net/http"
 	"strings"
 	"time"
@@ -170,6 +171,15 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Account.Kind == store.KindUser {
 		out["banners"] = health.UserBanners(a.healthFindings(r.Context()))
+		if cu, err := a.Store.GetUser(r.Context(), p.Account.ID); err == nil {
+			out["level"] = cu.Level
+			// an admin signs in to the admin app separately (its own password and 2FA); this is only the link
+			if cu.Level == store.LevelAdmin && a.Cfg.AdminURL != "" {
+				out["admin_url"] = a.Cfg.AdminURL
+			}
+		}
+	} else if p.Account.Kind == store.KindAdmin && a.Cfg.BaseURL != "" {
+		out["chat_url"] = a.Cfg.BaseURL
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -193,7 +203,23 @@ func (a *App) user(r *http.Request) *store.User {
 	if err != nil {
 		return nil
 	}
-	return u
+	return a.EffectiveUser(r.Context(), u)
+}
+
+// EffectiveUser returns the user with the settings of their level and group filled in
+// wherever they have none of their own (see package policy).
+func (a *App) EffectiveUser(ctx context.Context, u *store.User) *store.User {
+	var lvl, grp *store.PolicyData
+	if p, err := a.Store.GetPolicy(ctx, "level", u.Level); err == nil {
+		lvl = &p.Data
+	}
+	if u.GroupID != 0 {
+		if p, err := a.Store.GetPolicyByID(ctx, u.GroupID); err == nil {
+			grp = &p.Data
+		}
+	}
+	eff := policy.Apply(*u, lvl, grp)
+	return &eff
 }
 
 func (a *App) handleModels(w http.ResponseWriter, r *http.Request) {

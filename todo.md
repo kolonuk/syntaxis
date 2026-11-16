@@ -13,12 +13,6 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] Lighthouse audit (PWA, accessibility, performance) run in CI against a started instance.
 - [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
 
-## 2. Access model
-
-- [ ] User levels: `user`, `poweruser` and `admin`. Define what a poweruser may do beyond a user (for example higher limits, terminal, MCP servers, cloud tooling), and make it configurable.
-- [ ] Admins get a link in the chat app to switch into admin mode, and a link back, instead of two separate logins to remember. Keep the separate admin listener, cookie and 2FA requirement.
-- [ ] User groups. Permissions and settings can be set per group as well as per user: quotas, allowed models, egress mode, terminal, cloud tooling, MCP servers, session limits, retention. Document how group and user settings combine (most specific wins; an explicit user setting overrides the group).
-
 ## 3. GitHub integration, per user
 
 - [ ] Each user connects their own GitHub account (GitHub App or OAuth, with a fine-grained token as the fallback), stored in their own secrets and never visible to other users or the model.

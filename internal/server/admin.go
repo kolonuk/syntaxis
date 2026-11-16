@@ -63,6 +63,13 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/users/{id}/topup", a.adminTopUp)
 			r.Post("/users/{id}/reset-usage", a.adminResetUsage)
 
+			r.Get("/levels", a.adminLevels)
+			r.Put("/levels/{name}", a.adminLevelPut)
+			r.Get("/groups", a.adminGroups)
+			r.Post("/groups", a.adminGroupSave)
+			r.Put("/groups/{id}", a.adminGroupSave)
+			r.Delete("/groups/{id}", a.adminGroupDelete)
+
 			r.Get("/providers", a.adminProviders)
 			r.Post("/providers", a.adminProviderSave)
 			r.Put("/providers/{id}", a.adminProviderSave)
@@ -129,7 +136,8 @@ func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
 	for _, u := range us {
 		out = append(out, map[string]any{"id": u.ID, "email": u.Email, "name": u.Name, "disabled": u.Disabled, "totp_enabled": u.TOTPEnabled,
 			"invited": u.PasswordHash == "", "quota_daily_tokens": u.QuotaDailyTokens, "quota_monthly_tokens": u.QuotaMonthlyTokens,
-			"max_sessions": u.MaxSessions, "egress_mode": u.EgressMode, "allowed_models": u.AllowedModels, "cloud_tools_disabled": u.CloudToolsDisabled, "terminal_disabled": u.TerminalDisabled})
+			"max_sessions": u.MaxSessions, "egress_mode": u.EgressMode, "allowed_models": u.AllowedModels, "cloud_tools_disabled": u.CloudToolsDisabled, "terminal_disabled": u.TerminalDisabled,
+			"level": u.Level, "group_id": u.GroupID, "quota_cpu_minutes": u.QuotaCPUMinutes})
 	}
 	writeJSON(w, 200, out)
 }
@@ -181,6 +189,9 @@ func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
 		AllowedModels      *[]string `json:"allowed_models"`
 		CloudToolsDisabled *bool     `json:"cloud_tools_disabled"`
 		TerminalDisabled   *bool     `json:"terminal_disabled"`
+		QuotaCPUMinutes    *int64    `json:"quota_cpu_minutes"`
+		Level              *string   `json:"level"`
+		GroupID            *int64    `json:"group_id"`
 	}
 	if !decode(w, r, &b) {
 		return
@@ -188,6 +199,33 @@ func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
 	if b.EgressMode != nil && *b.EgressMode != "" && *b.EgressMode != "open" && *b.EgressMode != "allowlist" && *b.EgressMode != "none" {
 		writeErr(w, 400, "invalid egress mode")
 		return
+	}
+	if b.Level != nil {
+		switch *b.Level {
+		case store.LevelUser, store.LevelPowerUser:
+		case store.LevelAdmin:
+			// an admin-level chat account must belong to a real admin: the same person, found by email
+			if _, err := a.Store.GetAccountByEmail(r.Context(), store.KindAdmin, u.Email); err != nil {
+				writeErr(w, 400, "there is no admin account with this email address, so this user cannot be given the admin level")
+				return
+			}
+		default:
+			writeErr(w, 400, "invalid level")
+			return
+		}
+		u.Level = *b.Level
+	}
+	if b.GroupID != nil {
+		if *b.GroupID != 0 {
+			if p, err := a.Store.GetPolicyByID(r.Context(), *b.GroupID); err != nil || p.Kind != "group" {
+				writeErr(w, 400, "no such group")
+				return
+			}
+		}
+		u.GroupID = *b.GroupID
+	}
+	if b.QuotaCPUMinutes != nil {
+		u.QuotaCPUMinutes = *b.QuotaCPUMinutes
 	}
 	if b.QuotaDaily != nil {
 		u.QuotaDailyTokens = *b.QuotaDaily

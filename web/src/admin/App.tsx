@@ -33,6 +33,23 @@ interface Health {
   findings: Finding[];
   summary: { errors: number; warnings: number; infos: number; worst: string };
 }
+interface PolicyData {
+  daily_tokens?: number;
+  monthly_tokens?: number;
+  max_sessions?: number;
+  cpu_minutes?: number;
+  egress_mode?: string;
+  allowed_models?: string[];
+  no_terminal?: boolean;
+  no_cloud_tools?: boolean;
+}
+interface NamedPolicy {
+  id: number;
+  name: string;
+  kind: string;
+  policy: PolicyData;
+  members?: number;
+}
 interface User {
   id: number;
   email: string;
@@ -45,6 +62,9 @@ interface User {
   egress_mode: string;
   allowed_models: string[] | null;
   terminal_disabled?: boolean;
+  level?: string;
+  group_id?: number;
+  quota_cpu_minutes?: number;
 }
 interface Prov {
   id: number;
@@ -232,6 +252,10 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
   const [models, setModels] = useState((u.allowed_models ?? []).join(", "));
   const [disabled, setDisabled] = useState(u.disabled);
   const [terminalOff, setTerminalOff] = useState(!!u.terminal_disabled);
+  const [level, setLevel] = useState(u.level ?? "user");
+  const [group, setGroup] = useState(String(u.group_id ?? 0));
+  const [cpu, setCpu] = useState(String(u.quota_cpu_minutes ?? 0));
+  const groups = useLoad<NamedPolicy[]>("/groups");
   async function save() {
     try {
       await patch(`/users/${u.id}`, {
@@ -240,6 +264,9 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
         egress_mode: egress,
         disabled,
         terminal_disabled: terminalOff,
+        level,
+        group_id: Number(group),
+        quota_cpu_minutes: Number(cpu),
         allowed_models: models
           .split(",")
           .map((s) => s.trim())
@@ -264,6 +291,25 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
         </>
       }
     >
+      <Select
+        label="Level"
+        value={level}
+        onChange={(e) => setLevel(e.target.value)}
+        options={[
+          { value: "user", label: "User" },
+          { value: "poweruser", label: "Power user" },
+          { value: "admin", label: "Admin (needs an admin account with the same email)" },
+        ]}
+      />
+      <Select
+        label="Group"
+        value={group}
+        onChange={(e) => setGroup(e.target.value)}
+        options={[
+          { value: "0", label: "No group" },
+          ...(groups.data ?? []).map((g) => ({ value: String(g.id), label: g.name })),
+        ]}
+      />
       <Input
         label="Daily token quota"
         hint="0 = default, -1 = unlimited"
@@ -274,6 +320,12 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
         label="Monthly token quota"
         value={monthly}
         onChange={(e) => setMonthly(e.target.value)}
+      />
+      <Input
+        label="Daily compute minutes"
+        hint="0 = from the group, level or default; -1 = unlimited"
+        value={cpu}
+        onChange={(e) => setCpu(e.target.value)}
       />
       <Select
         label="Egress policy"
@@ -1021,7 +1073,206 @@ function KillTab() {
   );
 }
 
-function Console({ name, signOut }: { name: string; signOut: () => void }) {
+function PolicyFields({
+  value,
+  onChange,
+}: {
+  value: PolicyData;
+  onChange: (p: PolicyData) => void;
+}) {
+  const num = (k: keyof PolicyData) => String(value[k] ?? 0);
+  const set = (k: keyof PolicyData, v: string) => onChange({ ...value, [k]: Number(v) || 0 });
+  return (
+    <div className="stack">
+      <p className="muted">
+        Leave a number at 0 to leave it unset here. -1 means unlimited. A setting on the user
+        overrides these; on/off switches stay off if any of level, group or user turns them off.
+      </p>
+      <Input
+        label="Daily token quota"
+        value={num("daily_tokens")}
+        onChange={(e) => set("daily_tokens", e.target.value)}
+      />
+      <Input
+        label="Monthly token quota"
+        value={num("monthly_tokens")}
+        onChange={(e) => set("monthly_tokens", e.target.value)}
+      />
+      <Input
+        label="Concurrent sessions"
+        value={num("max_sessions")}
+        onChange={(e) => set("max_sessions", e.target.value)}
+      />
+      <Input
+        label="Daily compute minutes"
+        value={num("cpu_minutes")}
+        onChange={(e) => set("cpu_minutes", e.target.value)}
+      />
+      <Select
+        label="Egress policy"
+        value={value.egress_mode ?? ""}
+        onChange={(e) => onChange({ ...value, egress_mode: e.target.value })}
+        options={[
+          { value: "", label: "Not set here" },
+          { value: "open", label: "Open" },
+          { value: "allowlist", label: "Allowlist" },
+          { value: "none", label: "None" },
+        ]}
+      />
+      <Input
+        label="Allowed models"
+        hint="Comma-separated provider/model ids. Empty = not set here."
+        value={(value.allowed_models ?? []).join(", ")}
+        onChange={(e) =>
+          onChange({
+            ...value,
+            allowed_models: e.target.value
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          })
+        }
+      />
+      <Toggle
+        label="No interactive terminal"
+        checked={!!value.no_terminal}
+        onChange={(v) => onChange({ ...value, no_terminal: v })}
+      />
+      <Toggle
+        label="No cloud tooling"
+        checked={!!value.no_cloud_tools}
+        onChange={(v) => onChange({ ...value, no_cloud_tools: v })}
+      />
+    </div>
+  );
+}
+
+const LEVEL_LABEL: Record<string, string> = {
+  user: "User",
+  poweruser: "Power user",
+  admin: "Admin",
+};
+
+function GroupsTab() {
+  const toast = useToast();
+  const levels = useLoad<NamedPolicy[]>("/levels");
+  const groups = useLoad<NamedPolicy[]>("/groups");
+  const [edit, setEdit] = useState<{
+    kind: "level" | "group";
+    id: number;
+    name: string;
+    policy: PolicyData;
+  } | null>(null);
+  async function save() {
+    if (!edit) return;
+    try {
+      if (edit.kind === "level") await put(`/levels/${edit.name}`, edit.policy);
+      else if (edit.id) await put(`/groups/${edit.id}`, { name: edit.name, policy: edit.policy });
+      else await post("/groups", { name: edit.name, policy: edit.policy });
+      toast("Saved.", "success");
+      setEdit(null);
+      levels.reload();
+      groups.reload();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+  return (
+    <div className="stack">
+      <Card title="Levels">
+        <p className="muted">
+          What each kind of user gets by default. Power users usually get higher limits.
+        </p>
+        <ul>
+          {(levels.data ?? []).map((l) => (
+            <li key={l.name} className="row">
+              <strong className="grow">{LEVEL_LABEL[l.name] ?? l.name}</strong>
+              <Button
+                onClick={() => setEdit({ kind: "level", id: 0, name: l.name, policy: l.policy })}
+              >
+                Edit
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card title="Groups">
+        <p className="muted">
+          Settings shared by a set of people. Put a user in a group from Users, then Edit.
+        </p>
+        {groups.data && groups.data.length === 0 && <p className="muted">No groups yet.</p>}
+        <ul>
+          {(groups.data ?? []).map((g) => (
+            <li key={g.id} className="row">
+              <strong className="grow">
+                {g.name} <span className="muted">({g.members ?? 0} members)</span>
+              </strong>
+              <Button
+                onClick={() => setEdit({ kind: "group", id: g.id, name: g.name, policy: g.policy })}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  await del(`/groups/${g.id}`);
+                  groups.reload();
+                }}
+              >
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <Button
+          variant="primary"
+          onClick={() => setEdit({ kind: "group", id: 0, name: "", policy: {} })}
+        >
+          New group
+        </Button>
+      </Card>
+      {edit && (
+        <Modal
+          title={
+            edit.kind === "level"
+              ? `Level: ${LEVEL_LABEL[edit.name] ?? edit.name}`
+              : edit.id
+                ? "Edit group"
+                : "New group"
+          }
+          onClose={() => setEdit(null)}
+          actions={
+            <>
+              <Button onClick={() => setEdit(null)}>Cancel</Button>
+              <Button variant="primary" onClick={save}>
+                Save
+              </Button>
+            </>
+          }
+        >
+          {edit.kind === "group" && (
+            <Input
+              label="Group name"
+              value={edit.name}
+              onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+            />
+          )}
+          <PolicyFields value={edit.policy} onChange={(p) => setEdit({ ...edit, policy: p })} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Console({
+  name,
+  signOut,
+  chatUrl,
+}: {
+  name: string;
+  signOut: () => void;
+  chatUrl?: string;
+}) {
   const [tab, setTab] = useState("health");
   const { data: h } = useLoad<Health>("/health");
   return (
@@ -1042,6 +1293,11 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
           </Badge>
         )}
         <VersionLabel />
+        {chatUrl && (
+          <a className="btn btn-ghost" href={chatUrl} title="Back to the chat app">
+            Chat app
+          </a>
+        )}
         <span className="muted account-name">{name}</span>
         <Button variant="ghost" onClick={signOut}>
           Sign out
@@ -1054,6 +1310,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
           tabs={[
             { id: "health", label: "Health" },
             { id: "users", label: "Users" },
+            { id: "groups", label: "Levels & groups" },
             { id: "providers", label: "Providers & models" },
             { id: "bench", label: "Benchmarks" },
             { id: "mcp", label: "MCP servers" },
@@ -1066,6 +1323,7 @@ function Console({ name, signOut }: { name: string; signOut: () => void }) {
         />
         {tab === "health" && <HealthTab />}
         {tab === "users" && <UsersTab />}
+        {tab === "groups" && <GroupsTab />}
         {tab === "providers" && <ProvidersTab />}
         {tab === "bench" && <BenchmarksTab />}
         {tab === "mcp" && <McpTab />}
@@ -1126,6 +1384,6 @@ export default function AdminApp() {
         <TwoFactorSetup mandatory onDone={() => void reload()} />
       </AuthFrame>
     );
-  else body = <Console name={me.name} signOut={signOut} />;
+  else body = <Console name={me.name} signOut={signOut} chatUrl={me.chat_url} />;
   return <ToastProvider>{body}</ToastProvider>;
 }

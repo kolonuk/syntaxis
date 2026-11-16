@@ -50,6 +50,37 @@ type User struct {
 	AllowedModels      []string
 	CloudToolsDisabled bool
 	TerminalDisabled   bool // admin switch: this user may not open an interactive terminal
+	QuotaCPUMinutes    int64
+	Level              string // "user" | "poweruser" | "admin"
+	GroupID            int64  // 0 = no group
+}
+
+// User levels.
+const (
+	LevelUser      = "user"
+	LevelPowerUser = "poweruser"
+	LevelAdmin     = "admin"
+)
+
+// PolicyData is a set of permissions and settings that a level or a group can carry. Every
+// field is optional: nil/zero means "not set here", and the next layer decides.
+type PolicyData struct {
+	DailyTokens   int64    `json:"daily_tokens,omitempty"`
+	MonthlyTokens int64    `json:"monthly_tokens,omitempty"`
+	MaxSessions   int      `json:"max_sessions,omitempty"`
+	CPUMinutes    int64    `json:"cpu_minutes,omitempty"`
+	EgressMode    string   `json:"egress_mode,omitempty"`
+	AllowedModels []string `json:"allowed_models,omitempty"`
+	NoTerminal    bool     `json:"no_terminal,omitempty"`
+	NoCloudTools  bool     `json:"no_cloud_tools,omitempty"`
+}
+
+// Policy is a named PolicyData: a user level ("level") or a user group ("group").
+type Policy struct {
+	ID   int64
+	Kind string // "level" | "group"
+	Name string
+	Data PolicyData
 }
 
 // AuthSession is a server-side login session.
@@ -196,6 +227,13 @@ type Store interface {
 	GetUser(ctx context.Context, id int64) (*User, error)
 	UpdateUserPolicy(ctx context.Context, u User) error
 	ListUsers(ctx context.Context) ([]User, error)
+
+	// levels and groups
+	ListPolicies(ctx context.Context, kind string) ([]Policy, error)
+	GetPolicy(ctx context.Context, kind, name string) (*Policy, error)
+	GetPolicyByID(ctx context.Context, id int64) (*Policy, error)
+	UpsertPolicy(ctx context.Context, p Policy) (int64, error)
+	DeletePolicy(ctx context.Context, id int64) error
 
 	// recovery codes
 	ReplaceRecoveryCodes(ctx context.Context, kind string, id int64, hashes []string) error

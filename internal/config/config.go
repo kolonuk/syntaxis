@@ -19,6 +19,7 @@ type Config struct {
 	Listen        string
 	AdminListen   string
 	BaseURL       string
+	AdminURL      string // where admins open the admin app (a link from the chat app); empty = no link
 	DataDir       string
 	MasterKey     []byte
 	LogLevel      string
@@ -97,6 +98,7 @@ func LoadFrom(get Getenv) (*Config, error) {
 		DNSUpstream:   get("SYNTAXIS_DNS_UPSTREAM"),
 		DNSFallback:   str(get, "SYNTAXIS_DNS_FALLBACK", "1.1.1.1"),
 		FirewallToken: get("SYNTAXIS_FIREWALL_TOKEN"),
+		AdminURL:      get("SYNTAXIS_ADMIN_URL"),
 		AdminReadMsg:  boolean(get, "SYNTAXIS_ALLOW_ADMIN_READ_CONTENT", false),
 		VAPIDPublic:   get("SYNTAXIS_VAPID_PUBLIC"),
 		VAPIDPrivate:  get("SYNTAXIS_VAPID_PRIVATE"),

@@ -117,7 +117,7 @@ func (s *Service) Resolve(u *store.User) Limits {
 		RequestsPerMinute:   d.RequestsPerMinute,
 		MaxParallelRequests: d.MaxParallelRequests,
 		SandboxSecondsDaily: d.SandboxSecondsDaily,
-		CPUSecondsDaily:     d.CPUSecondsDaily,
+		CPUSecondsDaily:     cpuSeconds(u.QuotaCPUMinutes, d.CPUSecondsDaily),
 		MaxSessionWallClock: d.MaxSessionWallClock,
 		MaxSessions:         d.MaxSessions,
 	}
@@ -298,4 +298,16 @@ func (s *Service) Reset(ctx context.Context, actorAdmin, userID int64) error {
 	}
 	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("admin:%d", actorAdmin), "quota.reset", fmt.Sprintf("user:%d", userID), s.day())
 	return nil
+}
+
+// cpuSeconds turns a per-user compute allowance in minutes into seconds (0 = use the default,
+// -1 = unlimited).
+func cpuSeconds(userMinutes, def int64) int64 {
+	switch {
+	case userMinutes == Unlimited:
+		return 0
+	case userMinutes > 0:
+		return userMinutes * 60
+	}
+	return def
 }

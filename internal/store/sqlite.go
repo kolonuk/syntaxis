@@ -256,7 +256,7 @@ func (s *SQLite) scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var created, changed, remind int64
 	var totp, dis int
 	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.TOTPSecret, &totp, &dis, &created, &changed, &remind,
-		&u.QuotaDailyTokens, &u.QuotaMonthlyTokens, &u.MaxSessions, &u.EgressMode, &models, &cloud, &term)
+		&u.QuotaDailyTokens, &u.QuotaMonthlyTokens, &u.MaxSessions, &u.EgressMode, &models, &cloud, &term, &u.QuotaCPUMinutes, &u.Level, &u.GroupID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -269,7 +269,7 @@ func (s *SQLite) scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	return &u, nil
 }
 
-const userCols = `id,email,name,password_hash,totp_secret,totp_enabled,disabled,created_at,password_changed_at,remind_2fa_after,quota_daily_tokens,quota_monthly_tokens,max_sessions,egress_mode,allowed_models,cloud_tools_disabled,terminal_disabled`
+const userCols = `id,email,name,password_hash,totp_secret,totp_enabled,disabled,created_at,password_changed_at,remind_2fa_after,quota_daily_tokens,quota_monthly_tokens,max_sessions,egress_mode,allowed_models,cloud_tools_disabled,terminal_disabled,quota_cpu_minutes,level,group_id`
 
 // GetUser returns a chat user with policy fields.
 func (s *SQLite) GetUser(ctx context.Context, id int64) (*User, error) {
@@ -300,8 +300,8 @@ func (s *SQLite) UpdateUserPolicy(ctx context.Context, u User) error {
 	if u.AllowedModels == nil {
 		models = []byte("[]")
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET quota_daily_tokens=?,quota_monthly_tokens=?,max_sessions=?,egress_mode=?,allowed_models=?,cloud_tools_disabled=?,terminal_disabled=? WHERE id=?`,
-		u.QuotaDailyTokens, u.QuotaMonthlyTokens, u.MaxSessions, u.EgressMode, string(models), b2i(u.CloudToolsDisabled), b2i(u.TerminalDisabled), u.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET quota_daily_tokens=?,quota_monthly_tokens=?,max_sessions=?,egress_mode=?,allowed_models=?,cloud_tools_disabled=?,terminal_disabled=?,quota_cpu_minutes=?,level=?,group_id=? WHERE id=?`,
+		u.QuotaDailyTokens, u.QuotaMonthlyTokens, u.MaxSessions, u.EgressMode, string(models), b2i(u.CloudToolsDisabled), b2i(u.TerminalDisabled), u.QuotaCPUMinutes, levelOrUser(u.Level), u.GroupID, u.ID)
 	return affected(res, err)
 }
 
@@ -917,3 +917,86 @@ func (s *SQLite) SetSetting(ctx context.Context, key, value string) error {
 }
 
 var _ Store = (*SQLite)(nil)
+
+func levelOrUser(l string) string {
+	switch l {
+	case LevelPowerUser, LevelAdmin:
+		return l
+	}
+	return LevelUser
+}
+
+// ---- levels and groups ----
+
+func scanPolicy(row interface{ Scan(...any) error }) (*Policy, error) {
+	var p Policy
+	var data string
+	if err := row.Scan(&p.ID, &p.Kind, &p.Name, &data); err != nil {
+		return nil, mapErr(err)
+	}
+	if err := json.Unmarshal([]byte(data), &p.Data); err != nil {
+		p.Data = PolicyData{}
+	}
+	return &p, nil
+}
+
+// ListPolicies returns the levels or groups, ordered by name.
+func (s *SQLite) ListPolicies(ctx context.Context, kind string) ([]Policy, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,name,policy FROM policies WHERE kind=? ORDER BY name`, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Policy
+	for rows.Next() {
+		p, err := scanPolicy(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+// GetPolicy returns one level or group by name.
+func (s *SQLite) GetPolicy(ctx context.Context, kind, name string) (*Policy, error) {
+	return scanPolicy(s.db.QueryRowContext(ctx, `SELECT id,kind,name,policy FROM policies WHERE kind=? AND name=?`, kind, name))
+}
+
+// GetPolicyByID returns one level or group by id.
+func (s *SQLite) GetPolicyByID(ctx context.Context, id int64) (*Policy, error) {
+	return scanPolicy(s.db.QueryRowContext(ctx, `SELECT id,kind,name,policy FROM policies WHERE id=?`, id))
+}
+
+// UpsertPolicy creates or updates a level or group.
+func (s *SQLite) UpsertPolicy(ctx context.Context, p Policy) (int64, error) {
+	data, _ := json.Marshal(p.Data)
+	if p.ID == 0 {
+		res, err := s.db.ExecContext(ctx, `INSERT INTO policies (kind,name,policy) VALUES (?,?,?) ON CONFLICT(kind,name) DO UPDATE SET policy=excluded.policy`, p.Kind, p.Name, string(data))
+		if err != nil {
+			return 0, mapErr(err)
+		}
+		if id, err := res.LastInsertId(); err == nil && id > 0 {
+			if got, err := s.GetPolicy(ctx, p.Kind, p.Name); err == nil {
+				return got.ID, nil
+			}
+			return id, nil
+		}
+		got, err := s.GetPolicy(ctx, p.Kind, p.Name)
+		if err != nil {
+			return 0, err
+		}
+		return got.ID, nil
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE policies SET name=?,policy=? WHERE id=?`, p.Name, string(data), p.ID)
+	return p.ID, affected(res, err)
+}
+
+// DeletePolicy removes a level or group; users of a deleted group fall back to no group.
+func (s *SQLite) DeletePolicy(ctx context.Context, id int64) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET group_id=0 WHERE group_id=?`, id); err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM policies WHERE id=?`, id)
+	return affected(res, err)
+}

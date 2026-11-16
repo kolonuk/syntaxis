@@ -151,8 +151,10 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 	_ = subnet
 
 	modeFor := func(uid int64) string {
-		if u, err := st.GetUser(ctx, uid); err == nil && u.EgressMode != "" {
-			return u.EgressMode
+		if u, err := st.GetUser(ctx, uid); err == nil {
+			if eff := app.EffectiveUser(ctx, u); eff.EgressMode != "" {
+				return eff.EgressMode
+			}
 		}
 		return cfg.EgressMode
 	}
@@ -192,10 +194,7 @@ func startDNS(ctx context.Context, cfg *config.Config, st store.Store, mgr *sand
 			if !ok {
 				return egress.Policy{}, false
 			}
-			mode := cfg.EgressMode
-			if u, err := st.GetUser(ctx, uid); err == nil && u.EgressMode != "" {
-				mode = u.EgressMode
-			}
+			mode := modeFor(uid)
 			return egress.Policy{Mode: mode, Allowlist: cfg.EgressAllow, ExtraBlocked: blocked, BridgeGateway: gwAddr}, true
 		},
 		Log: func(e egress.DNSLogEntry) {

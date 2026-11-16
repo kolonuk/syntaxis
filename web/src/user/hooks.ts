@@ -12,6 +12,9 @@ export interface Me {
   csrf: string;
   remind_2fa: boolean;
   banners?: string[];
+  level?: string;
+  admin_url?: string;
+  chat_url?: string;
 }
 
 /** Current user; null = signed out; undefined = loading. */
