@@ -15,6 +15,7 @@ import (
 
 	"github.com/kolonuk/syntaxis/internal/agent"
 	"github.com/kolonuk/syntaxis/internal/checkpoint"
+	"github.com/kolonuk/syntaxis/internal/connections"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/queue"
 	"github.com/kolonuk/syntaxis/internal/quota"
@@ -170,6 +171,13 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		}
 		return r.String(txt)
 	}
+	// A session started from a repository works inside a clone of it, as the user's own git identity.
+	repoDir := ""
+	var gitEnv []string
+	if s.RepoName != "" {
+		repoDir = sandbox.WorkspacePath + "/" + repoDirName(s.RepoName)
+		gitEnv = a.gitIdentity(bg, u, s.RepoKind)
+	}
 	exec := func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
 		if env, r, err := a.Secrets.Snapshot(bg, u.ID); err == nil {
 			redMu.Lock()
@@ -177,7 +185,25 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			redMu.Unlock()
 			e.Env = mergeEnv(e.Env, env)
 		}
+		if repoDir != "" {
+			e.Env = mergeEnv(e.Env, envMap(gitEnv))
+			if e.WorkingDir == "" {
+				e.WorkingDir = repoDir
+			}
+		}
 		return a.Sandbox.Exec(c, s.ID, cid, e)
+	}
+	if s.RepoName != "" {
+		run.Emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": "Getting " + s.RepoName + " ready on branch " + s.RepoBranch + "."}})
+		r, err := exec(ctx, sandbox.ExecSpec{WorkingDir: sandbox.WorkspacePath, Timeout: 10 * time.Minute, Cmd: []string{"sh", "-c", prepareRepoScript, "_", repoDir, s.RepoURL, s.RepoBranch, s.RepoBase}})
+		if err != nil || r.ExitCode != 0 {
+			msg := strings.TrimSpace(r.Stderr + r.Stdout)
+			if err != nil {
+				msg = err.Error()
+			}
+			fail("Could not get the repository ready: " + a.redactFor(bg, u.ID, msg))
+			return
+		}
 	}
 	// helpers over exec
 	runner := func(c context.Context, argv []string, env []string) (string, error) {
@@ -193,7 +219,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	}
 	cp := &checkpoint.Manager{Run: runner, Workspace: sandbox.WorkspacePath, MaxCount: 50, MaxBytes: 1 << 30}
 	fs := execFS{exec: exec}
-	loaded, _ := rules.Load(ctx, fs, sandbox.WorkspacePath, rules.Options{ForeignEnabled: a.settingBool(bg, "foreign_instructions", true), RepoSkills: a.settingBool(bg, "repo_skills", true)})
+	loaded, _ := rules.Load(ctx, fs, firstNonEmpty(repoDir, sandbox.WorkspacePath), rules.Options{ForeignEnabled: a.settingBool(bg, "foreign_instructions", true), RepoSkills: a.settingBool(bg, "repo_skills", true)})
 	policy, _ := agent.NewApprovalPolicy()
 
 	mode := scanner.Mode(a.setting(bg, SettingScanMode, a.Cfg.SecretScanMode))
@@ -207,7 +233,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			include[f.Path] = true // the UI lets users deselect; default include (advisory, wrapped)
 		}
 	}
-	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled})
+	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled, Repo: s.RepoName, RepoDir: repoDir, RepoBranch: s.RepoBranch, RepoBase: s.RepoBase})
 
 	signMode := a.setting(bg, "signing_mode", a.Cfg.SigningMode)
 	var signer func(context.Context, string) (string, error)
@@ -238,6 +264,23 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 
 	if bridge != nil {
 		ex.MCP = bridge
+	}
+	if s.RepoName != "" {
+		// pull requests are opened by the server with the user's own connection, so the token is not
+		// needed in any command the model writes
+		ex.OpenPR = func(c context.Context, title, body string) (string, error) {
+			g, ok := a.Connections.Git(s.RepoKind)
+			if !ok {
+				return "", errors.New("this session's service is not available")
+			}
+			creds := a.credsFor(bg, u.ID, g.Kind())
+			if missingRequired(g.Kind(), creds) {
+				return "", fmt.Errorf("your %s connection has been removed; connect it again in Settings", g.Kind().Title)
+			}
+			pc, cancel := context.WithTimeout(c, 30*time.Second)
+			defer cancel()
+			return g.OpenPR(pc, creds, connections.PullRequest{Repo: s.RepoName, Title: title, Body: body, Head: s.RepoBranch, Base: s.RepoBase})
+		}
 	}
 	first := true
 	chat := func(c context.Context, req provider.ChatRequest, onDelta func(string)) (*provider.ChatResult, error) {
@@ -315,11 +358,12 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			MaxTurns: w.MaxTurns, ToolOutputMax: w.ToolOutput, MaxDuration: 2 * time.Hour},
 		Deps: agent.Deps{
 			Chat: chat, Tools: ex, Policy: policy,
-			Approve: func(c context.Context, r agent.ApprovalRequest) (bool, error) { return run.Approve(c, r.CallID) },
-			Answer:  func(c context.Context, _ string) (string, error) { return run.Ask(c) },
-			Emit:    run.Emit,
-			Persist: func(m provider.Message, in, out int) { a.persistMessage(bg, s.ID, m, in, out) },
-			Redact:  redactNow,
+			ApprovalNote: a.approvalNote(bg, u.ID),
+			Approve:      func(c context.Context, r agent.ApprovalRequest) (bool, error) { return run.Approve(c, r.CallID) },
+			Answer:       func(c context.Context, _ string) (string, error) { return run.Ask(c) },
+			Emit:         run.Emit,
+			Persist:      func(m provider.Message, in, out int) { a.persistMessage(bg, s.ID, m, in, out) },
+			Redact:       redactNow,
 			Checkpoint: func(c context.Context, label string) error {
 				_, err := cp.Snapshot(c, label)
 				return err
@@ -525,4 +569,122 @@ func mergeEnv(own []string, secrets map[string]string) []string {
 		out = append(out, k+"="+secrets[k])
 	}
 	return out
+}
+
+// prepareRepoScript clones the repository if it is not there yet and moves to the session's working
+// branch, creating it from the repository's current branch the first time. Arguments: directory, clone
+// address, working branch, base branch.
+const prepareRepoScript = `set -e
+dir="$1"; url="$2"; branch="$3"; base="$4"
+if [ ! -d "$dir/.git" ]; then git clone --quiet "$url" "$dir"; fi
+cd "$dir"
+if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null; then
+  git checkout --quiet "$branch"
+else
+  if git rev-parse --verify --quiet "refs/remotes/origin/$base" >/dev/null; then git checkout --quiet -B "$branch" "origin/$base"; else git checkout --quiet -B "$branch"; fi
+fi`
+
+// repoDirName is the folder a repository is cloned into: its name, made safe.
+func repoDirName(fullName string) string {
+	n := fullName[strings.LastIndex(fullName, "/")+1:]
+	var b strings.Builder
+	for _, r := range n {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 || strings.HasPrefix(b.String(), ".") {
+		return "repo"
+	}
+	return b.String()
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func envMap(kv []string) map[string]string {
+	m := map[string]string{}
+	for _, e := range kv {
+		if k, v, ok := strings.Cut(e, "="); ok {
+			m[k] = v
+		}
+	}
+	return m
+}
+
+// gitIdentity is the author and committer for commits in a repository session: the user's account
+// at the service (never their sign-in email address).
+func (a *App) gitIdentity(ctx context.Context, u *store.User, kind string) []string {
+	name, host := u.Name, "users.noreply.example"
+	cs, _ := a.Store.ListConnections(ctx, u.ID)
+	for _, c := range cs {
+		if c.Kind == kind && c.Account != "" {
+			name = c.Account
+			switch kind {
+			case "github":
+				host = "users.noreply.github.com"
+			default:
+				host = "users.noreply.example"
+			}
+		}
+	}
+	email := strings.ReplaceAll(name, " ", "-") + "@" + host
+	return []string{"GIT_AUTHOR_NAME=" + name, "GIT_AUTHOR_EMAIL=" + email, "GIT_COMMITTER_NAME=" + name, "GIT_COMMITTER_EMAIL=" + email}
+}
+
+// redactFor blanks the user's secrets out of text (for an error shown to them).
+func (a *App) redactFor(ctx context.Context, userID int64, s string) string {
+	if _, r, err := a.Secrets.Snapshot(ctx, userID); err == nil && r != nil {
+		return r.String(s)
+	}
+	return s
+}
+
+// approvalNote returns a function that names, for an approval request, the connection a command
+// would act through (for example "Uses your Amazon Web Services connection (account 1111...)").
+func (a *App) approvalNote(ctx context.Context, userID int64) func(string) string {
+	tools := map[string][]string{
+		"aws": {"aws"}, "az": {"azure"}, "gcloud": {"gcp"}, "gsutil": {"gcp"}, "bq": {"gcp"},
+		"wrangler": {"cloudflare"}, "cf": {"cloudflare"}, "flarectl": {"cloudflare"},
+		"gh": {"github"}, "glab": {"gitlab"}, "tea": {"gitea"},
+		"terraform": {"aws", "azure", "gcp", "cloudflare"}, "tofu": {"aws", "azure", "gcp", "cloudflare"},
+	}
+	return func(cmd string) string {
+		cs, err := a.Store.ListConnections(ctx, userID)
+		if err != nil || len(cs) == 0 {
+			return ""
+		}
+		have := map[string]store.Connection{}
+		for _, c := range cs {
+			have[c.Kind] = c
+		}
+		seen := map[string]bool{}
+		var parts []string
+		for _, tok := range strings.FieldsFunc(cmd, func(r rune) bool { return r == ' ' || r == ';' || r == '|' || r == '&' || r == '\n' || r == '(' }) {
+			for _, kind := range tools[tok] {
+				c, ok := have[kind]
+				if !ok || seen[kind] {
+					continue
+				}
+				seen[kind] = true
+				title := kind
+				if p, ok := a.Connections.Get(kind); ok {
+					title = p.Kind().Title
+				}
+				d := c.Account
+				if c.Detail != "" {
+					d += ", " + c.Detail
+				}
+				parts = append(parts, title+" ("+d+")")
+			}
+		}
+		if len(parts) == 0 {
+			return ""
+		}
+		return "Acts through your connection: " + strings.Join(parts, "; ") + "."
+	}
 }

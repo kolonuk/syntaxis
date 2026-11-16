@@ -17,11 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/ /usr/local/
 COPY --from=golang /usr/local/go /usr/local/go
+COPY --chmod=755 syntaxis-git-credential /usr/local/bin/syntaxis-git-credential
+COPY gitconfig /etc/gitconfig
 RUN groupadd --gid 10001 dev && useradd --uid 10001 --gid 10001 --home-dir /home/dev --shell /bin/bash dev \
     && mkdir -p /workspace && chown 10001:10001 /workspace
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME=/home/dev GOPATH=/workspace/.go GOCACHE=/tmp/go-build GOTOOLCHAIN=local \
-    NPM_CONFIG_CACHE=/tmp/npm PIP_CACHE_DIR=/tmp/pip UV_CACHE_DIR=/tmp/uv PIP_BREAK_SYSTEM_PACKAGES=1
+    NPM_CONFIG_CACHE=/tmp/npm PIP_CACHE_DIR=/tmp/pip UV_CACHE_DIR=/tmp/uv PIP_BREAK_SYSTEM_PACKAGES=1 GIT_TERMINAL_PROMPT=0
 USER 10001:10001
 WORKDIR /workspace
 CMD ["sleep", "infinity"]

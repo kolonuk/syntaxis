@@ -34,7 +34,7 @@ func (f *fakeGit) ListRepos(_ context.Context, _ connections.Creds, q string) ([
 	return []connections.Repo{{FullName: "gl-user/app", CloneURL: "https://gitlab.example.com/gl-user/app.git"}}, nil
 }
 func (f *fakeGit) CreateRepo(_ context.Context, _ connections.Creds, n connections.NewRepo) (connections.Repo, error) {
-	return connections.Repo{FullName: "gl-user/" + n.Name}, nil
+	return connections.Repo{FullName: "gl-user/" + n.Name, CloneURL: "https://gitlab.example.com/gl-user/" + n.Name + ".git", DefaultBranch: "main"}, nil
 }
 func (f *fakeGit) OpenPR(_ context.Context, _ connections.Creds, pr connections.PullRequest) (string, error) {
 	f.prArg = pr

@@ -161,6 +161,12 @@ type ChatSession struct {
 	UpdatedAt  time.Time
 	TokensIn   int64
 	TokensOut  int64
+	// Repo is the repository this session works on, if it was started from one.
+	RepoKind   string // "github", "gitlab", "gitea"
+	RepoName   string // owner/name
+	RepoURL    string // https clone address
+	RepoBranch string // the working branch the agent commits to
+	RepoBase   string // the branch to merge into
 }
 
 // Message is a stored conversation message.

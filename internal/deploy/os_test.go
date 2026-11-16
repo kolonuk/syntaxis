@@ -47,3 +47,40 @@ func TestOSDetection(t *testing.T) {
 		}
 	}
 }
+
+func TestGitCredentialHelperOnlyAnswersForTheMatchingHost(t *testing.T) {
+	run := func(host string, env ...string) string {
+		cmd := exec.Command("sh", "images/sandbox/syntaxis-git-credential", "get")
+		cmd.Dir = "../.."
+		cmd.Stdin = strings.NewReader("protocol=https\nhost=" + host + "\n\n")
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...) // nothing inherited: only what the test sets
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return string(out)
+	}
+	all := []string{"GITHUB_TOKEN=gh-secret", "GITLAB_TOKEN=gl-secret", "GITLAB_HOST=https://gitlab.example.com/", "GITEA_TOKEN=gt-secret", "GITEA_URL=https://gitea.example.org"}
+	if got := run("github.com", all...); got != "username=x-access-token\npassword=gh-secret\n" {
+		t.Fatalf("github: %q", got)
+	}
+	if got := run("gitlab.example.com", all...); got != "username=oauth2\npassword=gl-secret\n" {
+		t.Fatalf("gitlab: %q", got)
+	}
+	if got := run("gitea.example.org", all...); got != "username=token\npassword=gt-secret\n" {
+		t.Fatalf("gitea: %q", got)
+	}
+	// every other host gets nothing: a token must never reach a host it was not made for
+	for _, h := range []string{"evil.example.net", "github.com.evil.example.net", "gitlab.com", "example.org"} {
+		if got := run(h, all...); got != "" {
+			t.Errorf("%s was given credentials: %q", h, got)
+		}
+	}
+	if got := run("github.com"); got != "" {
+		t.Errorf("no token set, yet: %q", got)
+	}
+	// gitlab.com is the default when no address is configured
+	if got := run("gitlab.com", "GITLAB_TOKEN=gl-secret"); got != "username=oauth2\npassword=gl-secret\n" {
+		t.Errorf("default gitlab: %q", got)
+	}
+}

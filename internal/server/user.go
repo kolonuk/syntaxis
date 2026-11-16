@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
+	"github.com/kolonuk/syntaxis/internal/connections"
 	"github.com/kolonuk/syntaxis/internal/policy"
 	"net/http"
 	"strings"
@@ -364,7 +365,8 @@ func sessionJSON(s store.ChatSession, run *Run) map[string]any {
 		state = "running"
 	}
 	return map[string]any{"id": s.ID, "title": s.Title, "model": s.Model, "autonomy": s.Autonomy, "state": state,
-		"created_at": s.CreatedAt, "updated_at": s.UpdatedAt, "tokens_in": s.TokensIn, "tokens_out": s.TokensOut}
+		"created_at": s.CreatedAt, "updated_at": s.UpdatedAt, "tokens_in": s.TokensIn, "tokens_out": s.TokensOut,
+		"repo": s.RepoName, "repo_kind": s.RepoKind, "repo_branch": s.RepoBranch}
 }
 
 func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
@@ -372,6 +374,15 @@ func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		Title    string `json:"title"`
 		Model    string `json:"model"`
 		Autonomy string `json:"autonomy"`
+		// Repo starts the session from a repository: one the user picked (kind, full_name, clone_url)
+		// or a new one to create (kind, create).
+		Repo *struct {
+			Kind     string               `json:"kind"`
+			FullName string               `json:"full_name"`
+			CloneURL string               `json:"clone_url"`
+			Branch   string               `json:"default_branch"`
+			Create   *connections.NewRepo `json:"create"`
+		} `json:"repo"`
 	}
 	if !decode(w, r, &b) {
 		return
@@ -406,6 +417,18 @@ func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := a.Now().UTC()
 	s := store.ChatSession{ID: newID(), UserID: u.ID, Title: title, ProviderID: provID, Model: modelName, Autonomy: b.Autonomy, State: "idle", CreatedAt: now, UpdatedAt: now}
+	if b.Repo != nil {
+		rp, err := a.resolveRepo(r.Context(), u.ID, b.Repo.Kind, b.Repo.FullName, b.Repo.CloneURL, b.Repo.Branch, b.Repo.Create)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.RepoKind, s.RepoName, s.RepoURL, s.RepoBase = b.Repo.Kind, rp.FullName, rp.CloneURL, rp.DefaultBranch
+		s.RepoBranch = workBranch(s.ID)
+		if strings.TrimSpace(b.Title) == "" {
+			s.Title = rp.FullName
+		}
+	}
 	if err := a.Store.CreateChatSession(r.Context(), s); err != nil {
 		writeErr(w, 500, "could not create session")
 		return

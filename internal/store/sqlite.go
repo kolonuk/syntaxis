@@ -585,17 +585,17 @@ func (s *SQLite) GetModel(ctx context.Context, id int64) (*Model, error) {
 
 // CreateChatSession inserts a session.
 func (s *SQLite) CreateChatSession(ctx context.Context, c ChatSession) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_sessions (id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.UserID, c.Title, c.ProviderID, c.Model, c.Autonomy, c.State, c.SandboxID, ts(c.CreatedAt), ts(c.UpdatedAt))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_sessions (id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,repo_kind,repo_name,repo_url,repo_branch,repo_base) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.UserID, c.Title, c.ProviderID, c.Model, c.Autonomy, c.State, c.SandboxID, ts(c.CreatedAt), ts(c.UpdatedAt), c.RepoKind, c.RepoName, c.RepoURL, c.RepoBranch, c.RepoBase)
 	return mapErr(err)
 }
 
-const sessCols = `id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,tokens_in,tokens_out`
+const sessCols = `id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,tokens_in,tokens_out,repo_kind,repo_name,repo_url,repo_branch,repo_base`
 
 func scanSession(row interface{ Scan(...any) error }) (*ChatSession, error) {
 	var c ChatSession
 	var cr, up int64
-	if err := row.Scan(&c.ID, &c.UserID, &c.Title, &c.ProviderID, &c.Model, &c.Autonomy, &c.State, &c.SandboxID, &cr, &up, &c.TokensIn, &c.TokensOut); err != nil {
+	if err := row.Scan(&c.ID, &c.UserID, &c.Title, &c.ProviderID, &c.Model, &c.Autonomy, &c.State, &c.SandboxID, &cr, &up, &c.TokensIn, &c.TokensOut, &c.RepoKind, &c.RepoName, &c.RepoURL, &c.RepoBranch, &c.RepoBase); err != nil {
 		return nil, mapErr(err)
 	}
 	c.CreatedAt, c.UpdatedAt = fromTS(cr), fromTS(up)

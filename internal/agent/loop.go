@@ -70,7 +70,10 @@ type Deps struct {
 	Approve func(ctx context.Context, r ApprovalRequest) (bool, error)
 	// Answer blocks for the user's answer to ask_user. nil = run ends as needs_input.
 	Answer func(ctx context.Context, question string) (string, error)
-	Emit   func(Event)
+	// ApprovalNote adds a line to an approval request naming the connection (account, project) a
+	// command would act through. It returns "" when the command does not use one.
+	ApprovalNote func(command string) string
+	Emit         func(Event)
 	// Persist stores a message in session history (full, unredacted-by-model-trim copy minus secrets).
 	Persist func(m provider.Message, in, out int)
 	// Redact removes secrets before text reaches the model, UI or logs.
@@ -404,6 +407,12 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 		}
 		if a.Deps.Approve == nil {
 			return a.addToolResult(call, "error: this action needs approval but no approver is available", 0), ""
+		}
+		if a.Deps.ApprovalNote != nil {
+			// say which of the user's own connections this would act through
+			if n := a.Deps.ApprovalNote(cmd); n != "" {
+				why = strings.TrimSpace(why + " " + n)
+			}
 		}
 		a.emit(EvPhase, "phase", "approval", "detail", firstLine(a.redact(summary), 80))
 		a.emit(EvApprovalRequest, "id", call.ID, "tool", call.Name, "summary", a.redact(summary), "reason", why, "risky", risk.Risky)

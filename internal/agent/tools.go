@@ -126,6 +126,9 @@ type Executor struct {
 	SigningMode string // off | optional | required
 	Signer      func(ctx context.Context, payload string) (armored string, err error)
 	MaxOutput   int
+	// OpenPR opens a pull request for the session's branch with the user's own connection and
+	// returns its address. When set, the git tool's pr action uses it instead of the gh CLI.
+	OpenPR func(ctx context.Context, title, body string) (string, error)
 }
 
 func (x *Executor) sh(ctx context.Context, script string, timeout time.Duration, args ...string) (sandbox.ExecResult, error) {
@@ -499,6 +502,13 @@ func (x *Executor) git(ctx context.Context, raw json.RawMessage) Output {
 	case "pr":
 		if a.Title == "" {
 			return errOut("pr needs a title")
+		}
+		if x.OpenPR != nil {
+			url, err := x.OpenPR(ctx, a.Title, a.Body)
+			if err != nil {
+				return errOut("could not open the pull request: " + err.Error() + " (push the branch first with the git tool's push action)")
+			}
+			return Output{Text: "pull request opened: " + url}
 		}
 		r, err := x.Exec(ctx, sandbox.ExecSpec{Cmd: []string{"gh", "pr", "create", "--title", a.Title, "--body", a.Body}, Timeout: 2 * time.Minute})
 		return x.finish(r, err)

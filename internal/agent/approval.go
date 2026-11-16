@@ -60,6 +60,7 @@ var DefaultRiskPatterns = []patternSpec{
 	{`\b(wrangler|cf)\b[^\n;|&]*\s(deploy|publish|delete|rollback|secret\s+put|r2\s+bucket\s+delete|d1\s+delete)\b`, "deploys or deletes on Cloudflare"},
 	{`\b(flyctl|fly)\s+(deploy|launch|destroy|scale|apps\s+destroy|machine\s+destroy|volumes?\s+destroy)\b`, "deploys or deletes on Fly.io"},
 	{`\bgh\s+(repo\s+(delete|create|edit)|release\s+(create|delete)|secret\s+set|workflow\s+run)\b`, "changes GitHub resources"},
+	{`\bgh\s+pr\s+(create|merge|close|reopen)\b|\bglab\s+mr\s+(create|merge|close)\b|\btea\s+pulls?\s+(create|merge|close)\b`, "opens or changes a pull request"},
 	{`\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b`, "pipes a download into a shell"},
 	{`\bsudo\b`, "attempts to elevate privileges"},
 	{`\b(mkfs\S*|fdisk|parted)\b`, "formats or partitions a disk"},

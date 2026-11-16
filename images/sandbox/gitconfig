@@ -1,0 +1,2 @@
+[credential]
+	helper = /usr/local/bin/syntaxis-git-credential

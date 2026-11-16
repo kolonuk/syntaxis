@@ -16,6 +16,8 @@ type PromptOptions struct {
 	Rules          *rules.Loaded
 	IncludeForeign map[string]bool
 	CloudToolsOff  bool
+	// Repo is set when the session was started from a repository.
+	Repo, RepoDir, RepoBranch, RepoBase string
 }
 
 // BuildSystemPrompt assembles the system prompt. Rules text is appended in a
@@ -40,6 +42,9 @@ How to work:
 		b.WriteString("\nApproval: you are in fully autonomous mode within resource limits. Still be careful with anything destructive or costly.\n")
 	default:
 		b.WriteString("\nApproval: routine work inside the workspace runs automatically. Risky actions (destructive git, deleting outside the workspace, deploys, cloud changes, anything that costs money) pause for the user's approval. If the user denies an action, do not retry it; choose another approach.\n")
+	}
+	if o.Repo != "" {
+		fmt.Fprintf(&b, "\nRepository: this session is for %s, cloned at %s (shell commands start there). You are on the branch %s, created from %s: commit your work there, never directly to %s. When the work is done and committed, push the branch with the git tool and then open a pull request with the git tool's pr action. Do not run the gh or glab commands yourself to open pull requests.\n", o.Repo, o.RepoDir, o.RepoBranch, o.RepoBase, o.RepoBase)
 	}
 	if !o.CloudToolsOff {
 		b.WriteString(`
