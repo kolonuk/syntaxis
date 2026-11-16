@@ -546,6 +546,10 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request, s *store.ChatSess
 		return
 	}
 	u := a.user(r)
+	if full, used, limit := a.workspaceFull(r.Context(), u.ID, s.ID); full {
+		writeErr(w, http.StatusInsufficientStorage, workspaceFullMessage(used, limit))
+		return
+	}
 	sc, uc := *s, *u
 	a.Terms.CloseSession(s.ID, "The agent started working, so the terminal was closed.")
 	run, started := a.Runs.Start(s.ID, func(ctx context.Context, run *Run) { a.RunAgent(ctx, run, &sc, &uc, text) })

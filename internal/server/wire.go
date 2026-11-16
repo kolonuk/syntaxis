@@ -284,6 +284,9 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	}
 	first := true
 	chat := func(c context.Context, req provider.ChatRequest, onDelta func(string)) (*provider.ChatResult, error) {
+		if full, used, limit := a.workspaceFull(c, u.ID, s.ID); full {
+			return nil, errors.New(workspaceFullMessage(used, limit))
+		}
 		done, err := a.Quota.BeginModelCall(c, u, int64(agent.TotalTokens(req.Messages)))
 		if err != nil {
 			return nil, err

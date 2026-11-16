@@ -35,4 +35,4 @@ Compared with Jules and Claude Code, these are missing or weaker (background run
 
 - [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
 - [ ] Run the Playwright and accessibility (axe-core) suites in CI against the instance the fresh-install job creates; add a Lighthouse PWA check.
-- [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute, a warning is shown at the limit and the sandbox is stopped when far over it.
+- [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute; over the limit new messages are refused until space is freed (the terminal stays open), and the sandbox is stopped when far over.

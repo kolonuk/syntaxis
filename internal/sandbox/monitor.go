@@ -29,6 +29,8 @@ type Resources struct {
 	Throttled    bool
 	Paused       bool
 	CPUSeconds   float64 // used since the sandbox started
+	DiskBytes    int64   // size of the workspace at the last check (0 = not measured yet)
+	DiskLimit    int64
 	Samples      int
 	At           time.Time
 }
@@ -279,6 +281,7 @@ func (m *Monitor) Snapshot(session string) (Resources, bool) {
 		CPUPercent: t.samples[len(t.samples)-1], CPUMedian: percentile(t.samples, 50), CPUP90: percentile(t.samples, 90),
 		CPUCap: capNow, CPUCapNormal: m.CPUCap, MemoryBytes: t.last.MemoryBytes, MemoryLimit: t.last.MemoryLimit,
 		Throttled: t.throttled, Paused: t.paused, CPUSeconds: t.total, Samples: len(t.samples), At: t.last.At,
+		DiskBytes: t.disk, DiskLimit: m.Watchdog.Cfg.DiskBytesLimit,
 	}, true
 }
 
@@ -310,4 +313,39 @@ func WorkspaceBytes(ctx context.Context, rt Runtime, containerID string) (int64,
 		return 0, err
 	}
 	return kb * 1024, nil
+}
+
+// UserDisk is the largest workspace size measured for a user's running sandboxes, and the limit.
+// A user's sessions share one workspace volume, so any of them measures the same thing.
+func (m *Monitor) UserDisk(user int64) (bytes, limit int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tracks {
+		if t.user == user && t.disk > bytes {
+			bytes = t.disk
+		}
+	}
+	return bytes, m.Watchdog.Cfg.DiskBytesLimit
+}
+
+// Remeasure measures a session's workspace now (instead of waiting for the next regular check)
+// and returns the user's current size and the limit. It is used after someone has been told their
+// workspace is full, so freeing space takes effect straight away.
+func (m *Monitor) Remeasure(ctx context.Context, session string) {
+	m.mu.Lock()
+	t := m.tracks[session]
+	var id string
+	if t != nil {
+		id = t.id
+	}
+	m.mu.Unlock()
+	if t == nil || m.DiskBytes == nil {
+		return
+	}
+	if n, err := m.DiskBytes(ctx, id); err == nil {
+		m.mu.Lock()
+		t.disk = n
+		t.diskAt = time.Now()
+		m.mu.Unlock()
+	}
 }

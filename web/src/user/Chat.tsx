@@ -682,6 +682,8 @@ interface Res {
   throttled?: boolean;
   paused?: boolean;
   cpu_seconds?: number;
+  disk_bytes?: number;
+  disk_limit?: number;
 }
 
 const pct = (n: number | undefined, cores: number) =>
@@ -721,6 +723,13 @@ function Resources({ sessionId }: { sessionId: string }) {
       <Meter label="CPU typical, last 2 min" used={pct(r.cpu_typical, cores)} limit={100} />
       <Meter label="CPU busiest 10% (p90)" used={pct(r.cpu_busiest, cores)} limit={100} />
       <Meter label="Memory" used={memPct} limit={100} />
+      {r.disk_limit ? (
+        <Meter
+          label="Workspace size (MiB)"
+          used={Math.round((r.disk_bytes ?? 0) / 1048576)}
+          limit={Math.round(r.disk_limit / 1048576)}
+        />
+      ) : null}
       <p className="muted">
         Sustained load is what gets limited, not short bursts. {Math.round(r.cpu_seconds ?? 0)} CPU
         seconds used since this sandbox started.

@@ -60,6 +60,7 @@ Every sandbox has fixed CPU, memory and process limits. On top of that, Syntaxis
 
 - **Compute time** (CPU actually used, not wall-clock time) is metered per user and shown next to tokens and sandbox time. When a user's daily allowance (`SYNTAXIS_CPU_MINUTES_DAILY`) is used up, their sandbox is paused and new ones will not start until midnight UTC.
 - **Sustained load is limited, short bursts are not.** Enforcement looks at the *median* of the last two minutes, so a compile or test run is fine. Staying near the CPU cap for about two minutes halves the sandbox's CPU; about five minutes pauses it; about ten stops it. It returns to full speed once the load drops.
+- **Workspace size** is measured every minute against a per-user limit (5 GiB by default). Over it, new messages are refused with a message to free space, and a run in progress stops at its next step; the terminal stays available so files can be deleted, and the next message re-measures at once. A sandbox far over the limit (a quarter more) is stopped as well. A filesystem quota would be stricter and is on the todo list.
 - **The busiest 10% (p90)** is shown alongside the typical figure on the session's Resources tab so users can see short spikes, but it does not trigger anything.
 
 Users are told in the chat when something is limited, and the actions are audited.
