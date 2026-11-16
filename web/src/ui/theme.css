@@ -979,3 +979,139 @@ a.btn {
 .diff-hunk {
   color: var(--text-muted);
 }
+
+/* Markdown in replies, and code colours: all from the app's own colours, so light and dark both work. */
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote {
+  margin: var(--s2) 0;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: var(--s5);
+}
+.markdown blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: var(--s3);
+  color: var(--text-muted);
+}
+.markdown code:not(pre code) {
+  background: var(--surface-2);
+  border-radius: var(--r1);
+  padding: 0 0.3em;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-size: var(--fs-lg);
+  margin: var(--s3) 0 var(--s1);
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: var(--s1) var(--s2);
+}
+.markdown .contains-task-list {
+  list-style: none;
+  padding-left: var(--s2);
+}
+:root {
+  --syn-keyword: #a626a4;
+  --syn-string: #2b7a3d;
+  --syn-number: #b35900;
+  --syn-comment: #5c6370;
+  --syn-func: #1f5fbf;
+  --syn-type: #9a5b00;
+  --syn-meta: #4a6a8a;
+}
+:root[data-theme="dark"] {
+  --syn-keyword: #d8a0ff;
+  --syn-string: #8fdc9f;
+  --syn-number: #ffb86b;
+  --syn-comment: #8a93a3;
+  --syn-func: #8ab4ff;
+  --syn-type: #ffd479;
+  --syn-meta: #9fc0e0;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: var(--syn-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attr {
+  color: var(--syn-string);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syn-number);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: var(--syn-func);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: var(--syn-type);
+}
+.hljs-meta,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-name {
+  color: var(--syn-meta);
+}
+.hljs-deletion {
+  color: var(--danger);
+}
+
+/* The diff viewer takes its colours from the same theme. */
+.diffview {
+  --diff-background-color: var(--surface);
+  --diff-text-color: var(--text);
+  --diff-font-family: var(--mono);
+  --diff-selection-background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --diff-selection-text-color: var(--text);
+  --diff-gutter-insert-background-color: color-mix(in srgb, var(--success) 22%, var(--surface));
+  --diff-gutter-insert-text-color: var(--text);
+  --diff-gutter-delete-background-color: color-mix(in srgb, var(--danger) 22%, var(--surface));
+  --diff-gutter-delete-text-color: var(--text);
+  --diff-gutter-selected-background-color: var(--surface-2);
+  --diff-gutter-selected-text-color: var(--text);
+  --diff-code-insert-background-color: color-mix(in srgb, var(--success) 14%, var(--surface));
+  --diff-code-insert-text-color: var(--text);
+  --diff-code-delete-background-color: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  --diff-code-delete-text-color: var(--text);
+  --diff-code-insert-edit-background-color: color-mix(in srgb, var(--success) 35%, var(--surface));
+  --diff-code-insert-edit-text-color: var(--text);
+  --diff-code-delete-edit-background-color: color-mix(in srgb, var(--danger) 35%, var(--surface));
+  --diff-code-delete-edit-text-color: var(--text);
+  --diff-code-selected-background-color: var(--surface-2);
+  --diff-code-selected-text-color: var(--text);
+  --diff-omit-gutter-line-color: var(--accent);
+  font-size: 0.8em;
+  overflow-x: auto;
+  max-height: 420px;
+  border-radius: var(--r2);
+}

@@ -5,6 +5,8 @@ export interface FileDiff {
   added: number;
   removed: number;
   lines: string[];
+  /** the whole file diff as git printed it, header included */
+  raw: string;
 }
 
 /** Splits the output of the server's diff script into the branch, the status lines and one entry per file. */
@@ -23,12 +25,13 @@ export function parseDiff(text: string): { branch: string; status: string[]; fil
     } else if (part === "diff") {
       if (line.startsWith("diff --git ")) {
         const m = / b\/(.+)$/.exec(line);
-        cur = { name: m?.[1] ?? line, added: 0, removed: 0, lines: [] };
+        cur = { name: m?.[1] ?? line, added: 0, removed: 0, lines: [], raw: line + "\n" };
         out.files.push(cur);
       } else if (cur) {
         if (line.startsWith("+") && !line.startsWith("+++")) cur.added++;
         else if (line.startsWith("-") && !line.startsWith("---")) cur.removed++;
         cur.lines.push(line);
+        cur.raw += line + "\n";
       }
     }
   }

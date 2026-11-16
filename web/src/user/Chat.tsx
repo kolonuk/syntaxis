@@ -20,7 +20,7 @@ import {
   useToast,
   Input,
 } from "../ui/ui";
-import { copyText, splitFences } from "../lib/fences";
+import { copyText } from "../lib/fences";
 import { commentsMessage, parseDiff } from "../lib/diff";
 
 interface Msg {
@@ -806,24 +806,9 @@ function Changes({
             <span className="diff-del">-{f.removed}</span>
             {comments[f.name]?.trim() ? " · commented" : ""}
           </summary>
-          <pre tabIndex={0} className="diff">
-            {f.lines.map((l, i) => (
-              <span
-                key={i}
-                className={
-                  l.startsWith("+")
-                    ? "diff-add"
-                    : l.startsWith("-")
-                      ? "diff-del"
-                      : l.startsWith("@@")
-                        ? "diff-hunk"
-                        : ""
-                }
-              >
-                {l + "\n"}
-              </span>
-            ))}
-          </pre>
+          <Suspense fallback={<Skeleton lines={2} />}>
+            <DiffView text={f.raw} />
+          </Suspense>
           <Input
             label={`Comment on ${f.name}`}
             value={comments[f.name] ?? ""}
@@ -905,19 +890,17 @@ function Resources({ sessionId }: { sessionId: string }) {
 }
 
 const TerminalView = lazy(() => import("./Terminal"));
+const Markdown = lazy(() => import("../ui/Markdown"));
+const DiffView = lazy(() => import("../ui/DiffView"));
 
 /** Message text with fenced code shown as copyable blocks. */
 function Body({ text, plain }: { text: string; plain?: boolean }) {
   if (plain) return <div className="body">{text}</div>;
   return (
-    <div className="body">
-      {splitFences(text).map((p, i) =>
-        p.kind === "code" ? (
-          <CodeBlock key={i} code={p.text} lang={p.lang} />
-        ) : (
-          <span key={i}>{p.text}</span>
-        ),
-      )}
+    <div className="body md">
+      <Suspense fallback={<span className="muted">{text}</span>}>
+        <Markdown text={text} />
+      </Suspense>
     </div>
   );
 }
