@@ -6,7 +6,7 @@ The admin **Health** page (and `docker compose exec syntaxis syntaxis doctor`) c
 
 A model has an advertised maximum context, a configured one and the one the server actually loaded, and servers often run with far less than advertised. Ollama, for one, silently drops the oldest text beyond its limit, and the agent then "forgets" the task and behaves oddly. Agent work wants roughly 16k tokens or more.
 
-Set the window on the server and check it: for Ollama see its [FAQ on context length](https://github.com/ollama/ollama/blob/main/docs/faq.md); for llama.cpp use `--ctx-size` (shared across `--parallel` slots). If the server cannot report its real window, set a **context override** on the model in the admin app.
+Set the window on the server and check it: for Ollama see its [FAQ on context length](https://docs.ollama.com/faq); for llama.cpp use `--ctx-size` (shared across `--parallel` slots). If the server cannot report its real window, set a **context override** on the model in the admin app.
 
 ## Concurrency
 
