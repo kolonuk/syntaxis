@@ -13,26 +13,6 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] Lighthouse audit (PWA, accessibility, performance) run in CI against a started instance.
 - [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
 
-## 3. GitHub integration, per user
-
-- [ ] Each user connects their own GitHub account (GitHub App or OAuth, with a fine-grained token as the fallback), stored in their own secrets and never visible to other users or the model.
-- [ ] Start a session from a repository: pick one from the user's repositories or create a new one (name, visibility, description) from the UI.
-- [ ] The workspace is a clone of the chosen repository on a working branch; the agent can commit, push and open a pull request; the UI shows the branch, the diff and the pull request link.
-- [ ] Repository list, search and a test-connection button; clear errors for missing scopes and expired tokens.
-- [ ] Start from an issue or pull request; respond to review comments on a pull request the agent opened.
-
-## 4. Per-user connections to other services
-
-Every connection belongs to one user: their own account and credentials, kept in their own vault, available only to their own sessions, never shared across the server and never shown to the model. Admins cannot see them.
-
-- [ ] A connections page where a user adds, tests and removes a connection, with a short guide for each service on creating a least-privilege, preferably short-lived credential, and clear errors for expired or under-scoped ones.
-- [ ] GitLab (including self-hosted) and Gitea: repository pick or create, clone, branch, push and merge request, the same as GitHub.
-- [ ] Cloudflare: API token with the user's own zones and Workers.
-- [ ] Google Cloud: the user's own project, with a service account key or short-lived credentials, working with the `gcloud` CLI and client libraries in the sandbox.
-- [ ] AWS: the user's own account or role, with temporary credentials, working with the `aws` CLI and SDKs.
-- [ ] Azure: the user's own subscription and service principal, working with the `az` CLI and SDKs.
-- [ ] The existing approval gate covers deploys, deletes and anything that costs money on any of these; show which connection and project an action would touch before the user approves it.
-
 ## 5. Agent and workflow
 
 Compared with Jules and Claude Code, these are missing or weaker (background runs, approvals, project instructions, skills, MCP, checkpoints and usage visibility already exist):

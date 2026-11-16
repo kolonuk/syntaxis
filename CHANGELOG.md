@@ -19,6 +19,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 - Per-user egress modes and allowlisted hostnames are enforced by the host firewall, every new connection from a sandbox is logged (allowed or denied), and the workspace size is measured and enforced by the watchdog.
 
+- Per-user connections to GitHub, GitLab, Gitea, Cloudflare, AWS, Azure and Google Cloud, checked when saved and kept in the user's own vault. Sessions can start from one of the user's repositories (or a new one): the agent works in a clone on its own branch and opens pull requests with the user's own connection. Approval requests name the connection a command acts through.
+
 ### Changed
 - User levels (user, power user, admin) and user groups. Levels and groups carry the same permissions and settings as a user; the most specific setting wins, and an on/off permission stays off if any layer turns it off. Admins get an "Admin mode" link from the chat app and a link back.
 - The installer installs Docker, nftables and gVisor when missing, on Debian, Ubuntu, Raspberry Pi OS, AlmaLinux, Rocky Linux, RHEL and Fedora (x86-64 and arm64); `--check` shows the plan. Package installation is tested on each in CI.

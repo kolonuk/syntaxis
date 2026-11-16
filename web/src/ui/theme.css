@@ -950,3 +950,11 @@ a.btn {
   background-color: transparent !important;
   height: 100%;
 }
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-height: 220px;
+  overflow-y: auto;
+}

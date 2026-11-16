@@ -79,7 +79,7 @@ func (g *GCP) Test(ctx context.Context, c Creds) (Identity, error) {
 		tokenURL = k.TokenURI
 	}
 	if tokenURL == "" {
-		tokenURL = "https://oauth2.googleapis.com/token"
+		tokenURL = "https://oauth2.googleapis.com/token" // #nosec G101 -- a public endpoint, not a credential
 	}
 	now := time.Now
 	if g.Now != nil {

@@ -255,7 +255,7 @@ func TestGCP(t *testing.T) {
 	pk, _ := rsa.GenerateKey(rand.Reader, 2048)
 	der, _ := x509.MarshalPKCS8PrivateKey(pk)
 	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
-	keyJSON, _ := json.Marshal(map[string]string{"type": "service_account", "client_email": "sa@proj.iam.gserviceaccount.com", "private_key": pemKey})
+	keyJSON, _ := json.Marshal(map[string]string{"type": "service_account", "client_email": "sa@proj.example.com", "private_key": pemKey})
 	tokenSrv := srv(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		parts := strings.Split(r.Form.Get("assertion"), ".")
@@ -270,7 +270,7 @@ func TestGCP(t *testing.T) {
 			return
 		}
 		claims, _ := base64.RawURLEncoding.DecodeString(parts[1])
-		if !strings.Contains(string(claims), "sa@proj.iam.gserviceaccount.com") || !strings.Contains(string(claims), "cloud-platform") {
+		if !strings.Contains(string(claims), "sa@proj.example.com") || !strings.Contains(string(claims), "cloud-platform") {
 			http.Error(w, "{}", 400)
 			return
 		}
@@ -285,7 +285,7 @@ func TestGCP(t *testing.T) {
 	})
 	g := &GCP{HC: http.DefaultClient, TokenURL: tokenSrv.URL, CRMBase: crm.URL}
 	id, err := g.Test(ctx, Creds{"GCP_SERVICE_ACCOUNT_JSON": string(keyJSON), "GOOGLE_CLOUD_PROJECT": "my-proj"})
-	if err != nil || id.Account != "sa@proj.iam.gserviceaccount.com" || !strings.Contains(id.Detail, "my-proj") {
+	if err != nil || id.Account != "sa@proj.example.com" || !strings.Contains(id.Detail, "my-proj") {
 		t.Fatalf("%+v %v", id, err)
 	}
 	for _, bad := range []string{"not json", `{"type":"user"}`, `{"type":"service_account","client_email":"a","private_key":"junk"}`} {

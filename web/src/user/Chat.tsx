@@ -29,6 +29,8 @@ interface Msg {
   tool_call_id?: string;
 }
 export interface Session {
+  repo?: string;
+  repo_branch?: string;
   id: string;
   title: string;
   model: string;
@@ -335,6 +337,11 @@ export function Chat({
               state={running ? "running" : session.state === "running" ? "idle" : session.state}
             />
             <Badge>{session.model}</Badge>
+            {session.repo && (
+              <Badge>
+                {session.repo} · {session.repo_branch}
+              </Badge>
+            )}
           </div>
           <div className="chat-actions">
             <select

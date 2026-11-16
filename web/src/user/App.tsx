@@ -20,10 +20,13 @@ import {
 } from "../ui/ui";
 import { ChangePassword, Forgot, Login, SetPassword, TwoFactorSetup, AuthFrame } from "./Auth";
 import { Chat } from "./Chat";
+import { RepoPicker, type RepoChoice } from "./RepoPicker";
 import { Settings, UsagePanel } from "./Settings";
 import { useMe, useRoute } from "./hooks";
 
 interface Session {
+  repo?: string;
+  repo_branch?: string;
   id: string;
   title: string;
   model: string;
@@ -51,6 +54,7 @@ function NewSession({
   const [model, setModel] = useState("");
   const [autonomy, setAutonomy] = useState("workspace");
   const [title, setTitle] = useState("");
+  const [repo, setRepo] = useState<RepoChoice | null>(null);
   useEffect(() => {
     void get<ModelOpt[]>("/models").then((m) => {
       const sorted = [...m].sort(
@@ -65,7 +69,7 @@ function NewSession({
   }, []);
   async function create() {
     try {
-      onCreated(await post<Session>("/sessions", { model, autonomy, title }));
+      onCreated(await post<Session>("/sessions", { model, autonomy, title, repo }));
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -124,6 +128,7 @@ function NewSession({
                 m.id + (m.recommended ? " — recommended" : "") + (m.tools ? "" : " (chat only)"),
             }))}
           />
+          <RepoPicker onChange={setRepo} />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend style={{ fontWeight: 600, fontSize: "var(--fs-sm)", marginBottom: 8 }}>
               How much should it ask you?

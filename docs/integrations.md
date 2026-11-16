@@ -4,22 +4,25 @@
 
 Users add their own tokens under **Settings → Secrets** (names are `UPPER_SNAKE_CASE`). Values are encrypted with AES-256-GCM (key from `SYNTAXIS_MASTER_KEY`), never shown again, never sent to the model, redacted from output and logs, and supplied to the user's sandbox commands. They are read fresh for every command, so adding, changing or removing a secret applies immediately, with no new session needed. An already-open terminal keeps the values it started with; reconnect it to pick up changes. Instance secrets (provider API keys) are admin-owned and never injected into sandboxes.
 
-## GitHub
+## Connections to other services
 
-Add a fine-grained personal access token as `GITHUB_TOKEN` (or `GH_TOKEN`): repository **Contents: read/write** and **Pull requests: read/write** for the repositories you want, nothing more. Inside a session the agent can clone, create a branch, commit, push and open a PR (`gh` is in the cloud-tools image). GitHub App support is planned.
+Each user connects their own accounts under **Settings → Connections**: GitHub, GitLab (including self-hosted), Gitea or Forgejo, Cloudflare, Amazon Web Services, Microsoft Azure and Google Cloud. A connection is that user's own credentials. They are checked against the service when saved, kept in the user's own vault (nobody else, admins included, can see or use them), and put into the environment of that user's own commands under the names the services' tools expect (`GITHUB_TOKEN`, `AWS_ACCESS_KEY_ID`, `AZURE_CLIENT_SECRET`, `GOOGLE_CLOUD_PROJECT` and so on), so `git`, `gh`, `aws`, `az`, `gcloud` and `wrangler` work as they do on a laptop. They are never sent to the model. Each service has a short guide on creating a least-privilege, preferably short-lived credential.
 
-## Generic git over HTTPS/SSH
+For the git services, Syntaxis also uses the connection to list the user's repositories, create a new one, and open pull requests (merge requests on GitLab).
 
-HTTPS: use a token the same way. SSH deploy keys: store the private key as a secret and have the agent write it to a file outside `/workspace` with mode 0600 (a credential helper is planned). Works with GitLab and Gitea.
+### Starting from a repository
+
+In **New session**, choose a connected service and one of your repositories, or create a new one. Syntaxis clones it into the session's sandbox, creates a working branch (`syntaxis/<id>`) from the repository's default branch, and starts the agent there. The agent commits to that branch, pushes it and opens a pull request with the git tool's `pr` action. The pull request is opened by the server with the user's own connection, so the token is not in any command the model writes, and opening one needs approval at the default autonomy level. Commits use the user's account name at the service, not their sign-in email. A clone address is accepted only if it is on the service the user connected and matches the repository's name.
+
+Git in the sandbox finds the token through a credential helper that answers only for the matching host: a token is never offered to any other site. Git over SSH with deploy keys is not set up; use the token.
+
+### Cloud accounts
+
+Use accounts and projects that belong to you, with a budget alert, and the least privilege that does the job. Prefer temporary credentials (an AWS session token, a short secret lifetime on an Azure service principal). The approval gate fires on deploy, delete, create and destroy-style commands, and its request names the connection and project the command would act through. Remember the model sees command output; redaction is best-effort.
 
 ## Cloud deploys
 
-The cloud-tools image (`images/sandbox-cloud`) adds `gcloud`, `aws`, `az`, `wrangler`, `terraform`/`opentofu`, `kubectl`, `helm`, `flyctl` and `gh` as a separate tag so the default image stays small. First-class AWS/Azure integrations are out of scope; the CLIs are simply available.
-
-**Use your own credentials, least privilege, short-lived:**
-- Prefer OIDC/workload identity or scoped API tokens over long-lived keys.
-- Use a dedicated project/account with a **budget alert**.
-- Remember the model sees command output; redaction is best-effort.
+The cloud-tools image (`images/sandbox-cloud`) adds `gcloud`, `aws`, `az`, `wrangler`, `terraform`/`opentofu`, `kubectl`, `helm`, `flyctl` and `gh` as a separate tag so the default image stays small. The cloud connections above provide the credentials; the CLIs are simply available.
 
 Safety rails: the approval gate fires on `apply`/`deploy`/`delete`/`destroy`-style commands; the system prompt tells the agent to plan first and ask; an admin can disable cloud tooling per user.
 
