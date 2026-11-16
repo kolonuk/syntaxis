@@ -63,7 +63,7 @@ jobs:
       - name: actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          ./actionlint -color -shellcheck=   # the scripts are linted by shellcheck in the install job
       - name: hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
@@ -173,6 +173,11 @@ jobs:
           SYNTAXIS_IT_EGRESS: "1"
           SYNTAXIS_TEST_GITHUB_TOKEN: ${{ secrets.SYNTAXIS_TEST_GITHUB_TOKEN }}
         run: go test -count=1 -timeout 30m -json ./... > results.json
+      - name: Failed tests
+        if: failure()
+        run: |
+          jq -r 'select(.Action=="fail" and .Test!=null) | "\(.Package) \(.Test)"' results.json
+          jq -r 'select(.Action=="output") | .Output' results.json | grep -B2 -A12 -e '--- FAIL' | head -150
       - name: What was not tested
         if: always()
         run: scripts/not-tested.sh results.json | tee -a "$GITHUB_STEP_SUMMARY"
