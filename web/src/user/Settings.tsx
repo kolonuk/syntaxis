@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { del, get, post, put, errText } from "../lib/api";
 import { compact } from "../lib/format";
 import { Connections } from "./Connections";
+import { McpTools } from "./McpTools";
 import {
   Badge,
   Banner,
@@ -150,6 +151,7 @@ export function Settings({
           { id: "password", label: "Password" },
           { id: "2fa", label: "Two-factor" },
           { id: "connections", label: "Connections" },
+          { id: "tools", label: "Tools" },
           { id: "secrets", label: "Secrets" },
           { id: "usage", label: "Usage" },
         ]}
@@ -199,6 +201,7 @@ export function Settings({
         </Card>
       )}
       {tab === "connections" && <Connections />}
+      {tab === "tools" && <McpTools />}
       {tab === "secrets" && <Secrets />}
       {tab === "usage" && <UsagePanel />}
     </div>

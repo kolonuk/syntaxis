@@ -251,7 +251,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	}
 	_ = signing.ModeOff
 
-	bridge := a.startMCP(ctx, s.ID, run.Emit)
+	bridge := a.startMCP(ctx, u.ID, s.ID, run.Emit)
 	if bridge != nil {
 		defer bridge.Stop(context.Background())
 	}

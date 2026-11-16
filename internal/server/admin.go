@@ -81,6 +81,7 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
 			r.Get("/benchmarks", a.adminBenchmarks)
 			r.Get("/mcp/search", a.adminMCPSearch)
+			r.Get("/mcp/suggestions", a.adminMCPSuggestions)
 			r.Post("/mcp/approve", a.adminMCPApprove)
 			r.Get("/mcp/approved", a.adminMCPApproved)
 			r.Delete("/mcp/approved", a.adminMCPRevoke)

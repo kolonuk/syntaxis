@@ -26,7 +26,7 @@ Whatever a watch found or a webhook sent reaches the agent as untrusted informat
 
 ## MCP servers
 
-[MCP](https://modelcontextprotocol.io/) servers give the agent extra tools. Admins browse the official registry, review a server, and approve it with a pinned version and the credentials it needs. Each run starts the approved servers in their **own gVisor containers**: no workspace, no host access, only the credentials mapped to them. Their output is treated as untrusted, and tools that are not read-only ask the user first.
+[MCP](https://modelcontextprotocol.io/) servers give the agent extra tools. Admins browse the official registry, review a server, and approve it with a pinned version. Each user then switches on the servers they want under **Settings → Tools**, and a server runs only for the users who did, using **their own** connected credentials (an admin maps each credential to "each user's own", for example the official GitHub server to the user's GitHub token). Each run starts the servers in their **own gVisor containers**: no workspace, no host access, only that user's credentials. Only servers that run as a local program are supported; the official GitLab and Cloudflare servers are hosted services and are not. Their output is treated as untrusted, and tools that are not read-only ask the user first.
 
 ## Cloud and security tools
 

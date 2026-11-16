@@ -68,6 +68,8 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/automations/{id}/run", a.handleAutomationRunNow)
 			r.Post("/automations/{id}/token", a.handleAutomationToken)
 			r.Get("/automations/{id}/runs", a.handleAutomationRuns)
+			r.Get("/mcp", a.handleMyMCP)
+			r.Put("/mcp", a.handleMyMCPSet)
 			r.Get("/connections", a.handleConnections)
 			r.Put("/connections/{kind}", a.handleConnectionPut)
 			r.Delete("/connections/{kind}", a.handleConnectionDelete)

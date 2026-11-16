@@ -673,6 +673,10 @@ function McpTab() {
   const toast = useToast();
   const approved = useLoad<McpApproved[]>("/mcp/approved");
   const secrets = useLoad<string[]>("/secrets");
+  const sugg = useLoad<{
+    user_credentials: string[];
+    suggestions: { title: string; search: string; env_secrets: Record<string, string> }[];
+  }>("/mcp/suggestions");
   const [q, setQ] = useState("");
   const [results, setResults] = useState<McpServerEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -704,6 +708,7 @@ function McpTab() {
       });
       toast("Approved.", "success");
       setReview(null);
+      setMap({});
       approved.reload();
     } catch (x) {
       toast(errText(x), "error");
@@ -792,6 +797,32 @@ function McpTab() {
           <Button type="submit">Save credential</Button>
         </form>
       </Card>
+      <Card title="Suggested servers">
+        <p className="muted">
+          First-party servers that run as a local program, set up so each user connects with their
+          own credentials (Settings, Connections). GitLab and Cloudflare publish only hosted
+          servers, which Syntaxis does not run.
+        </p>
+        {(sugg.data?.suggestions ?? []).map((s) => (
+          <div key={s.search} className="row">
+            <strong className="grow">{s.title}</strong>
+            <Button
+              onClick={() => {
+                setQ(s.search);
+                setMap(s.env_secrets);
+                void (async () => {
+                  const r = await get<{ servers: McpServerEntry[] }>(
+                    `/mcp/search?q=${encodeURIComponent(s.search)}`,
+                  );
+                  setResults(r.servers.filter((x) => x.name === s.search));
+                })();
+              }}
+            >
+              Find and review
+            </Button>
+          </div>
+        ))}
+      </Card>
       <Card title="Browse the MCP registry">
         <form className="row" onSubmit={search}>
           <div className="grow">
@@ -820,7 +851,6 @@ function McpTab() {
                   key={p.index}
                   onClick={() => {
                     setReview({ server: r, pkg: p });
-                    setMap({});
                   }}
                 >
                   Review {p.package.registryType}: {p.package.identifier}@{p.package.version}
@@ -833,10 +863,20 @@ function McpTab() {
       {review && (
         <Modal
           title={`Approve ${review.server.name}?`}
-          onClose={() => setReview(null)}
+          onClose={() => {
+            setReview(null);
+            setMap({});
+          }}
           actions={
             <>
-              <Button onClick={() => setReview(null)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setReview(null);
+                  setMap({});
+                }}
+              >
+                Cancel
+              </Button>
               <Button variant="primary" onClick={approve} disabled={!review.pkg.review.pinnable}>
                 Approve
               </Button>
@@ -865,7 +905,11 @@ function McpTab() {
               onChange={(e) => setMap({ ...map, [ev.name]: e.target.value })}
               options={[
                 { value: "", label: ev.required ? "Choose a credential…" : "Not set" },
-                ...(secrets.data ?? []).map((n) => ({ value: n, label: n })),
+                ...(sugg.data?.user_credentials ?? []).map((n) => ({
+                  value: "user:" + n,
+                  label: `Each user's own ${n}`,
+                })),
+                ...(secrets.data ?? []).map((n) => ({ value: n, label: `Shared: ${n}` })),
               ]}
             />
           ))}
