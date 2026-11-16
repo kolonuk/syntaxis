@@ -9,8 +9,10 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-chi/chi/v5 v5.5.0
+	github.com/mmcdole/gofeed v1.5.0
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.30.1
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.62.0
@@ -32,6 +34,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mfridman/interpolate v0.2.0 // indirect
+	github.com/mmcdole/goxpp/v2 v2.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
@@ -52,6 +55,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	modernc.org/libc v1.80.2 // indirect

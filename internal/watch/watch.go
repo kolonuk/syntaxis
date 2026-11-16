@@ -7,9 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/mmcdole/gofeed"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -318,52 +318,25 @@ func checkGitRef(ctx context.Context, c Config, prev string, d Deps) (string, *E
 	return sha, &Event{Source: "git branch " + c["ref"] + " of " + u, Title: "new commits", Details: []string{"now at " + sha[:12], "was " + prev[:min(12, len(prev))]}}, nil
 }
 
-type rssFeed struct {
-	Channel struct {
-		Items []struct {
-			Title string `xml:"title"`
-			Link  string `xml:"link"`
-			GUID  string `xml:"guid"`
-			Desc  string `xml:"description"`
-		} `xml:"item"`
-	} `xml:"channel"`
-	Entries []struct {
-		Title string `xml:"title"`
-		ID    string `xml:"id"`
-		Link  struct {
-			Href string `xml:"href,attr"`
-		} `xml:"link"`
-		Summary string `xml:"summary"`
-	} `xml:"entry"`
-}
-
 func checkRSS(ctx context.Context, c Config, prev string, d Deps) (string, *Event, error) {
 	b, _, err := get(ctx, d.HC, c["url"], map[string]string{"Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"})
 	if err != nil {
 		return prev, nil, err
 	}
-	var f rssFeed
-	if err := xml.Unmarshal(b, &f); err != nil {
-		return prev, nil, errors.New("that does not look like an RSS or Atom feed")
+	feed, err := gofeed.NewParser().ParseString(string(b))
+	if err != nil {
+		return prev, nil, errors.New("that does not look like an RSS, Atom or JSON feed")
+	}
+	if len(feed.Items) == 0 {
+		return prev, nil, errors.New("the feed has no entries")
 	}
 	type entry struct{ id, title, link, desc string }
 	var es []entry
-	for _, it := range f.Channel.Items {
-		id := firstNonEmpty(it.GUID, it.Link, it.Title)
-		es = append(es, entry{id, it.Title, it.Link, it.Desc})
-	}
-	for _, e := range f.Entries {
-		id := firstNonEmpty(e.ID, e.Link.Href, e.Title)
-		es = append(es, entry{id, e.Title, e.Link.Href, e.Summary})
-	}
-	if len(es) == 0 {
-		return prev, nil, errors.New("the feed has no entries")
-	}
-	seen := map[string]bool{}
 	var ids []string
-	for _, e := range es {
-		ids = append(ids, e.id)
-		seen[e.id] = true
+	for _, it := range feed.Items {
+		id := firstNonEmpty(it.GUID, it.Link, it.Title)
+		es = append(es, entry{id, it.Title, it.Link, firstNonEmpty(it.Description, it.Content)})
+		ids = append(ids, id)
 	}
 	if len(ids) > 100 {
 		ids = ids[:100]
