@@ -21,6 +21,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 - Per-user connections to GitHub, GitLab, Gitea, Cloudflare, AWS, Azure and Google Cloud, checked when saved and kept in the user's own vault. Sessions can start from one of the user's repositories (or a new one): the agent works in a clone on its own branch and opens pull requests with the user's own connection. Approval requests name the connection a command acts through.
 
+- Tests use real services only: real Docker and gVisor, Gitea and Mailpit containers, the public internet, and a real local model. What cannot be tested skips as `NOT TESTED: <reason>` and CI lists it in the job summary (`scripts/not-tested.sh`). The fake container runtime, scripted model and fake GitHub, GitLab, IFTTT and registry servers are gone, along with the test-only hooks that supported them.
+- CI: Lighthouse (accessibility, best practices, SEO, performance), axe accessibility checks in Playwright, a bundle-size budget, actionlint, hadolint, a documentation link check and dependency review on pull requests.
 - Parallel attempts: start 2 or more runs of one task, each in its own clone and branch, and compare their changes side by side before keeping one. The number offered comes from the machine (CPUs and memory against the sandbox limits, read from Docker), the user's session limit and the model server's concurrency, and says whether the model is loaded.
 
 - A full workspace refuses new messages and stops a running agent at its next step, with a message to free space; the terminal stays available to clean up and the next message re-measures at once.

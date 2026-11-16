@@ -24,11 +24,23 @@ cd web && npm ci && npm test && npm run lint && npm run typecheck && npm run bui
 
 `npm run build` writes the UI into `internal/webui/dist`, which `go build` embeds. A clean checkout builds without it (the UI is then empty).
 
-Integration tests that need a real gVisor host skip themselves when `runsc` is absent. Playwright flows (`npm run e2e`) need a running instance; see `web/playwright.config.ts`.
+## Tests use the real thing
+
+Nothing is faked: no pretend GitHub, model server, mail server or container engine. Tests run against real Docker and gVisor, a real Gitea and SMTP server in containers, the public internet (GitHub, PyPI, Docker Hub and so on) and, for the agent itself, a real local model.
+
+When something real is not available, the test **skips with `NOT TESTED: <reason>`** instead of passing on a stand-in. `scripts/not-tested.sh results.json` lists those from a `go test -json` run, and CI prints the list on each run.
+
+- Needs Docker and gVisor (`runsc`) and the sandbox image (`docker build -t syntaxis-sandbox:latest images/sandbox`): skips without them.
+- Needs an account: set `SYNTAXIS_TEST_GITHUB_TOKEN`, `SYNTAXIS_TEST_GITLAB_TOKEN`, `SYNTAXIS_TEST_CLOUDFLARE_TOKEN`, `SYNTAXIS_TEST_IFTTT_KEY`, `SYNTAXIS_TEST_AWS_ACCESS_KEY_ID` with `..._SECRET_ACCESS_KEY`, the `SYNTAXIS_TEST_AZURE_*` set, or the `SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON` with `SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT`.
+- Needs a model: set `SYNTAXIS_LIVE=1` and point `SYNTAXIS_TEST_ENV` at a file with `OLLAMA_URL`, `OLLAMA_KIND` and `MODEL_TINY`, `MODEL_SMALL`, `MODEL_MAIN` (default `~/.config/syntaxis-test/env`, outside the repository). A real model decides for itself, so those tests ask for simple checkable results and assert on what really happened in the sandbox.
+
+Tests that start sandboxes use user ids far above any real user's and clean up after themselves, and whole-host operations (the reaper, the kill switch) are scoped to the test's own containers, so a Syntaxis already running on the same Docker host is not touched.
+
+The web checks: `npm run e2e` (Playwright flows and axe accessibility) and `npm run lighthouse` need a running instance (see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
 
 ## Adding a provider adapter / agent adapter
 
-Implement `provider.Provider` (read-only toward the server) or `agent.AgentAdapter`, add fake-server tests, and document trade-offs in `docs/`.
+Implement `provider.Provider` (read-only toward the server) or `agent.AgentAdapter`, test it against a real server (skipping with `NOT TESTED` where none is available), and document trade-offs in `docs/`.
 
 ## Releases and versions
 

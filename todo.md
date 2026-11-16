@@ -4,13 +4,12 @@ Work that is left. Finished work is not listed here; see [CHANGELOG.md](CHANGELO
 
 Goal: as close a drop-in replacement for Jules and Claude Code as a self-hosted, local-model setup can be.
 
-Rules for contributors: no environment-specific values in the repo (use `example.com`, `llm.internal`), no secrets, every behaviour change has tests, and security behaviour has a test that fails if the protection is removed.
+Rules for contributors: no environment-specific values in the repo (use `example.com`, `llm.internal`), no secrets, every behaviour change has tests, and security behaviour has a test that fails if the protection is removed. Tests use real services (see CONTRIBUTING.md); where one is not available the test says `NOT TESTED` rather than pretend.
 
 ## 1. Fixes and verification
 
 - [ ] CI fully green, including the gVisor integration job, on every push.
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] Lighthouse audit (PWA, accessibility, performance) run in CI against a started instance.
 - [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
 
 ## 5. Agent and workflow
@@ -21,4 +20,4 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 6. Operations
 
 - [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
-- [ ] Run the Playwright and accessibility (axe-core) suites in CI against the instance the fresh-install job creates; add a Lighthouse PWA check.
+- [ ] Run the Playwright, axe and Lighthouse checks against the instance the fresh-install job creates (they run against a plain `syntaxis serve` today).
