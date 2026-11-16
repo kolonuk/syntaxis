@@ -10,13 +10,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
-	"time"
-)
 
-// ProtocolVersion is the MCP revision this client speaks (stdio transport,
-// newline-delimited JSON-RPC 2.0).
-const ProtocolVersion = "2025-06-18"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
 // maxLine bounds one JSON-RPC message from an untrusted server.
 const maxLine = 4 << 20
@@ -31,202 +27,107 @@ type Tool struct {
 	} `json:"annotations"`
 }
 
-// Client speaks MCP over a stdio pipe.
-type Client struct {
-	w  io.WriteCloser
-	mu sync.Mutex // serialises writes
-
-	pmu     sync.Mutex
-	pending map[int64]chan rpcResponse
-	nextID  int64
-	closed  bool
-	done    chan struct{}
-}
-
-type rpcResponse struct {
-	ID     json.RawMessage `json:"id"`
-	Result json.RawMessage `json:"result"`
-	Error  *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-	Method string `json:"method"`
-}
-
-// NewClient starts reading responses from r. Requests are written to w.
-func NewClient(r io.Reader, w io.WriteCloser) *Client {
-	c := &Client{w: w, pending: map[int64]chan rpcResponse{}, done: make(chan struct{})}
-	go c.readLoop(r)
-	return c
-}
-
-func (c *Client) readLoop(r io.Reader) {
-	defer close(c.done)
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), maxLine)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || line[0] != '{' { // servers may log non-protocol text to stdout
-			continue
-		}
-		var m rpcResponse
-		if json.Unmarshal([]byte(line), &m) != nil || m.Method != "" || len(m.ID) == 0 {
-			continue // notifications and server->client requests are ignored (we declare no capabilities)
-		}
-		var id int64
-		if json.Unmarshal(m.ID, &id) != nil {
-			continue
-		}
-		c.pmu.Lock()
-		ch := c.pending[id]
-		delete(c.pending, id)
-		c.pmu.Unlock()
-		if ch != nil {
-			ch <- m
-		}
-	}
-	c.pmu.Lock()
-	c.closed = true
-	for id, ch := range c.pending {
-		close(ch)
-		delete(c.pending, id)
-	}
-	c.pmu.Unlock()
-}
-
 // ErrClosed means the server went away.
 var ErrClosed = errors.New("mcp: server closed the connection")
 
-func (c *Client) send(v any) error {
-	b, err := json.Marshal(v)
+// Client talks to one MCP server over a stdio pipe, using the official MCP Go SDK
+// (github.com/modelcontextprotocol/go-sdk) for the protocol itself.
+type Client struct {
+	r  io.Reader
+	w  io.WriteCloser
+	cs *sdk.ClientSession
+}
+
+// NewClient prepares a client that reads the server's output from r and writes requests to w.
+func NewClient(r io.Reader, w io.WriteCloser) *Client { return &Client{r: r, w: w} }
+
+// onlyProtocol passes through just the lines that look like JSON-RPC messages: servers may print
+// log text to stdout, which the protocol does not allow but real servers do.
+func onlyProtocol(r io.Reader) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 64<<10), maxLine)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" || line[0] != '{' {
+				continue
+			}
+			if _, err := io.WriteString(pw, line+"\n"); err != nil {
+				return
+			}
+		}
+		_ = pw.CloseWithError(io.EOF)
+	}()
+	return pr
+}
+
+// Initialize connects and performs the MCP handshake.
+func (c *Client) Initialize(ctx context.Context) error {
+	cl := sdk.NewClient(&sdk.Implementation{Name: "syntaxis", Version: "1"}, nil)
+	cs, err := cl.Connect(ctx, &sdk.IOTransport{Reader: onlyProtocol(c.r), Writer: c.w, MaxLineLength: maxLine}, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("mcp: %w", err)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, err = c.w.Write(append(b, '\n'))
-	return err
+	c.cs = cs
+	return nil
 }
 
-// sendCtx writes in the background so a server that stops reading cannot wedge the caller.
-func (c *Client) sendCtx(ctx context.Context, v any) error {
-	werr := make(chan error, 1)
-	go func() { werr <- c.send(v) }()
-	select {
-	case err := <-werr:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	c.pmu.Lock()
-	if c.closed {
-		c.pmu.Unlock()
+func (c *Client) session() (*sdk.ClientSession, error) {
+	if c.cs == nil {
 		return nil, ErrClosed
 	}
-	c.nextID++
-	id := c.nextID
-	ch := make(chan rpcResponse, 1)
-	c.pending[id] = ch
-	c.pmu.Unlock()
-	req := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
-	if params != nil {
-		req["params"] = params
-	}
-	if err := c.sendCtx(ctx, req); err != nil {
-		c.pmu.Lock()
-		delete(c.pending, id)
-		c.pmu.Unlock()
-		return nil, err
-	}
-	select {
-	case m, ok := <-ch:
-		if !ok {
-			return nil, ErrClosed
-		}
-		if m.Error != nil {
-			return nil, fmt.Errorf("mcp %s: %s", method, m.Error.Message)
-		}
-		return m.Result, nil
-	case <-ctx.Done():
-		c.pmu.Lock()
-		delete(c.pending, id)
-		c.pmu.Unlock()
-		return nil, ctx.Err()
-	}
-}
-
-// Initialize performs the handshake.
-func (c *Client) Initialize(ctx context.Context) error {
-	_, err := c.call(ctx, "initialize", map[string]any{
-		"protocolVersion": ProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]string{"name": "syntaxis", "version": "1"},
-	})
-	if err != nil {
-		return err
-	}
-	return c.sendCtx(ctx, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	return c.cs, nil
 }
 
 // ListTools returns all tools (following pagination).
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
+	cs, err := c.session()
+	if err != nil {
+		return nil, err
+	}
 	var all []Tool
-	cursor := ""
-	for page := 0; page < 20; page++ {
-		var params any
-		if cursor != "" {
-			params = map[string]string{"cursor": cursor}
-		}
-		raw, err := c.call(ctx, "tools/list", params)
+	for t, err := range cs.Tools(ctx, nil) {
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("mcp tools/list: %w", err)
 		}
-		var res struct {
-			Tools      []Tool `json:"tools"`
-			NextCursor string `json:"nextCursor"`
+		var out Tool
+		out.Name, out.Description = t.Name, t.Description
+		if b, err := json.Marshal(t.InputSchema); err == nil {
+			out.InputSchema = b
 		}
-		if err := json.Unmarshal(raw, &res); err != nil {
-			return nil, err
+		if t.Annotations != nil {
+			out.Annotations.ReadOnlyHint = t.Annotations.ReadOnlyHint
 		}
-		all = append(all, res.Tools...)
-		if res.NextCursor == "" {
+		all = append(all, out)
+		if len(all) >= 500 {
 			break
 		}
-		cursor = res.NextCursor
 	}
 	return all, nil
 }
 
-// CallTool invokes a tool and returns its text content (non-text content is summarised).
+// CallTool invokes a tool and returns its text content (other content is summarised).
 func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage) (text string, isError bool, err error) {
+	cs, err := c.session()
+	if err != nil {
+		return "", false, err
+	}
 	var a any = map[string]any{}
 	if len(args) > 0 {
 		a = args
 	}
-	raw, err := c.call(ctx, "tools/call", map[string]any{"name": name, "arguments": a})
+	res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: a})
 	if err != nil {
-		return "", false, err
-	}
-	var res struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("mcp tools/call: %w", err)
 	}
 	var b strings.Builder
-	for _, c := range res.Content {
-		if c.Type == "text" {
-			b.WriteString(c.Text)
+	for _, content := range res.Content {
+		if t, ok := content.(*sdk.TextContent); ok {
+			b.WriteString(t.Text)
 			b.WriteString("\n")
 		} else {
-			fmt.Fprintf(&b, "[%s content omitted]\n", c.Type)
+			fmt.Fprintf(&b, "[%T content omitted]\n", content)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), res.IsError, nil
@@ -234,9 +135,8 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 
 // Close closes the connection.
 func (c *Client) Close() {
-	_ = c.w.Close()
-	select {
-	case <-c.done:
-	case <-time.After(time.Second):
+	if c.cs != nil {
+		_ = c.cs.Close()
 	}
+	_ = c.w.Close()
 }
