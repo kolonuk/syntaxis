@@ -77,7 +77,7 @@ jobs:
       - name: Links in the documentation
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress --exclude-mail --accept 200,403,429 README.md docs/*.md CHANGELOG.md
+          args: --no-progress --accept 200,403,429 README.md docs/*.md CHANGELOG.md
           fail: true
 
   dependency-review:
