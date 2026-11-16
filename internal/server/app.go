@@ -93,7 +93,7 @@ func New(cfg *config.Config, st store.Store, as *auth.Service, q *quota.Service,
 	a.Runs = NewRuns()
 	a.Terms = NewTerminals()
 	a.Connections = connections.New(nil)
-	a.WatchClient = watch.NewClient(false)
+	a.WatchClient = watch.NewClient()
 	return a
 }
 

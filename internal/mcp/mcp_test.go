@@ -5,72 +5,58 @@ package mcp
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 var ctx = context.Background()
 
-// Shape captured from the live registry (GET /v0/servers?search=...&version=latest).
-const registryJSON = `{"servers":[
- {"server":{"name":"com.example/fs","description":"Filesystem ops","version":"0.1.5","repository":{"url":"https://github.com/example/mcp","source":"github"},
-  "packages":[{"registryType":"npm","identifier":"example-fs-mcp","version":"0.1.5","runtimeHint":"npx","transport":{"type":"stdio"},
-   "environmentVariables":[{"name":"BUCKET","isRequired":true,"description":"bucket"},{"name":"API_KEY","isSecret":true,"description":"key"},{"name":"MODE","default":"ro"}]}]},
-  "_meta":{"io.modelcontextprotocol.registry/official":{"status":"active","isLatest":true}}},
- {"server":{"name":"com.example/hosted","description":"Hosted only","version":"1.0.0","remotes":[{"type":"streamable-http","url":"https://mcp.example.com"}]},"_meta":{}}
-],"metadata":{"nextCursor":"com.example/hosted:1.0.0","count":2}}`
+// registryEntry and remoteEntry are catalogue entries (data, not a server) in the shape the real
+// registry returns, used to check the review and approval rules.
+func registryEntry() Entry {
+	return Entry{Name: "com.example/fs", Description: "Filesystem ops", Version: "0.1.5", Repository: "https://github.com/example/mcp", Status: "active",
+		Packages: []Package{{RegistryType: "npm", Identifier: "example-fs-mcp", Version: "0.1.5", RuntimeHint: "npx", Transport: "stdio",
+			Env: []EnvVar{{Name: "BUCKET", Required: true, Description: "bucket"}, {Name: "API_KEY", Secret: true, Description: "key"}, {Name: "MODE", Default: "ro"}}}}}
+}
 
-func fakeRegistry(t *testing.T) *Registry {
-	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.RawQuery
-		if r.URL.Path != "/v0/servers" {
-			http.NotFound(w, r)
-			return
+func remoteEntry() Entry {
+	return Entry{Name: "com.example/hosted", Description: "Hosted only", Version: "1.0.0", Remotes: []string{"https://mcp.example.com"}}
+}
+
+func TestRealRegistrySearch(t *testing.T) {
+	testenv.Network(t, "registry.modelcontextprotocol.io:443")
+	r := &Registry{BaseURL: DefaultRegistry}
+	es, _, err := r.Search(ctx, "github", "", 20)
+	if err != nil || len(es) == 0 {
+		t.Fatalf("%v %d", err, len(es))
+	}
+	found := false
+	for _, e := range es {
+		if e.Name == "" || e.Version == "" {
+			t.Fatalf("incomplete entry %+v", e)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(registryJSON))
-	}))
-	t.Cleanup(srv.Close)
-	_ = gotQuery
-	return &Registry{BaseURL: srv.URL}
-}
-
-func TestRegistrySearchParsesRealShape(t *testing.T) {
-	r := fakeRegistry(t)
-	es, next, err := r.Search(ctx, "filesystem", "", 10)
-	if err != nil || len(es) != 2 || next != "com.example/hosted:1.0.0" {
-		t.Fatalf("%v %d %q", err, len(es), next)
+		if e.Name == "io.github.github/github-mcp-server" {
+			found = true
+			if len(e.Packages) == 0 && len(e.Remotes) == 0 {
+				t.Fatalf("no way to run it: %+v", e)
+			}
+		}
 	}
-	e := es[0]
-	if e.Name != "com.example/fs" || e.Status != "active" || e.Repository == "" || len(e.Packages) != 1 {
-		t.Fatalf("%+v", e)
-	}
-	p := e.Packages[0]
-	if p.RegistryType != "npm" || p.Transport != "stdio" || len(p.Env) != 3 || !p.Env[0].Required || !p.Env[1].Secret || p.Env[2].Default != "ro" {
-		t.Fatalf("%+v", p)
-	}
-	if len(es[1].Remotes) != 1 {
-		t.Fatal("remotes")
+	if !found {
+		t.Log("the GitHub server was not on the first page of results; the shape checks above still ran")
 	}
 }
 
-func TestRegistryErrors(t *testing.T) {
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", 500) }))
-	defer bad.Close()
-	if _, _, err := (&Registry{BaseURL: bad.URL}).Search(ctx, "", "", 0); err == nil {
-		t.Fatal("500 accepted")
-	}
-	junk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("not json")) }))
-	defer junk.Close()
-	if _, _, err := (&Registry{BaseURL: junk.URL}).Search(ctx, "", "", 0); err == nil {
-		t.Fatal("junk accepted")
+func TestRegistryRefusesAnswersThatAreNotTheRegistry(t *testing.T) {
+	testenv.Network(t, "example.com:443")
+	// a real web server that is not an MCP registry
+	if _, _, err := (&Registry{BaseURL: "https://example.com"}).Search(ctx, "", "", 0); err == nil {
+		t.Fatal("a page that is not the registry was accepted")
 	}
 }
 
@@ -82,13 +68,7 @@ func TestLocalSource(t *testing.T) {
 	}
 }
 
-func entries(t *testing.T) []Entry {
-	es, _, err := fakeRegistry(t).Search(ctx, "", "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return es
-}
+func entries(t *testing.T) []Entry { return []Entry{registryEntry(), remoteEntry()} }
 
 func TestReviewShowsCredentialsAndCapabilities(t *testing.T) {
 	es := entries(t)

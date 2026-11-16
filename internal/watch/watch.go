@@ -42,8 +42,6 @@ type Deps struct {
 	// GitHubToken is the user's own GitHub token, if they have connected GitHub; it only raises
 	// the rate limit and reaches their private repositories.
 	GitHubToken string
-	// BaseURL overrides the service addresses (tests).
-	GitHubAPI, DockerHub, PyPI, NPM, Crates string
 }
 
 // Kind describes a kind of watch for the form.
@@ -131,7 +129,7 @@ func Check(ctx context.Context, kind string, c Config, prev string, d Deps) (sta
 		return prev, nil, err
 	}
 	if d.HC == nil {
-		d.HC = NewClient(false)
+		d.HC = NewClient()
 	}
 	switch kind {
 	case "github_release":
@@ -149,19 +147,12 @@ func Check(ctx context.Context, kind string, c Config, prev string, d Deps) (sta
 	}
 }
 
-func orDefault(s, def string) string {
-	if s != "" {
-		return strings.TrimRight(s, "/")
-	}
-	return def
-}
-
 func checkGitHubRelease(ctx context.Context, c Config, prev string, d Deps) (string, *Event, error) {
 	h := map[string]string{"Accept": "application/vnd.github+json"}
 	if d.GitHubToken != "" {
 		h["Authorization"] = "Bearer " + d.GitHubToken
 	}
-	b, code, err := get(ctx, d.HC, orDefault(d.GitHubAPI, "https://api.github.com")+"/repos/"+c["repo"]+"/releases/latest", h)
+	b, code, err := get(ctx, d.HC, "https://api.github.com"+"/repos/"+c["repo"]+"/releases/latest", h)
 	if code == http.StatusNotFound {
 		return prev, nil, errors.New("no release found (or the repository is private and GitHub is not connected)")
 	}
@@ -187,11 +178,11 @@ func checkPackage(ctx context.Context, c Config, prev string, d Deps) (string, *
 	var u, field string
 	switch c["ecosystem"] {
 	case "npm":
-		u, field = orDefault(d.NPM, "https://registry.npmjs.org")+"/"+strings.ReplaceAll(c["name"], "/", "%2f")+"/latest", "version"
+		u, field = "https://registry.npmjs.org"+"/"+strings.ReplaceAll(c["name"], "/", "%2f")+"/latest", "version"
 	case "pypi":
-		u, field = orDefault(d.PyPI, "https://pypi.org")+"/pypi/"+c["name"]+"/json", "info.version"
+		u, field = "https://pypi.org"+"/pypi/"+c["name"]+"/json", "info.version"
 	default:
-		u, field = orDefault(d.Crates, "https://crates.io")+"/api/v1/crates/"+c["name"], "crate.max_version"
+		u, field = "https://crates.io"+"/api/v1/crates/"+c["name"], "crate.max_version"
 	}
 	b, _, err := get(ctx, d.HC, u, map[string]string{"Accept": "application/json"})
 	if err != nil {
@@ -224,7 +215,7 @@ func checkDockerHub(ctx context.Context, c Config, prev string, d Deps) (string,
 	if !strings.Contains(img, "/") {
 		img = "library/" + img
 	}
-	b, _, err := get(ctx, d.HC, orDefault(d.DockerHub, "https://hub.docker.com")+"/v2/repositories/"+img+"/tags?page_size=50&ordering=last_updated", nil)
+	b, _, err := get(ctx, d.HC, "https://hub.docker.com"+"/v2/repositories/"+img+"/tags?page_size=50&ordering=last_updated", nil)
 	if err != nil {
 		return prev, nil, err
 	}

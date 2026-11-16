@@ -24,8 +24,8 @@ const MaxBody = 1 << 20
 
 // NewClient returns an HTTP client for watching public sources. It resolves the name itself and
 // refuses private, loopback, link-local, metadata and other blocked addresses at connection time
-// (so DNS tricks and redirects cannot reach them either). allowPrivate is only for tests.
-func NewClient(allowPrivate bool) *http.Client {
+// (so DNS tricks and redirects cannot reach them either).
+func NewClient() *http.Client {
 	d := &net.Dialer{Timeout: 10 * time.Second}
 	tr := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -43,7 +43,7 @@ func NewClient(allowPrivate bool) *http.Client {
 				if !ok {
 					continue
 				}
-				if blocked, why := egress.IsAlwaysBlocked(a.Unmap()); blocked && !allowPrivate {
+				if blocked, why := egress.IsAlwaysBlocked(a.Unmap()); blocked {
 					lastErr = fmt.Errorf("that address is not allowed (%s)", why)
 					continue
 				}

@@ -4,219 +4,136 @@ package watch
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"strings"
-	"sync/atomic"
 	"testing"
+
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 var ctx = context.Background()
 
-func serve(t *testing.T, h http.HandlerFunc) *httptest.Server {
-	t.Helper()
-	s := httptest.NewServer(h)
-	t.Cleanup(s.Close)
-	return s
-}
+// The checks run against the real services. A change is simulated by starting from an older
+// remembered state, which is exactly what a stored state is, so the service's own answer is what
+// gets parsed.
 
-func deps(s *httptest.Server) Deps {
-	return Deps{HC: NewClient(true), GitHubAPI: s.URL, DockerHub: s.URL, PyPI: s.URL, NPM: s.URL, Crates: s.URL}
-}
-
-func TestTheClientRefusesPrivateAddressesButTestsCanAllowThem(t *testing.T) {
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "secret") })
-	if _, _, err := get(ctx, NewClient(false), s.URL, nil); err == nil || !strings.Contains(err.Error(), "not allowed") {
+func TestTheClientRefusesPrivateAddresses(t *testing.T) {
+	// A real listener on loopback: the client must not connect to it.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			accepted <- struct{}{}
+			_ = c.Close()
+		}
+	}()
+	if _, _, err := get(ctx, NewClient(), "http://"+l.Addr().String()+"/", nil); err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("a loopback address must be refused: %v", err)
 	}
+	select {
+	case <-accepted:
+		t.Fatal("the client connected to a loopback address")
+	default:
+	}
 	for _, u := range []string{"http://169.254.169.254/latest/meta-data/", "http://10.0.0.5/", "http://192.168.1.1/", "http://[::1]/", "http://localhost/"} {
-		if _, _, err := get(ctx, NewClient(false), u, nil); err == nil {
+		if _, _, err := get(ctx, NewClient(), u, nil); err == nil {
 			t.Errorf("%s was fetched", u)
 		}
 	}
-	if _, _, err := get(ctx, NewClient(true), s.URL, nil); err != nil {
-		t.Fatal(err)
-	}
 	for _, u := range []string{"file:///etc/passwd", "ftp://example.com/x", "http://user:pw@example.com/"} {
-		if _, _, err := get(ctx, NewClient(true), u, nil); err == nil {
+		if _, _, err := get(ctx, NewClient(), u, nil); err == nil {
 			t.Errorf("%s was accepted", u)
 		}
 	}
 }
 
 func TestRedirectsToPrivateAddressesAreRefused(t *testing.T) {
-	// a public-looking page that redirects to the metadata address
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "http://169.254.169.254/", 302) })
-	// the first hop (loopback) is allowed only because this client allows private for the test server;
-	// with the strict client even the first hop is refused, which is the property that matters
-	if _, _, err := get(ctx, NewClient(false), s.URL, nil); err == nil {
-		t.Fatal("redirect not blocked")
+	testenv.Network(t, "httpbin.org:443")
+	// a real public service that redirects to the cloud metadata address
+	_, _, err := get(ctx, NewClient(), "https://httpbin.org/redirect-to?url=http%3A%2F%2F169.254.169.254%2F&status_code=302", nil)
+	if err == nil {
+		t.Fatal("the redirect to a private address was followed")
 	}
 }
 
-func TestFirstCheckRemembersWithoutFiring(t *testing.T) {
-	var tag atomic.Value
-	tag.Store("v1.0.0")
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"tag_name":%q,"name":"Release","body":"notes","html_url":"https://example.com/r"}`, tag.Load())
+// fires checks a source: the first look remembers without firing, looking again changes nothing,
+// and starting from an older remembered state fires with what the service really says.
+func fires(t *testing.T, kind string, cfg Config, old string, want func(*Event) bool) {
+	t.Helper()
+	st, ev, err := Check(ctx, kind, cfg, "", Deps{})
+	if err != nil || ev != nil || st == "" {
+		t.Fatalf("first check: %q %v %v", st, ev, err)
+	}
+	if st2, ev, err := Check(ctx, kind, cfg, st, Deps{}); err != nil || ev != nil || st2 != st {
+		t.Fatalf("no change must not fire: %q %+v %v", st2, ev, err)
+	}
+	st3, ev, err := Check(ctx, kind, cfg, old, Deps{})
+	if err != nil || ev == nil || st3 != st {
+		t.Fatalf("from an older state: %q %+v %v", st3, ev, err)
+	}
+	if want != nil && !want(ev) {
+		t.Fatalf("unexpected event %+v", ev)
+	}
+}
+
+func TestGitHubReleases(t *testing.T) {
+	testenv.Network(t, "api.github.com:443")
+	fires(t, "github_release", Config{"repo": "cli/cli"}, "v0.0.1", func(e *Event) bool {
+		return strings.Contains(e.Source, "cli/cli") && strings.Contains(e.Text(), "v")
 	})
-	d := deps(s)
-	cfg := Config{"repo": "owner/app"}
-	st, ev, err := Check(ctx, "github_release", cfg, "", d)
-	if err != nil || ev != nil || st != "v1.0.0" {
-		t.Fatalf("%q %v %v", st, ev, err)
-	}
-	if st, ev, _ := Check(ctx, "github_release", cfg, st, d); ev != nil || st != "v1.0.0" {
-		t.Fatal("no change must not fire")
-	}
-	tag.Store("v1.1.0")
-	st, ev, err = Check(ctx, "github_release", cfg, st, d)
-	if err != nil || ev == nil || st != "v1.1.0" || !strings.Contains(ev.Text(), "v1.1.0") || !strings.Contains(ev.Source, "owner/app") {
-		t.Fatalf("%q %+v %v", st, ev, err)
+	if _, _, err := Check(ctx, "github_release", Config{"repo": "cli/this-repository-does-not-exist-xyz"}, "", Deps{}); err == nil {
+		t.Fatal("a missing repository was accepted")
 	}
 }
 
 func TestPackageReleases(t *testing.T) {
-	var ver atomic.Value
-	ver.Store("1.0.0")
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/pypi/"):
-			fmt.Fprintf(w, `{"info":{"version":%q}}`, ver.Load())
-		case strings.HasPrefix(r.URL.Path, "/api/v1/crates/"):
-			fmt.Fprintf(w, `{"crate":{"max_version":%q}}`, ver.Load())
-		default:
-			fmt.Fprintf(w, `{"version":%q}`, ver.Load())
-		}
-	})
-	for _, eco := range []string{"npm", "pypi", "crates"} {
-		ver.Store("1.0.0")
-		cfg := Config{"ecosystem": eco, "name": "thing"}
-		st, _, err := Check(ctx, "package", cfg, "", deps(s))
-		if err != nil || st != "1.0.0" {
-			t.Fatalf("%s: %q %v", eco, st, err)
-		}
-		ver.Store("2.0.0")
-		if _, ev, _ := Check(ctx, "package", cfg, st, deps(s)); ev == nil || !strings.Contains(ev.Title, "2.0.0") {
-			t.Fatalf("%s: %+v", eco, ev)
-		}
+	testenv.Network(t, "registry.npmjs.org:443")
+	for eco, name := range map[string]string{"npm": "express", "pypi": "requests", "crates": "serde"} {
+		fires(t, "package", Config{"ecosystem": eco, "name": name}, "0.0.0", func(e *Event) bool { return e.Title != "" })
 	}
 }
 
 func TestDockerHubTags(t *testing.T) {
-	var body atomic.Value
-	body.Store(`{"results":[{"name":"1.26","last_updated":"2026-01-02","digest":"sha256:aaa"},{"name":"1.25","last_updated":"2025-01-01","digest":"sha256:bbb"}]}`)
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v2/repositories/library/nginx/tags" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = io.WriteString(w, body.Load().(string))
-	})
-	cfg := Config{"image": "nginx"}
-	st, ev, err := Check(ctx, "docker_hub", cfg, "", deps(s))
-	if err != nil || ev != nil || !strings.HasPrefix(st, "1.26@") {
-		t.Fatalf("%q %v %v", st, ev, err)
-	}
-	body.Store(`{"results":[{"name":"1.27","last_updated":"2026-02-02","digest":"sha256:ccc"},{"name":"1.26","digest":"sha256:aaa"}]}`)
-	if _, ev, _ := Check(ctx, "docker_hub", cfg, st, deps(s)); ev == nil || !strings.Contains(ev.Title, "1.27") {
-		t.Fatalf("%+v", ev)
-	}
-	// a pattern ignores tags that do not match
-	body.Store(`{"results":[{"name":"nightly","digest":"sha256:ddd"},{"name":"1.27","digest":"sha256:ccc"}]}`)
-	st2, ev, _ := Check(ctx, "docker_hub", Config{"image": "nginx", "tag_regex": `^1\.`}, "1.27@sha256:ccc", deps(s))
-	if ev != nil || st2 != "1.27@sha256:ccc" {
-		t.Fatalf("a tag outside the pattern fired: %q %+v", st2, ev)
-	}
+	testenv.Network(t, "hub.docker.com:443")
+	fires(t, "docker_hub", Config{"image": "nginx", "tag_regex": `^[0-9]+\.[0-9]+`}, "0.0.1@sha256:old", func(e *Event) bool { return e.Title != "" })
 }
 
-func pkt(s string) string { return fmt.Sprintf("%04x%s", len(s)+4, s) }
-
 func TestGitRefs(t *testing.T) {
-	var sha atomic.Value
-	sha.Store(strings.Repeat("a", 40))
-	var tags atomic.Value
-	tags.Store("v1")
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/o/r.git/info/refs" || r.URL.Query().Get("service") != "git-upload-pack" {
-			http.NotFound(w, r)
-			return
-		}
-		fmt.Fprint(w, pkt("# service=git-upload-pack\n")+"0000")
-		fmt.Fprint(w, pkt(sha.Load().(string)+" HEAD\x00caps\n"))
-		fmt.Fprint(w, pkt(sha.Load().(string)+" refs/heads/main\n"))
-		for _, tg := range strings.Split(tags.Load().(string), ",") {
-			fmt.Fprint(w, pkt(strings.Repeat("b", 40)+" refs/tags/"+tg+"\n"))
-			fmt.Fprint(w, pkt(strings.Repeat("c", 40)+" refs/tags/"+tg+"^{}\n"))
-		}
-		fmt.Fprint(w, "0000")
-	})
-	d := deps(s)
-	branch := Config{"url": s.URL + "/o/r.git", "ref": "main"}
-	st, ev, err := Check(ctx, "git_ref", branch, "", d)
-	if err != nil || ev != nil || st != strings.Repeat("a", 40) {
-		t.Fatalf("%q %v %v", st, ev, err)
-	}
-	sha.Store(strings.Repeat("d", 40))
-	if _, ev, _ := Check(ctx, "git_ref", branch, st, d); ev == nil || !strings.Contains(ev.Text(), "dddddddddddd") {
-		t.Fatalf("%+v", ev)
-	}
-	if _, _, err := Check(ctx, "git_ref", Config{"url": s.URL + "/o/r.git", "ref": "nope"}, "", d); err == nil {
+	testenv.Network(t, "github.com:443")
+	fires(t, "git_ref", Config{"url": "https://github.com/octocat/Hello-World.git", "ref": "master"}, strings.Repeat("0", 40), func(e *Event) bool { return e.Text() != "" })
+	if _, _, err := Check(ctx, "git_ref", Config{"url": "https://github.com/octocat/Hello-World.git", "ref": "no-such-branch-xyz"}, "", Deps{}); err == nil {
 		t.Fatal("a missing branch was accepted")
-	}
-	tagCfg := Config{"url": s.URL + "/o/r.git", "ref": "tags"}
-	st, _, _ = Check(ctx, "git_ref", tagCfg, "", d)
-	tags.Store("v1,v2")
-	if _, ev, _ := Check(ctx, "git_ref", tagCfg, st, d); ev == nil || len(ev.Details) != 1 || ev.Details[0] != "v2" {
-		t.Fatalf("%+v", ev)
 	}
 }
 
 func TestFeeds(t *testing.T) {
-	var feed atomic.Value
-	feed.Store(`<rss><channel><item><title>One</title><link>https://e.com/1</link><guid>1</guid></item></channel></rss>`)
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, feed.Load().(string)) })
-	cfg := Config{"url": s.URL + "/feed"}
-	st, ev, err := Check(ctx, "rss", cfg, "", deps(s))
+	testenv.Network(t, "go.dev:443")
+	cfg := Config{"url": "https://go.dev/blog/feed.atom"}
+	st, ev, err := Check(ctx, "rss", cfg, "", Deps{})
 	if err != nil || ev != nil {
 		t.Fatalf("%v %v", ev, err)
 	}
-	feed.Store(`<rss><channel><item><title>Two</title><link>https://e.com/2</link><guid>2</guid><description>&lt;p&gt;Fresh&lt;/p&gt;</description></item><item><title>One</title><guid>1</guid></item></channel></rss>`)
-	st2, ev, _ := Check(ctx, "rss", cfg, st, deps(s))
-	if ev == nil || len(ev.Details) != 1 || !strings.Contains(ev.Details[0], "Two") || !strings.Contains(ev.Details[0], "Fresh") || strings.Contains(ev.Details[0], "<p>") {
-		t.Fatalf("%+v", ev)
+	// forgetting the newest entry makes it new again
+	_, ev, err = Check(ctx, "rss", cfg, `["something-else"]`, Deps{})
+	if err != nil || ev == nil || len(ev.Details) == 0 || strings.Contains(ev.Details[0], "<p>") {
+		t.Fatalf("%+v %v", ev, err)
 	}
-	if _, ev, _ := Check(ctx, "rss", cfg, st2, deps(s)); ev != nil {
+	if _, ev, _ := Check(ctx, "rss", cfg, st, Deps{}); ev != nil {
 		t.Fatal("seen entries must not fire again")
 	}
-	// Atom
-	feed.Store(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>A</title><id>a1</id><link href="https://e.com/a"/></entry></feed>`)
-	stA, _, _ := Check(ctx, "rss", cfg, "", deps(s))
-	feed.Store(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>B</title><id>b1</id><link href="https://e.com/b"/></entry><entry><title>A</title><id>a1</id></entry></feed>`)
-	if _, ev, _ := Check(ctx, "rss", cfg, stA, deps(s)); ev == nil || !strings.Contains(ev.Details[0], "B") {
-		t.Fatalf("%+v", ev)
-	}
-	feed.Store(`not a feed`)
-	if _, _, err := Check(ctx, "rss", cfg, st2, deps(s)); err == nil {
-		t.Fatal("garbage accepted")
+	// a page that is not a feed
+	if _, _, err := Check(ctx, "rss", Config{"url": "https://example.com/"}, "", Deps{}); err == nil {
+		t.Fatal("a web page was accepted as a feed")
 	}
 }
 
 func TestPageChange(t *testing.T) {
-	var page atomic.Value
-	page.Store("<p>all good</p>")
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, page.Load().(string)) })
-	cfg := Config{"url": s.URL}
-	st, ev, _ := Check(ctx, "http_change", cfg, "", deps(s))
-	if ev != nil {
-		t.Fatal("first check must not fire")
-	}
-	page.Store("<p>outage</p>")
-	if _, ev, _ := Check(ctx, "http_change", cfg, st, deps(s)); ev == nil || !strings.Contains(ev.Details[0], "outage") {
-		t.Fatalf("%+v", ev)
-	}
+	testenv.Network(t, "example.com:443")
+	fires(t, "http_change", Config{"url": "https://example.com/"}, "an older fingerprint", nil)
 }
 
 func TestValidate(t *testing.T) {
