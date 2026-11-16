@@ -26,20 +26,20 @@ func integrationManager(t *testing.T) (*Manager, *Docker) {
 	t.Helper()
 	d, err := NewDocker("")
 	if err != nil {
-		t.Skip("no docker client: " + err.Error())
+		t.Skip("NOT TESTED: no docker client: " + err.Error())
 	}
 	t.Cleanup(func() { _ = d.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := d.Ping(ctx); err != nil {
-		t.Skip("docker not reachable: " + err.Error())
+		t.Skip("NOT TESTED: docker not reachable: " + err.Error())
 	}
 	if ok, _ := d.HasRuntime(ctx, "runsc"); !ok {
-		t.Skip("runsc (gVisor) is not registered with Docker")
+		t.Skip("NOT TESTED: runsc (gVisor) is not registered with Docker")
 	}
 	cfg := DefaultConfig()
 	if ok, _ := d.ImagePresent(ctx, cfg.Image); !ok {
-		t.Skip("sandbox image " + cfg.Image + " not built (docker build -t syntaxis-sandbox:latest images/sandbox)")
+		t.Skip("NOT TESTED: sandbox image " + cfg.Image + " not built (docker build -t syntaxis-sandbox:latest images/sandbox)")
 	}
 	return NewManager(d, cfg, nil), d
 }
@@ -347,5 +347,70 @@ func TestIntegrationMonitorPausesWhenDailyAllowanceIsUsedUp(t *testing.T) {
 	}
 	if ci, err := d.Inspect(ctx, id); err != nil || !ci.Paused {
 		t.Fatalf("a user over their compute allowance kept running: %+v %v", ci, err)
+	}
+}
+
+func TestIntegrationMonitorRestoresTheCapWhenLoadStops(t *testing.T) {
+	m, d, id, mon := monitorFixture(t, "it-restore", 910014)
+	ctx := context.Background()
+	throttled := int64(DefaultLimits().CPUs * 0.5 * 1e9)
+	deadline := time.Now().Add(40 * time.Second)
+	for nanoCPUs(t, id) != throttled && time.Now().Before(deadline) {
+		mon.Tick(ctx, time.Now())
+		time.Sleep(time.Second)
+	}
+	if nanoCPUs(t, id) != throttled {
+		t.Fatal("never throttled")
+	}
+	if ci, _ := d.Inspect(ctx, id); ci.Paused {
+		t.Skip("the load was paused before it could be stopped; the machine is too slow for this timing")
+	}
+	// stop the busy loops (the pattern cannot match this command's own text)
+	if r, err := m.Exec(ctx, "it-restore", id, ExecSpec{Cmd: []string{"sh", "-c", "pkill -f 'whi[l]e :'; echo done"}, Timeout: 10 * time.Second}); err != nil {
+		t.Fatalf("%v %+v", err, r)
+	}
+	deadline = time.Now().Add(60 * time.Second)
+	for nanoCPUs(t, id) == throttled && time.Now().Before(deadline) {
+		mon.Tick(ctx, time.Now())
+		time.Sleep(time.Second)
+	}
+	if got := nanoCPUs(t, id); got != int64(DefaultLimits().CPUs*1e9) {
+		t.Fatalf("the cap was not restored after the load stopped: %d", got)
+	}
+}
+
+func TestIntegrationMonitorWarnsWhenTheWorkspaceIsOverItsLimitAndKeepsRunning(t *testing.T) {
+	m, d := integrationManager(t)
+	ctx := context.Background()
+	const uid, session = 910016, "it-disk"
+	id, err := m.Create(ctx, uid, session, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, session, id); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid)) })
+	if r, err := m.Exec(ctx, session, id, ExecSpec{Cmd: []string{"sh", "-c", "dd if=/dev/zero of=/workspace/big bs=1M count=6 2>/dev/null"}, Timeout: 20 * time.Second}); err != nil || r.ExitCode != 0 {
+		t.Fatalf("%v %+v", err, r)
+	}
+	cfg := DefaultWatchdogConfig()
+	cfg.DiskBytesLimit = 5 << 20 // 6 MiB is 120%: over the limit, under the 125% that stops a runaway fill
+	mon := NewMonitor(d, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
+	mon.Interval, mon.Window = time.Second, 4
+	mon.DiskBytes = func(ctx context.Context, cid string) (int64, error) { return WorkspaceBytes(ctx, d, cid) }
+	mon.DiskEvery = time.Second
+	var warned bool
+	mon.OnEvent = func(_ string, e Event) {
+		if e.Action == ActionWarn && strings.Contains(e.Reason, "size limit") {
+			warned = true
+		}
+	}
+	for i := 0; i < 4 && !warned; i++ {
+		mon.Tick(ctx, time.Now())
+		time.Sleep(time.Second)
+	}
+	if !warned {
+		t.Fatal("an over-limit workspace was not reported")
+	}
+	if ci, err := d.Inspect(ctx, id); err != nil || !ci.Running {
+		t.Fatalf("an over-limit workspace must keep running: %+v %v", ci, err)
 	}
 }
