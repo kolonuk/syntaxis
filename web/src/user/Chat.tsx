@@ -22,6 +22,7 @@ import {
 } from "../ui/ui";
 import { copyText } from "../lib/fences";
 import { commentsMessage, parseDiff } from "../lib/diff";
+import { ShareDialog } from "./Shared";
 
 interface Msg {
   id: number;
@@ -137,6 +138,7 @@ export function Chat({
   const [phase, setPhase] = useState<Phase | null>(null);
   const [planDraft, setPlanDraft] = useState(session.plan_text ?? "");
   const [planFeedback, setPlanFeedback] = useState("");
+  const [sharing, setSharing] = useState(false);
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [panel, setPanel] = useState("output");
@@ -389,6 +391,9 @@ export function Chat({
             <a className="btn btn-ghost" href={`/api/sessions/${session.id}/export`}>
               Export
             </a>
+            <Button variant="ghost" onClick={() => setSharing(true)}>
+              Share
+            </Button>
             <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
               Delete
             </Button>
@@ -664,6 +669,13 @@ export function Chat({
         >
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Modal>
+      )}
+      {sharing && (
+        <ShareDialog
+          sessionId={session.id}
+          title={session.title}
+          onClose={() => setSharing(false)}
+        />
       )}
       {confirmDelete && (
         <Modal

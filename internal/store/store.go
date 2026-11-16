@@ -120,6 +120,22 @@ type AutomationRun struct {
 	Detail       string
 }
 
+// Share is a disposable read-only link to a session.
+type Share struct {
+	ID           string
+	SessionID    string
+	UserID       int64
+	Name         string
+	TokenHash    string
+	TokenEnc     []byte
+	IncludeTools bool
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	Revoked      bool
+	Views        int
+	LastViewAt   time.Time
+}
+
 // Policy is a named PolicyData: a user level ("level") or a user group ("group").
 type Policy struct {
 	ID   int64
@@ -293,6 +309,15 @@ type Store interface {
 	AddAutomationRun(ctx context.Context, r AutomationRun) error
 	ListAutomationRuns(ctx context.Context, automationID string, limit int) ([]AutomationRun, error)
 	CountAutomationRunsSince(ctx context.Context, automationID string, since time.Time) (int, error)
+
+	// shared session links
+	CreateShare(ctx context.Context, s Share) error
+	GetShareByHash(ctx context.Context, hash string) (*Share, error)
+	GetShare(ctx context.Context, id string) (*Share, error)
+	ListShares(ctx context.Context, userID int64) ([]Share, error)
+	RevokeShare(ctx context.Context, id string) error
+	RecordShareView(ctx context.Context, id string, at time.Time) error
+	CountActiveShares(ctx context.Context, userID int64, now time.Time) (int, error)
 
 	// connections to external services (per user)
 	ListConnections(ctx context.Context, userID int64) ([]Connection, error)

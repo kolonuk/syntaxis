@@ -24,6 +24,10 @@ The agent budgets against the model's **real** context window rather than the ad
 
 A `syntaxis.md` in the repository is treated as the project's rules. Other agents' files (`AGENTS.md`, `CLAUDE.md` and similar) are shown as advice only and can never override approvals, limits or secrets. A skill is a folder with a `SKILL.md` under `.syntaxis/skills/` (or `.claude/skills/`, `.agents/skills/`); only its name and description are in context until the agent loads it.
 
+## Sharing a session
+
+**Share** makes a disposable, read-only link to a session for a number of hours you choose (up to 30 days), with a name so you can tell links apart. Anyone with the link can read the conversation, and the command output if you allow it, but cannot change anything; your stored secrets are removed from what they see, and the view does not say who you are. **Settings → Shared links** lists your links with their expiry and number of views, lets you copy a link again, and revokes any of them at once. An unknown, expired or revoked link looks the same to a visitor.
+
 ## Secrets in commits
 
 Commits and pushes are scanned for secrets (`off`, `warn` or `block`; in `block` mode a user can confirm an override unless the admin forbids it). Commit signing with a server-held SSH key is optional; the key never enters the sandbox.

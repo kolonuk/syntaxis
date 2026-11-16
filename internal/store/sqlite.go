@@ -1166,3 +1166,73 @@ func (s *SQLite) CountAutomationRunsSince(ctx context.Context, automationID stri
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE automation_id=? AND started_at>=?`, automationID, ts(since)).Scan(&n)
 	return n, err
 }
+
+// ---- shared session links ----
+
+const shareCols = `id,session_id,user_id,name,token_hash,token_enc,include_tools,created_at,expires_at,revoked,views,last_view_at`
+
+func scanShare(row interface{ Scan(...any) error }) (*Share, error) {
+	var s Share
+	var inc, rev int
+	var cr, ex, lv int64
+	if err := row.Scan(&s.ID, &s.SessionID, &s.UserID, &s.Name, &s.TokenHash, &s.TokenEnc, &inc, &cr, &ex, &rev, &s.Views, &lv); err != nil {
+		return nil, mapErr(err)
+	}
+	s.IncludeTools, s.Revoked = inc == 1, rev == 1
+	s.CreatedAt, s.ExpiresAt, s.LastViewAt = fromTS(cr), fromTS(ex), fromTS(lv)
+	return &s, nil
+}
+
+// CreateShare stores a share.
+func (s *SQLite) CreateShare(ctx context.Context, sh Share) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO shares (`+shareCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		sh.ID, sh.SessionID, sh.UserID, sh.Name, sh.TokenHash, sh.TokenEnc, b2i(sh.IncludeTools), ts(sh.CreatedAt), ts(sh.ExpiresAt), b2i(sh.Revoked), sh.Views, ts(sh.LastViewAt))
+	return mapErr(err)
+}
+
+// GetShareByHash looks a share up by the hash of the secret in its link.
+func (s *SQLite) GetShareByHash(ctx context.Context, hash string) (*Share, error) {
+	return scanShare(s.db.QueryRowContext(ctx, `SELECT `+shareCols+` FROM shares WHERE token_hash=?`, hash))
+}
+
+// GetShare fetches one share by id.
+func (s *SQLite) GetShare(ctx context.Context, id string) (*Share, error) {
+	return scanShare(s.db.QueryRowContext(ctx, `SELECT `+shareCols+` FROM shares WHERE id=?`, id))
+}
+
+// ListShares returns a user's shares, newest first.
+func (s *SQLite) ListShares(ctx context.Context, userID int64) ([]Share, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+shareCols+` FROM shares WHERE user_id=? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Share
+	for rows.Next() {
+		sh, err := scanShare(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *sh)
+	}
+	return out, rows.Err()
+}
+
+// RevokeShare switches a link off.
+func (s *SQLite) RevokeShare(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE shares SET revoked=1 WHERE id=?`, id)
+	return affected(res, err)
+}
+
+// RecordShareView counts a view.
+func (s *SQLite) RecordShareView(ctx context.Context, id string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE shares SET views=views+1,last_view_at=? WHERE id=?`, ts(at), id)
+	return err
+}
+
+// CountActiveShares counts a user's links that are neither revoked nor expired.
+func (s *SQLite) CountActiveShares(ctx context.Context, userID int64, now time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM shares WHERE user_id=? AND revoked=0 AND expires_at>?`, userID, ts(now)).Scan(&n)
+	return n, err
+}

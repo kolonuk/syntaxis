@@ -34,7 +34,8 @@ func (a *App) UserHandler() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": buildinfo.Get()})
 	})
-	r.Post("/hooks/{id}/{token}", a.handleHook) // called by outside services; the secret is in the address
+	r.Post("/hooks/{id}/{token}", a.handleHook)  // called by outside services; the secret is in the address
+	r.Get("/api/shared/{token}", a.handleShared) // public, read-only; the secret is in the address
 	r.Get("/api/version", handleVersion)
 
 	r.Route("/api", func(r chi.Router) {
@@ -68,6 +69,8 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/automations/{id}/run", a.handleAutomationRunNow)
 			r.Post("/automations/{id}/token", a.handleAutomationToken)
 			r.Get("/automations/{id}/runs", a.handleAutomationRuns)
+			r.Get("/shares", a.handleShares)
+			r.Delete("/shares/{id}", a.handleShareRevoke)
 			r.Get("/mcp", a.handleMyMCP)
 			r.Put("/mcp", a.handleMyMCPSet)
 			r.Get("/connections", a.handleConnections)
@@ -89,6 +92,7 @@ func (a *App) UserHandler() http.Handler {
 				r.Post("/approvals/{call}", a.handleApproval)
 				r.Post("/answer", a.handleAnswer)
 				r.Post("/plan", a.handlePlan)
+				r.Post("/shares", a.handleShareCreate)
 				r.Get("/diff", a.handleDiff)
 				r.Get("/export", a.handleExport)
 				r.Get("/resources", a.handleResources)

@@ -4,6 +4,7 @@ import { del, get, post, put, errText } from "../lib/api";
 import { compact } from "../lib/format";
 import { Connections } from "./Connections";
 import { McpTools } from "./McpTools";
+import { SharedLinks } from "./Shared";
 import {
   Badge,
   Banner,
@@ -152,6 +153,7 @@ export function Settings({
           { id: "2fa", label: "Two-factor" },
           { id: "connections", label: "Connections" },
           { id: "tools", label: "Tools" },
+          { id: "shared", label: "Shared links" },
           { id: "secrets", label: "Secrets" },
           { id: "usage", label: "Usage" },
         ]}
@@ -202,6 +204,7 @@ export function Settings({
       )}
       {tab === "connections" && <Connections />}
       {tab === "tools" && <McpTools />}
+      {tab === "shared" && <SharedLinks />}
       {tab === "secrets" && <Secrets />}
       {tab === "usage" && <UsagePanel />}
     </div>

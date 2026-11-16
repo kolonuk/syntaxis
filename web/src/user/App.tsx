@@ -21,6 +21,7 @@ import {
 } from "../ui/ui";
 import { ChangePassword, Forgot, Login, SetPassword, TwoFactorSetup, AuthFrame } from "./Auth";
 import { Automations } from "./Automations";
+import { SharedPage } from "./Shared";
 import { Chat } from "./Chat";
 import { RepoPicker, type RepoChoice } from "./RepoPicker";
 import { Settings, UsagePanel } from "./Settings";
@@ -423,6 +424,7 @@ export function UserApp() {
   const { me, reload, clear } = useMe();
   const [path, go] = useRoute();
   const url = new URL(path, window.location.origin);
+  if (url.pathname.startsWith("/s/")) return <SharedPage token={url.pathname.slice(3)} />;
   const token = url.searchParams.get("token") ?? "";
 
   if (url.pathname === "/set-password") return <SetPassword kind="invite" token={token} go={go} />;
