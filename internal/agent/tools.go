@@ -41,6 +41,22 @@ func schema(props string, required ...string) json.RawMessage {
 	return json.RawMessage(fmt.Sprintf(`{"type":"object","properties":%s,"required":%s}`, props, req))
 }
 
+// ToolPlan hands the user a plan to approve before anything is changed.
+const ToolPlan = "propose_plan"
+
+// PlanToolDefs are the tools offered while planning: read-only exploration and propose_plan.
+func PlanToolDefs(withSkills bool) []provider.ToolDef {
+	keep := map[string]bool{ToolRead: true, ToolList: true, ToolSearch: true, ToolGit: true, ToolFetch: true, ToolAsk: true, ToolLoadSkill: true}
+	var out []provider.ToolDef
+	for _, d := range ToolDefs(withSkills) {
+		if keep[d.Name] {
+			out = append(out, d)
+		}
+	}
+	return append(out, provider.ToolDef{Name: ToolPlan, Description: "Give the user your plan to approve. Use it once you understand the task: a short numbered list of what you will change, in which files, and how you will check it works. Nothing is changed until they approve.",
+		Parameters: schema(`{"plan":{"type":"string","description":"the plan, as short markdown"}}`, "plan")})
+}
+
 // ToolDefs returns the tool definitions offered to the model.
 func ToolDefs(withSkills bool) []provider.ToolDef {
 	defs := []provider.ToolDef{
@@ -101,6 +117,7 @@ type Output struct {
 	Untrusted bool   // content from outside (web/skills/repo); wrap before showing the model
 	Blocked   bool   // scanner blocked a push/commit
 	Question  string // set for ask_user: the loop waits for the user
+	Plan      string // set for propose_plan: the run ends and the user decides
 }
 
 // MCPBridge exposes tools of approved MCP servers (each in its own sandbox).
@@ -126,6 +143,8 @@ type Executor struct {
 	SigningMode string // off | optional | required
 	Signer      func(ctx context.Context, payload string) (armored string, err error)
 	MaxOutput   int
+	// PlanOnly is planning mode: nothing may be changed, only read.
+	PlanOnly bool
 	// OpenPR opens a pull request for the session's branch with the user's own connection and
 	// returns its address. When set, the git tool's pr action uses it instead of the gh CLI.
 	OpenPR func(ctx context.Context, title, body string) (string, error)
@@ -198,6 +217,25 @@ func Describe(name string, args json.RawMessage) (command, summary string) {
 
 // Run executes one tool call.
 func (x *Executor) Run(ctx context.Context, name string, raw json.RawMessage) Output {
+	if x.PlanOnly {
+		switch {
+		case name == ToolShell || name == ToolWrite || name == ToolPatch || strings.HasPrefix(name, "mcp__"):
+			return errOut("this is the planning step: nothing can be changed yet. Explore with the read-only tools (read_file, list_files, search_files, git status/diff/log), then call propose_plan.")
+		case name == ToolGit:
+			var a struct{ Action string }
+			_ = json.Unmarshal(raw, &a)
+			if a.Action != "status" && a.Action != "diff" && a.Action != "log" {
+				return errOut("this is the planning step: only git status, diff and log are available")
+			}
+		}
+	}
+	if name == ToolPlan {
+		var a struct{ Plan string }
+		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Plan) == "" {
+			return errOut("propose_plan needs the plan as text")
+		}
+		return Output{Plan: strings.TrimSpace(a.Plan)}
+	}
 	if x.MCP != nil && strings.HasPrefix(name, "mcp__") && x.MCP.Has(name) {
 		text, isErr, err := x.MCP.Call(ctx, name, raw)
 		if err != nil {

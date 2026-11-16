@@ -7,6 +7,7 @@ import {
   Badge,
   Banner,
   Button,
+  Card,
   CodeBlock,
   Icon,
   Meter,
@@ -20,6 +21,7 @@ import {
   Input,
 } from "../ui/ui";
 import { copyText, splitFences } from "../lib/fences";
+import { commentsMessage, parseDiff } from "../lib/diff";
 
 interface Msg {
   id: number;
@@ -29,6 +31,9 @@ interface Msg {
   tool_call_id?: string;
 }
 export interface Session {
+  plan_mode?: boolean;
+  plan_state?: string;
+  plan_text?: string;
   repo?: string;
   repo_branch?: string;
   id: string;
@@ -130,6 +135,8 @@ export function Chat({
   const [approval, setApproval] = useState<Approval | null>(null);
   const [question, setQuestion] = useState("");
   const [phase, setPhase] = useState<Phase | null>(null);
+  const [planDraft, setPlanDraft] = useState(session.plan_text ?? "");
+  const [planFeedback, setPlanFeedback] = useState("");
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [panel, setPanel] = useState("output");
@@ -185,6 +192,9 @@ export function Chat({
           break;
         case "question":
           setQuestion(String(d.question ?? ""));
+          break;
+        case "plan":
+          setPlanDraft(String(d.plan ?? ""));
           break;
         case "context":
           setCtx({ used: Number(d.used), window: Number(d.window), percent: Number(d.percent) });
@@ -280,6 +290,24 @@ export function Chat({
       setPhase({ name: "preparing", detail: "", since: Date.now() });
       setLines([]);
       attach();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+
+  async function decidePlan(action: "approve" | "revise") {
+    try {
+      await post(`/sessions/${session.id}/plan`, {
+        action,
+        plan: planDraft,
+        feedback: planFeedback,
+      });
+      setPlanFeedback("");
+      setRunning(true);
+      setPhase({ name: "preparing", detail: "", since: Date.now() });
+      setLines([]);
+      attach();
+      onChanged();
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -439,6 +467,34 @@ export function Chat({
             )}
             {running && <Progress phase={phase} />}
           </div>
+          {session.plan_state === "proposed" && !running && (
+            <Card title="The agent's plan">
+              <p className="muted">
+                Nothing has been changed yet. Edit the plan if you like, then approve it, or ask for
+                changes.
+              </p>
+              <TextArea
+                label="Plan"
+                rows={8}
+                value={planDraft}
+                onChange={(e) => setPlanDraft(e.target.value)}
+              />
+              <div className="row">
+                <Button variant="primary" onClick={() => void decidePlan("approve")}>
+                  Approve and start
+                </Button>
+                <Input
+                  label="Or ask for changes"
+                  value={planFeedback}
+                  onChange={(e) => setPlanFeedback(e.target.value)}
+                  placeholder="What should change?"
+                />
+                <Button onClick={() => void decidePlan("revise")} disabled={!planFeedback.trim()}>
+                  Revise
+                </Button>
+              </div>
+            </Card>
+          )}
           <form
             className="composer"
             onSubmit={(e) => {
@@ -475,6 +531,7 @@ export function Chat({
               tabs={[
                 { id: "output", label: "Output" },
                 { id: "context", label: "Context" },
+                { id: "changes", label: "Changes" },
                 { id: "resources", label: "Resources" },
                 { id: "tools", label: "Tools" },
               ]}
@@ -508,6 +565,17 @@ export function Chat({
               <p className="muted">The context meter appears once the agent starts working.</p>
             )}
           </div>
+        )}
+        {panel === "changes" && (
+          <Changes
+            sessionId={session.id}
+            disabled={running}
+            onSend={(text) => {
+              setDraft(text);
+              setPanelOpen(false);
+              toast("The comments are in the message box. Press Send when you are ready.");
+            }}
+          />
         )}
         {panel === "resources" && <Resources sessionId={session.id} />}
         {panel === "tools" && (
@@ -688,6 +756,104 @@ interface Res {
 
 const pct = (n: number | undefined, cores: number) =>
   Math.min(100, Math.round(((n ?? 0) / (cores * 100)) * 100));
+
+interface DiffResp {
+  available: boolean;
+  reason?: string;
+  text?: string;
+  base?: string;
+}
+
+/** What the agent has changed, file by file, with comments that go back to the agent. */
+function Changes({
+  sessionId,
+  disabled,
+  onSend,
+}: {
+  sessionId: string;
+  disabled: boolean;
+  onSend: (text: string) => void;
+}) {
+  const [d, setD] = useState<DiffResp | null>(null);
+  const [err, setErr] = useState("");
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const load = useCallback(() => {
+    setErr("");
+    get<DiffResp>(`/sessions/${sessionId}/diff`)
+      .then(setD)
+      .catch((e) => setErr(e instanceof Error ? e.message : "Could not load the changes"));
+  }, [sessionId]);
+  useEffect(load, [load]);
+  if (err) return <Banner tone="warn">{err}</Banner>;
+  if (!d) return <Skeleton lines={3} />;
+  if (!d.available) return <p className="muted">{d.reason}</p>;
+  const p = parseDiff(d.text ?? "");
+  const msg = commentsMessage(comments);
+  return (
+    <div className="stack">
+      <div className="row">
+        <span className="grow muted">
+          {p.files.length} file(s) changed{d.base ? ` compared with ${d.base}` : ""}
+          {p.branch ? ` on ${p.branch}` : ""}
+        </span>
+        <Button onClick={load}>Refresh</Button>
+      </div>
+      {p.files.length === 0 && <p className="muted">No changes yet.</p>}
+      {p.files.map((f) => (
+        <details key={f.name} className="diff-file">
+          <summary>
+            <code>{f.name}</code> <span className="diff-add">+{f.added}</span>{" "}
+            <span className="diff-del">-{f.removed}</span>
+            {comments[f.name]?.trim() ? " · commented" : ""}
+          </summary>
+          <pre tabIndex={0} className="diff">
+            {f.lines.map((l, i) => (
+              <span
+                key={i}
+                className={
+                  l.startsWith("+")
+                    ? "diff-add"
+                    : l.startsWith("-")
+                      ? "diff-del"
+                      : l.startsWith("@@")
+                        ? "diff-hunk"
+                        : ""
+                }
+              >
+                {l + "\n"}
+              </span>
+            ))}
+          </pre>
+          <Input
+            label={`Comment on ${f.name}`}
+            value={comments[f.name] ?? ""}
+            onChange={(e) => setComments({ ...comments, [f.name]: e.target.value })}
+            placeholder="What should change?"
+          />
+        </details>
+      ))}
+      {p.status.some((s) => s.startsWith("??")) && (
+        <p className="muted">
+          New files (not in the diff above):{" "}
+          {p.status
+            .filter((s) => s.startsWith("??"))
+            .map((s) => s.slice(3))
+            .join(", ")}
+        </p>
+      )}
+      <Button
+        variant="primary"
+        disabled={!msg || disabled}
+        onClick={() => {
+          onSend(msg);
+          setComments({});
+        }}
+      >
+        Send comments to the agent
+      </Button>
+    </div>
+  );
+}
 
 /** Live CPU and memory use of this session's sandbox. */
 function Resources({ sessionId }: { sessionId: string }) {

@@ -34,6 +34,7 @@ const (
 	EvCompaction      = "compaction"
 	EvCheckpoint      = "checkpoint"
 	EvStatus          = "status"
+	EvPlan            = "plan"
 	EvPhase           = "phase" // what the run is doing right now, for the progress line in the UI
 	EvNotice          = "notice"
 )
@@ -46,6 +47,7 @@ const (
 	StatusCapTokens  = "cap_tokens"
 	StatusCapTime    = "cap_time"
 	StatusNeedsInput = "needs_input"
+	StatusPlan       = "plan_proposed"
 	StatusStuck      = "stuck"
 	StatusError      = "error"
 )
@@ -99,6 +101,7 @@ type Config struct {
 	System         string // full system prompt
 	ToolOutputMax  int    // bytes of tool output shown to the model (default 12 KiB)
 	ToolsEnabled   bool
+	PlanPhase      bool // planning: read-only tools and propose_plan only
 	SkillsEnabled  bool
 	KeepLast       int // message groups kept verbatim on compaction (default 6)
 	Temperature    *float64
@@ -211,6 +214,9 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 	var lastSig, lastOut string
 	repeat, consecFail := 0, 0
 	known := ToolNameSet(cfg.SkillsEnabled)
+	if cfg.PlanPhase {
+		known[ToolPlan] = true
+	}
 	var extraTools []provider.ToolDef
 	if a.Deps.Tools != nil && a.Deps.Tools.MCP != nil {
 		extraTools = a.Deps.Tools.MCP.Defs()
@@ -259,7 +265,11 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 		// ---- model call ----
 		req := provider.ChatRequest{Model: cfg.Model, Messages: prompt, NumCtx: cfg.Window, Temperature: cfg.Temperature, MaxTokens: cfg.ReserveTokens}
 		if cfg.ToolsEnabled {
-			req.Tools = append(ToolDefs(cfg.SkillsEnabled), extraTools...)
+			if cfg.PlanPhase {
+				req.Tools = PlanToolDefs(cfg.SkillsEnabled)
+			} else {
+				req.Tools = append(ToolDefs(cfg.SkillsEnabled), extraTools...)
+			}
 		}
 		chat, err := a.Deps.Chat(ctx, req, func(d string) { a.emit(EvDelta, "text", a.redact(d)) })
 		// Some servers fail the whole request when the model emits a malformed
@@ -433,6 +443,11 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 
 	a.emit(EvPhase, "phase", "tool", "detail", firstLine(a.redact(describeForPhase(call)), 80))
 	o := a.Deps.Tools.Run(ctx, call.Name, call.Arguments)
+	if o.Plan != "" {
+		a.emit(EvPlan, "plan", a.redact(o.Plan))
+		a.addToolResult(call, "the plan was shown to the user, who will approve it or ask for changes", 0)
+		return a.redact(o.Plan), StatusPlan
+	}
 	if o.Question != "" {
 		if a.Deps.Answer == nil {
 			a.addToolResult(call, "waiting for the user's answer", 0)

@@ -958,3 +958,24 @@ a.btn {
   max-height: 220px;
   overflow-y: auto;
 }
+
+.diff-file {
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: var(--s1) var(--s2);
+}
+.diff {
+  font-size: 0.8em;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 360px;
+}
+.diff-add {
+  color: var(--success);
+}
+.diff-del {
+  color: var(--danger);
+}
+.diff-hunk {
+  color: var(--text-muted);
+}

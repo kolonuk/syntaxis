@@ -18,6 +18,12 @@ It runs as a background job: closing the browser does not stop it, and the user 
 
 If a model writes tool calls as text instead of using the structured API, a tolerant parser recovers them. Only known tool names are accepted. Models without tool support are offered chat-only mode. Repeated identical actions trigger a nudge and then a stop; repeated failures stop the run and hand back to the user.
 
+## Plan first, and reviewing changes
+
+When a session is started with **Plan first**, the agent works in two steps. In the planning step it can only look: it reads files, searches, and reads git status, diff and log, and it cannot change anything or run commands. When it understands the task it calls `propose_plan`, the run stops, and the plan is shown to the user, who can edit it and approve it, or ask for changes (the agent then revises the plan). Only after approval does the agent get its full tools, and the approved plan is part of its instructions. The planning rules are enforced by the server, not by the prompt.
+
+The **Changes** tab of a session shows what the agent has changed since the repository's base branch (commits and uncommitted work), file by file. A comment on a file can be sent back to the agent as a message. Nothing is pushed or opened as a pull request without the usual approval.
+
 ## Progress and the terminal
 
 While a run is active the chat shows what it is doing: waiting its turn, connecting, loading the model into memory, reading the conversation, thinking, replying, or running a command. See [security](security.md#the-terminal) for the interactive terminal.

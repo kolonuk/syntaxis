@@ -41,7 +41,7 @@ export function useConnections() {
 
 function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
   const toast = useToast();
-  const [open, setOpen] = useState(!c.connected);
+  const [open, setOpen] = useState(false);
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const k = c.kind;

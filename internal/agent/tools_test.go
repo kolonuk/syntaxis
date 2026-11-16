@@ -457,3 +457,35 @@ func TestSignedCommitRequiredFailureUndoesCommit(t *testing.T) {
 		t.Fatalf("%+v", o)
 	}
 }
+
+func TestPlanningStepOffersOnlyReadingAndTheProposal(t *testing.T) {
+	names := map[string]bool{}
+	for _, d := range PlanToolDefs(true) {
+		names[d.Name] = true
+	}
+	for _, bad := range []string{ToolShell, ToolWrite, ToolPatch} {
+		if names[bad] {
+			t.Errorf("%s offered while planning", bad)
+		}
+	}
+	for _, want := range []string{ToolRead, ToolList, ToolSearch, ToolPlan, ToolAsk} {
+		if !names[want] {
+			t.Errorf("%s missing while planning", want)
+		}
+	}
+	x := &Executor{PlanOnly: true, Exec: func(context.Context, sandbox.ExecSpec) (sandbox.ExecResult, error) {
+		t.Error("a command ran during planning")
+		return sandbox.ExecResult{}, nil
+	}}
+	for name, args := range map[string]string{ToolShell: `{"command":"rm -rf x"}`, ToolWrite: `{"path":"a","content":"b"}`, ToolPatch: `{"path":"a","old":"b","new":"c"}`, ToolGit: `{"action":"commit","message":"m"}`, "mcp__x__y": `{}`} {
+		if o := x.Run(context.Background(), name, json.RawMessage(args)); !o.IsError || !strings.Contains(o.Text, "planning step") {
+			t.Errorf("%s was not refused while planning: %+v", name, o)
+		}
+	}
+	if o := x.Run(context.Background(), ToolPlan, json.RawMessage(`{"plan":"1. do it"}`)); o.Plan != "1. do it" {
+		t.Errorf("%+v", o)
+	}
+	if o := x.Run(context.Background(), ToolPlan, json.RawMessage(`{"plan":"  "}`)); !o.IsError {
+		t.Error("an empty plan was accepted")
+	}
+}

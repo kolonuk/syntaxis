@@ -201,6 +201,10 @@ type ChatSession struct {
 	RepoURL    string // https clone address
 	RepoBranch string // the working branch the agent commits to
 	RepoBase   string // the branch to merge into
+	// PlanMode makes the agent propose a plan first; nothing is changed until the user approves it.
+	PlanMode  bool
+	PlanState string // "" | "proposed" | "approved"
+	PlanText  string
 }
 
 // Message is a stored conversation message.

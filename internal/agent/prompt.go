@@ -18,6 +18,9 @@ type PromptOptions struct {
 	CloudToolsOff  bool
 	// Repo is set when the session was started from a repository.
 	Repo, RepoDir, RepoBranch, RepoBase string
+	// PlanPhase: the agent may only look around and propose a plan. ApprovedPlan is the plan the user approved.
+	PlanPhase    bool
+	ApprovedPlan string
 }
 
 // BuildSystemPrompt assembles the system prompt. Rules text is appended in a
@@ -42,6 +45,11 @@ How to work:
 		b.WriteString("\nApproval: you are in fully autonomous mode within resource limits. Still be careful with anything destructive or costly.\n")
 	default:
 		b.WriteString("\nApproval: routine work inside the workspace runs automatically. Risky actions (destructive git, deleting outside the workspace, deploys, cloud changes, anything that costs money) pause for the user's approval. If the user denies an action, do not retry it; choose another approach.\n")
+	}
+	if o.PlanPhase {
+		b.WriteString("\nPlanning step: first understand the task by reading the project (read_file, list_files, search_files, git status, diff and log). You cannot change anything or run commands yet. When you understand it, call propose_plan with a short numbered plan: what you will change, in which files, and how you will check it works. The user will approve it or ask for changes; then you will be able to do the work. Ask with ask_user only if the task itself is unclear.\n")
+	} else if o.ApprovedPlan != "" {
+		b.WriteString("\nThe user approved this plan. Carry it out. If you find you must deviate from it, say so briefly and why.\n<approved_plan>\n" + o.ApprovedPlan + "\n</approved_plan>\n")
 	}
 	if o.Repo != "" {
 		fmt.Fprintf(&b, "\nRepository: this session is for %s, cloned at %s (shell commands start there). You are on the branch %s, created from %s: commit your work there, never directly to %s. When the work is done and committed, push the branch with the git tool and then open a pull request with the git tool's pr action. Do not run the gh or glab commands yourself to open pull requests.\n", o.Repo, o.RepoDir, o.RepoBranch, o.RepoBase, o.RepoBase)

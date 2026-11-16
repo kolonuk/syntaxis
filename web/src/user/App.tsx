@@ -14,6 +14,7 @@ import {
   Select,
   Skeleton,
   StatusPill,
+  Toggle,
   ToastProvider,
   useShortcuts,
   useToast,
@@ -26,6 +27,9 @@ import { Settings, UsagePanel } from "./Settings";
 import { useMe, useRoute } from "./hooks";
 
 interface Session {
+  plan_mode?: boolean;
+  plan_state?: string;
+  plan_text?: string;
   repo?: string;
   repo_branch?: string;
   id: string;
@@ -56,6 +60,7 @@ function NewSession({
   const [autonomy, setAutonomy] = useState("workspace");
   const [title, setTitle] = useState("");
   const [repo, setRepo] = useState<RepoChoice | null>(null);
+  const [plan, setPlan] = useState(false);
   useEffect(() => {
     void get<ModelOpt[]>("/models").then((m) => {
       const sorted = [...m].sort(
@@ -70,7 +75,7 @@ function NewSession({
   }, []);
   async function create() {
     try {
-      onCreated(await post<Session>("/sessions", { model, autonomy, title, repo }));
+      onCreated(await post<Session>("/sessions", { model, autonomy, title, repo, plan }));
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -130,6 +135,11 @@ function NewSession({
             }))}
           />
           <RepoPicker onChange={setRepo} />
+          <Toggle
+            label="Plan first: the agent proposes a plan and changes nothing until you approve it"
+            checked={plan}
+            onChange={setPlan}
+          />
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
             <legend style={{ fontWeight: 600, fontSize: "var(--fs-sm)", marginBottom: 8 }}>
               How much should it ask you?

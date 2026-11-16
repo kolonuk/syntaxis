@@ -233,7 +233,12 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			include[f.Path] = true // the UI lets users deselect; default include (advisory, wrapped)
 		}
 	}
-	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled, Repo: s.RepoName, RepoDir: repoDir, RepoBranch: s.RepoBranch, RepoBase: s.RepoBase})
+	planPhase := s.PlanMode && s.PlanState != "approved"
+	approvedPlan := ""
+	if s.PlanMode && s.PlanState == "approved" {
+		approvedPlan = s.PlanText
+	}
+	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled, PlanPhase: planPhase, ApprovedPlan: approvedPlan, Repo: s.RepoName, RepoDir: repoDir, RepoBranch: s.RepoBranch, RepoBase: s.RepoBase})
 
 	signMode := a.setting(bg, "signing_mode", a.Cfg.SigningMode)
 	var signer func(context.Context, string) (string, error)
@@ -251,7 +256,8 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		defer bridge.Stop(context.Background())
 	}
 	ex := &agent.Executor{
-		Exec: exec, Rules: loaded, Model: s.Model, SigningMode: signMode, Signer: signer,
+		PlanOnly: planPhase,
+		Exec:     exec, Rules: loaded, Model: s.Model, SigningMode: signMode, Signer: signer,
 		Scan: func(text string, force bool) scanner.Decision { return scanner.Evaluate(text, mode, override, force) },
 		ConfirmOverride: func(c context.Context, d scanner.Decision) (bool, error) {
 			run.Emit(agent.Event{Kind: agent.EvApprovalRequest, Data: map[string]any{"id": "scan-override", "tool": "git", "summary": "Push anyway despite possible secrets?", "reason": d.Message, "risky": true}})
@@ -357,7 +363,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	}
 
 	ag := &agent.Agent{
-		Cfg: agent.Config{Model: s.Model, Window: w.Window(model), Autonomy: autonomy, System: system, ToolsEnabled: toolsOn, SkillsEnabled: loaded != nil && len(loaded.Skills) > 0,
+		Cfg: agent.Config{Model: s.Model, Window: w.Window(model), Autonomy: autonomy, System: system, ToolsEnabled: toolsOn, PlanPhase: planPhase, SkillsEnabled: loaded != nil && len(loaded.Skills) > 0,
 			MaxTurns: w.MaxTurns, ToolOutputMax: w.ToolOutput, MaxDuration: 2 * time.Hour},
 		Deps: agent.Deps{
 			Chat: chat, Tools: ex, Policy: policy,
@@ -389,6 +395,12 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 
 	state := "idle"
 	switch res.Status {
+	case agent.StatusPlan:
+		state = "needs_input"
+		if cur, err := a.Store.GetChatSession(bg, s.ID); err == nil {
+			cur.PlanState, cur.PlanText = "proposed", res.Reason
+			_ = a.Store.UpdateChatSession(bg, *cur)
+		}
 	case agent.StatusNeedsInput:
 		state = "needs_input"
 	case agent.StatusError:
@@ -399,6 +411,9 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		title := "Your session finished"
 		if res.Status == agent.StatusNeedsInput {
 			title = "Your session needs input"
+		}
+		if res.Status == agent.StatusPlan {
+			title = "A plan is ready for you to review"
 		}
 		w.Notify(bg, u.ID, title, s.Title)
 	}

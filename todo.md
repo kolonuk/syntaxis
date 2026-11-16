@@ -15,16 +15,11 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 ## 5. Agent and workflow
 
-Compared with Jules and Claude Code, these are missing or weaker (background runs, approvals, project instructions, skills, MCP, checkpoints and usage visibility already exist):
-
-- [ ] Plan mode: the agent proposes a plan the user approves or edits before it changes files.
 - [ ] Parallel tasks: several runs of one task (or several tasks) at once, each in its own sandbox, with a side-by-side comparison.
-- [ ] Diff review in the UI before a push: per-file diff, comments that go back to the agent.
-
 - [ ] `devcontainer.json` support and per-project image templates.
 - [ ] Prompt presets.
 - [ ] Read-only session sharing.
-- [ ] Checkpoints: timeline and diff viewer in the UI, apply or discard hunks before a push, restore the conversation as well as the files (fork, with the abandoned branch kept), per-user disk budget.
+- [ ] Checkpoints: a timeline in the UI, apply or discard individual hunks, restore the conversation as well as the files (fork, with the abandoned branch kept), per-user disk budget.
 - [ ] Wire helper-model routing into the agent for titles, summaries and compaction (the decision logic exists; off by default; never load or swap a model mid-session).
 - [ ] An `AgentAdapter` interface with an experimental adapter that runs another agent inside the sandbox, reaching the model only through a Syntaxis-hosted endpoint with a per-session token.
 - [ ] Side panel tabs for files and a dev-server preview.
