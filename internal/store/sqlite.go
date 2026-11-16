@@ -1044,3 +1044,123 @@ func (s *SQLite) DeleteConnection(ctx context.Context, userID int64, kind string
 	_, err := s.db.ExecContext(ctx, `DELETE FROM connections WHERE user_id=? AND kind=?`, userID, kind)
 	return err
 }
+
+// ---- automations ----
+
+const autoCols = `id,user_id,name,enabled,trigger,config,prompt,model,autonomy,repo,notify,token_hash,state,next_run_at,last_run_at,last_status,last_error,fail_count,created_at`
+
+func scanAutomation(row interface{ Scan(...any) error }) (*Automation, error) {
+	var a Automation
+	var en int
+	var cfg, notify string
+	var next, last, created int64
+	if err := row.Scan(&a.ID, &a.UserID, &a.Name, &en, &a.Trigger, &cfg, &a.Prompt, &a.Model, &a.Autonomy, &a.Repo, &notify, &a.TokenHash, &a.State, &next, &last, &a.LastStatus, &a.LastError, &a.FailCount, &created); err != nil {
+		return nil, mapErr(err)
+	}
+	a.Enabled = en == 1
+	_ = json.Unmarshal([]byte(cfg), &a.Config)
+	_ = json.Unmarshal([]byte(notify), &a.Notify)
+	a.NextRunAt, a.LastRunAt, a.CreatedAt = fromTS(next), fromTS(last), fromTS(created)
+	return &a, nil
+}
+
+func mapJSON(m map[string]string) string {
+	if m == nil {
+		return "{}"
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+// CreateAutomation inserts an automation.
+func (s *SQLite) CreateAutomation(ctx context.Context, a Automation) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO automations (`+autoCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.UserID, a.Name, b2i(a.Enabled), a.Trigger, mapJSON(a.Config), a.Prompt, a.Model, a.Autonomy, a.Repo, mapJSON(a.Notify), a.TokenHash, a.State,
+		ts(a.NextRunAt), ts(a.LastRunAt), a.LastStatus, a.LastError, a.FailCount, ts(a.CreatedAt))
+	return mapErr(err)
+}
+
+// UpdateAutomation replaces an automation's fields.
+func (s *SQLite) UpdateAutomation(ctx context.Context, a Automation) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE automations SET name=?,enabled=?,trigger=?,config=?,prompt=?,model=?,autonomy=?,repo=?,notify=?,token_hash=?,state=?,next_run_at=?,last_run_at=?,last_status=?,last_error=?,fail_count=? WHERE id=?`,
+		a.Name, b2i(a.Enabled), a.Trigger, mapJSON(a.Config), a.Prompt, a.Model, a.Autonomy, a.Repo, mapJSON(a.Notify), a.TokenHash, a.State,
+		ts(a.NextRunAt), ts(a.LastRunAt), a.LastStatus, a.LastError, a.FailCount, a.ID)
+	return affected(res, err)
+}
+
+// GetAutomation fetches one automation.
+func (s *SQLite) GetAutomation(ctx context.Context, id string) (*Automation, error) {
+	return scanAutomation(s.db.QueryRowContext(ctx, `SELECT `+autoCols+` FROM automations WHERE id=?`, id))
+}
+
+func (s *SQLite) queryAutomations(ctx context.Context, q string, args ...any) ([]Automation, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Automation
+	for rows.Next() {
+		a, err := scanAutomation(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
+
+// ListAutomations returns a user's automations.
+func (s *SQLite) ListAutomations(ctx context.Context, userID int64) ([]Automation, error) {
+	return s.queryAutomations(ctx, `SELECT `+autoCols+` FROM automations WHERE user_id=? ORDER BY created_at`, userID)
+}
+
+// DueAutomations returns enabled automations whose next run time has come.
+func (s *SQLite) DueAutomations(ctx context.Context, now time.Time, limit int) ([]Automation, error) {
+	return s.queryAutomations(ctx, `SELECT `+autoCols+` FROM automations WHERE enabled=1 AND next_run_at>0 AND next_run_at<=? ORDER BY next_run_at LIMIT ?`, ts(now), limit)
+}
+
+// DeleteAutomation removes an automation and its run history.
+func (s *SQLite) DeleteAutomation(ctx context.Context, id string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM automation_runs WHERE automation_id=?`, id); err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM automations WHERE id=?`, id)
+	return affected(res, err)
+}
+
+// AddAutomationRun records a start (and keeps only the latest 50 per automation).
+func (s *SQLite) AddAutomationRun(ctx context.Context, r AutomationRun) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO automation_runs (automation_id,session_id,started_at,source,detail) VALUES (?,?,?,?,?)`, r.AutomationID, r.SessionID, ts(r.StartedAt), r.Source, r.Detail); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM automation_runs WHERE automation_id=? AND id NOT IN (SELECT id FROM automation_runs WHERE automation_id=? ORDER BY id DESC LIMIT 50)`, r.AutomationID, r.AutomationID)
+	return err
+}
+
+// ListAutomationRuns returns the latest runs, newest first.
+func (s *SQLite) ListAutomationRuns(ctx context.Context, automationID string, limit int) ([]AutomationRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,automation_id,session_id,started_at,source,detail FROM automation_runs WHERE automation_id=? ORDER BY id DESC LIMIT ?`, automationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AutomationRun
+	for rows.Next() {
+		var r AutomationRun
+		var at int64
+		if err := rows.Scan(&r.ID, &r.AutomationID, &r.SessionID, &at, &r.Source, &r.Detail); err != nil {
+			return nil, err
+		}
+		r.StartedAt = fromTS(at)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// CountAutomationRunsSince counts starts since a time (for the daily cap).
+func (s *SQLite) CountAutomationRunsSince(ctx context.Context, automationID string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE automation_id=? AND started_at>=?`, automationID, ts(since)).Scan(&n)
+	return n, err
+}

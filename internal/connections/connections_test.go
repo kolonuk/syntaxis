@@ -190,6 +190,23 @@ func TestCloudflare(t *testing.T) {
 	}
 }
 
+func TestIFTTT(t *testing.T) {
+	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/trigger/syntaxis_connection_test/with/key/goodkey" {
+			http.Error(w, `{"errors":[{"message":"You sent an invalid key."}]}`, 401)
+			return
+		}
+		_, _ = io.WriteString(w, "Congratulations! You've fired the syntaxis_connection_test event")
+	})
+	i := &IFTTT{HC: s.Client(), Base: s.URL}
+	if id, err := i.Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": "goodkey"}); err != nil || !strings.Contains(id.Account, "accepted") {
+		t.Fatalf("%+v %v", id, err)
+	}
+	if _, err := i.Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": "nope"}); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("%v", err)
+	}
+}
+
 // The AWS "get-vanilla" example from AWS's own Signature Version 4 test suite.
 func TestSigV4MatchesAWSTestVector(t *testing.T) {
 	req, _ := http.NewRequest("GET", "https://example.amazonaws.com/", nil)
@@ -306,7 +323,7 @@ func TestRegistryAndValidate(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"github", "gitlab", "gitea", "cloudflare", "aws", "azure", "gcp"} {
+	for _, want := range []string{"github", "gitlab", "gitea", "cloudflare", "aws", "azure", "gcp", "ifttt"} {
 		if !ids[want] {
 			t.Errorf("missing %s", want)
 		}

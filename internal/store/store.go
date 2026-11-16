@@ -86,6 +86,40 @@ type Connection struct {
 	CheckedAt time.Time
 }
 
+// Automation starts a run by itself: on a schedule, when a webhook is called, or when a watch finds
+// something new. It belongs to one user and runs as them, with their limits.
+type Automation struct {
+	ID         string
+	UserID     int64
+	Name       string
+	Enabled    bool
+	Trigger    string // "schedule" | "webhook" | "watch"
+	Config     map[string]string
+	Prompt     string
+	Model      string
+	Autonomy   string
+	Repo       string // JSON repository spec, or ""
+	Notify     map[string]string
+	TokenHash  string
+	State      string
+	NextRunAt  time.Time
+	LastRunAt  time.Time
+	LastStatus string
+	LastError  string
+	FailCount  int
+	CreatedAt  time.Time
+}
+
+// AutomationRun is one start of an automation.
+type AutomationRun struct {
+	ID           int64
+	AutomationID string
+	SessionID    string
+	StartedAt    time.Time
+	Source       string
+	Detail       string
+}
+
 // Policy is a named PolicyData: a user level ("level") or a user group ("group").
 type Policy struct {
 	ID   int64
@@ -244,6 +278,17 @@ type Store interface {
 	GetUser(ctx context.Context, id int64) (*User, error)
 	UpdateUserPolicy(ctx context.Context, u User) error
 	ListUsers(ctx context.Context) ([]User, error)
+
+	// automations
+	CreateAutomation(ctx context.Context, a Automation) error
+	UpdateAutomation(ctx context.Context, a Automation) error
+	GetAutomation(ctx context.Context, id string) (*Automation, error)
+	ListAutomations(ctx context.Context, userID int64) ([]Automation, error)
+	DueAutomations(ctx context.Context, now time.Time, limit int) ([]Automation, error)
+	DeleteAutomation(ctx context.Context, id string) error
+	AddAutomationRun(ctx context.Context, r AutomationRun) error
+	ListAutomationRuns(ctx context.Context, automationID string, limit int) ([]AutomationRun, error)
+	CountAutomationRunsSince(ctx context.Context, automationID string, since time.Time) (int, error)
 
 	// connections to external services (per user)
 	ListConnections(ctx context.Context, userID int64) ([]Connection, error)

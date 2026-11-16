@@ -108,7 +108,7 @@ func New(hc *http.Client) *Registry {
 	}
 	r := &Registry{byID: map[string]Provider{}}
 	for _, p := range []Provider{
-		&GitHub{HC: hc}, &GitLab{HC: hc}, &Gitea{HC: hc}, &Cloudflare{HC: hc}, &AWS{HC: hc}, &Azure{HC: hc}, &GCP{HC: hc},
+		&GitHub{HC: hc}, &GitLab{HC: hc}, &Gitea{HC: hc}, &Cloudflare{HC: hc}, &AWS{HC: hc}, &Azure{HC: hc}, &GCP{HC: hc}, &IFTTT{HC: hc},
 	} {
 		r.byID[p.Kind().ID] = p
 		r.order = append(r.order, p.Kind().ID)

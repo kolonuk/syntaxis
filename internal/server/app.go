@@ -33,6 +33,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/secrets"
 	"github.com/kolonuk/syntaxis/internal/signing"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/watch"
 )
 
 // Cookie names differ per account kind so a cookie can never be replayed
@@ -58,19 +59,24 @@ type App struct {
 	FirewallState func(ctx context.Context) ([]egress.SandboxEntry, []egress.HostEntry)
 	fwMu          sync.Mutex
 	fwSeen        time.Time
-	Connections   *connections.Registry // the services users can connect their own accounts to
-	Terms         *Terminals            // open interactive terminals
-	Monitor       *sandbox.Monitor      // CPU/memory sampling and limits; may be nil
-	Log           *slog.Logger
-	Runs          *Runs
-	Web           http.Handler // embedded frontend (may be nil)
-	Now           func() time.Time
-	RunAgent      RunFunc
-	Queues        *Queues
-	MCPSource     mcp.Source
-	Lifecycle     *lifecycle.Job
-	AdminWeb      http.Handler
-	NewProvider   func(p *store.Provider) (provider.Provider, error)
+	// WatchClient makes the requests watches need; it refuses private addresses. IFTTTBase and
+	// NotifyClient are for tests.
+	WatchClient  *http.Client
+	IFTTTBase    string
+	NotifyClient *http.Client
+	Connections  *connections.Registry // the services users can connect their own accounts to
+	Terms        *Terminals            // open interactive terminals
+	Monitor      *sandbox.Monitor      // CPU/memory sampling and limits; may be nil
+	Log          *slog.Logger
+	Runs         *Runs
+	Web          http.Handler // embedded frontend (may be nil)
+	Now          func() time.Time
+	RunAgent     RunFunc
+	Queues       *Queues
+	MCPSource    mcp.Source
+	Lifecycle    *lifecycle.Job
+	AdminWeb     http.Handler
+	NewProvider  func(p *store.Provider) (provider.Provider, error)
 	// TerminalRecheck is how often open terminals re-check their sign-in (0 = default).
 	TerminalRecheck time.Duration
 
@@ -87,6 +93,7 @@ func New(cfg *config.Config, st store.Store, as *auth.Service, q *quota.Service,
 	a.Runs = NewRuns()
 	a.Terms = NewTerminals()
 	a.Connections = connections.New(nil)
+	a.WatchClient = watch.NewClient(false)
 	return a
 }
 

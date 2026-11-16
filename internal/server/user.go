@@ -34,6 +34,7 @@ func (a *App) UserHandler() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": buildinfo.Get()})
 	})
+	r.Post("/hooks/{id}/{token}", a.handleHook) // called by outside services; the secret is in the address
 	r.Get("/api/version", handleVersion)
 
 	r.Route("/api", func(r chi.Router) {
@@ -59,6 +60,14 @@ func (a *App) UserHandler() http.Handler {
 			r.Put("/secrets/{name}", a.handleSecretPut)
 			r.Delete("/secrets/{name}", a.handleSecretDelete)
 			r.Post("/workspace/keep", a.handleWorkspaceKeep)
+			r.Get("/automations", a.handleAutomations)
+			r.Get("/automation-kinds", a.handleAutomationKinds)
+			r.Post("/automations", a.handleAutomationCreate)
+			r.Put("/automations/{id}", a.handleAutomationUpdate)
+			r.Delete("/automations/{id}", a.handleAutomationDelete)
+			r.Post("/automations/{id}/run", a.handleAutomationRunNow)
+			r.Post("/automations/{id}/token", a.handleAutomationToken)
+			r.Get("/automations/{id}/runs", a.handleAutomationRuns)
 			r.Get("/connections", a.handleConnections)
 			r.Put("/connections/{kind}", a.handleConnectionPut)
 			r.Delete("/connections/{kind}", a.handleConnectionDelete)
@@ -369,47 +378,53 @@ func sessionJSON(s store.ChatSession, run *Run) map[string]any {
 		"repo": s.RepoName, "repo_kind": s.RepoKind, "repo_branch": s.RepoBranch}
 }
 
-func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		Title    string `json:"title"`
-		Model    string `json:"model"`
-		Autonomy string `json:"autonomy"`
-		// Repo starts the session from a repository: one the user picked (kind, full_name, clone_url)
-		// or a new one to create (kind, create).
-		Repo *struct {
-			Kind     string               `json:"kind"`
-			FullName string               `json:"full_name"`
-			CloneURL string               `json:"clone_url"`
-			Branch   string               `json:"default_branch"`
-			Create   *connections.NewRepo `json:"create"`
-		} `json:"repo"`
-	}
-	if !decode(w, r, &b) {
-		return
-	}
-	u := a.user(r)
+// RepoSpec says which repository a session should start from.
+type RepoSpec struct {
+	Kind     string               `json:"kind"`
+	FullName string               `json:"full_name"`
+	CloneURL string               `json:"clone_url"`
+	Branch   string               `json:"default_branch"`
+	Create   *connections.NewRepo `json:"create"`
+}
+
+// SessionParams are what a new session needs.
+type SessionParams struct {
+	Title    string    `json:"title"`
+	Model    string    `json:"model"`
+	Autonomy string    `json:"autonomy"`
+	Repo     *RepoSpec `json:"repo"`
+}
+
+// statusError is an error with the HTTP status it should be reported with.
+type statusError struct {
+	code int
+	msg  string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+// newSession checks and creates a session for the user: the model must be one they may use, their
+// limits must allow it, and any repository must be on their own connection.
+func (a *App) newSession(ctx context.Context, u *store.User, b SessionParams) (store.ChatSession, error) {
 	if b.Autonomy == "" {
 		b.Autonomy = string(agent.Workspace)
 	}
 	if !agent.ValidAutonomy(agent.Autonomy(b.Autonomy)) {
-		writeErr(w, 400, "invalid autonomy level")
-		return
+		return store.ChatSession{}, &statusError{400, "invalid autonomy level"}
 	}
-	provID, modelName, ok := a.resolveModel(r.Context(), u, b.Model)
+	provID, modelName, ok := a.resolveModel(ctx, u, b.Model)
 	if !ok {
-		writeErr(w, http.StatusForbidden, "that model is not available to you")
-		return
+		return store.ChatSession{}, &statusError{http.StatusForbidden, "that model is not available to you"}
 	}
-	existing, _ := a.Store.ListChatSessions(r.Context(), u.ID)
+	existing, _ := a.Store.ListChatSessions(ctx, u.ID)
 	active := 0
 	for _, s := range existing {
 		if s.State == "running" || s.State == "needs_input" { // idle sessions hold no running work
 			active++
 		}
 	}
-	if err := a.Quota.CheckSandboxStart(r.Context(), u, active); err != nil {
-		writeErr(w, http.StatusTooManyRequests, err.Error())
-		return
+	if err := a.Quota.CheckSandboxStart(ctx, u, active); err != nil {
+		return store.ChatSession{}, &statusError{http.StatusTooManyRequests, err.Error()}
 	}
 	title := strings.TrimSpace(b.Title)
 	if title == "" {
@@ -418,10 +433,9 @@ func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	now := a.Now().UTC()
 	s := store.ChatSession{ID: newID(), UserID: u.ID, Title: title, ProviderID: provID, Model: modelName, Autonomy: b.Autonomy, State: "idle", CreatedAt: now, UpdatedAt: now}
 	if b.Repo != nil {
-		rp, err := a.resolveRepo(r.Context(), u.ID, b.Repo.Kind, b.Repo.FullName, b.Repo.CloneURL, b.Repo.Branch, b.Repo.Create)
+		rp, err := a.resolveRepo(ctx, u.ID, b.Repo.Kind, b.Repo.FullName, b.Repo.CloneURL, b.Repo.Branch, b.Repo.Create)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
+			return store.ChatSession{}, &statusError{http.StatusBadRequest, err.Error()}
 		}
 		s.RepoKind, s.RepoName, s.RepoURL, s.RepoBase = b.Repo.Kind, rp.FullName, rp.CloneURL, rp.DefaultBranch
 		s.RepoBranch = workBranch(s.ID)
@@ -429,8 +443,25 @@ func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 			s.Title = rp.FullName
 		}
 	}
-	if err := a.Store.CreateChatSession(r.Context(), s); err != nil {
-		writeErr(w, 500, "could not create session")
+	if err := a.Store.CreateChatSession(ctx, s); err != nil {
+		return store.ChatSession{}, &statusError{500, "could not create session"}
+	}
+	return s, nil
+}
+
+func (a *App) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
+	var b SessionParams
+	if !decode(w, r, &b) {
+		return
+	}
+	s, err := a.newSession(r.Context(), a.user(r), b)
+	if err != nil {
+		var se *statusError
+		if errors.As(err, &se) {
+			writeErr(w, se.code, se.msg)
+		} else {
+			writeErr(w, 500, "could not create session")
+		}
 		return
 	}
 	writeJSON(w, http.StatusCreated, sessionJSON(s, nil))
@@ -539,25 +570,33 @@ func (a *App) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// RunAgent is injected by main; nil means the agent is unavailable.
-func (a *App) startRun(w http.ResponseWriter, r *http.Request, s *store.ChatSession, text string) {
+// launchRun starts the agent on a session with a message. It is what a person's message and an
+// automation's run both go through, so the same checks apply to both.
+func (a *App) launchRun(ctx context.Context, s *store.ChatSession, u *store.User, text string) error {
 	if a.RunAgent == nil {
-		writeErr(w, http.StatusServiceUnavailable, "the agent is not available")
-		return
+		return &statusError{http.StatusServiceUnavailable, "the agent is not available"}
 	}
-	u := a.user(r)
-	if full, used, limit := a.workspaceFull(r.Context(), u.ID, s.ID); full {
-		writeErr(w, http.StatusInsufficientStorage, workspaceFullMessage(used, limit))
-		return
+	if full, used, limit := a.workspaceFull(ctx, u.ID, s.ID); full {
+		return &statusError{http.StatusInsufficientStorage, workspaceFullMessage(used, limit)}
 	}
 	sc, uc := *s, *u
 	a.Terms.CloseSession(s.ID, "The agent started working, so the terminal was closed.")
-	run, started := a.Runs.Start(s.ID, func(ctx context.Context, run *Run) { a.RunAgent(ctx, run, &sc, &uc, text) })
-	if !started {
-		writeErr(w, http.StatusConflict, "this session is already working; stop it first")
+	if _, started := a.Runs.Start(s.ID, func(ctx context.Context, run *Run) { a.RunAgent(ctx, run, &sc, &uc, text) }); !started {
+		return &statusError{http.StatusConflict, "this session is already working; stop it first"}
+	}
+	return nil
+}
+
+func (a *App) startRun(w http.ResponseWriter, r *http.Request, s *store.ChatSession, text string) {
+	if err := a.launchRun(r.Context(), s, a.user(r), text); err != nil {
+		var se *statusError
+		if errors.As(err, &se) {
+			writeErr(w, se.code, se.msg)
+		} else {
+			writeErr(w, 500, "could not start")
+		}
 		return
 	}
-	_ = run
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
