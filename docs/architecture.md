@@ -1,75 +1,37 @@
 # Architecture
 
-How the pieces fit together. For setup see [getting started](getting-started.md).
+How the pieces fit together. To install it, see [getting started](getting-started.md).
 
 ```mermaid
 flowchart LR
   U[Chat users] -->|HTTPS reverse proxy| CH[Chat app]
   A[Admin] -->|LAN / VPN / loopback| AD[Admin app]
   subgraph syntaxis[Syntaxis]
-    CH --- CORE[Auth · Quotas · Queue · Agent · Secrets]
+    CH --- CORE[Accounts · Quotas · Queue · Agent · Secrets]
     AD --- CORE
     CORE --- DB[(SQLite)]
   end
   CORE -->|OpenAI / Ollama API| LLM[Your LLM server]
-  CORE -->|validated API| SP[docker proxy]
+  CORE -->|validated API| SP[Docker proxy]
   SP --> D[Docker + gVisor]
   D --> S1[Sandbox: session A]
   D --> S2[Sandbox: session B]
 ```
 
-## Components
+Syntaxis is one Go service with the web apps built in. The chat app and the admin app are separate listeners with their own accounts and cookies. State is in SQLite, which suits a few users on one machine and makes a backup a single file (`syntaxis backup`).
 
-| Package | Role |
-| --- | --- |
-| `cmd/syntaxis` | CLI: `serve`, `admin create`, `keygen`, `doctor`, `backup`, `rotate-key`, `egress-rules` |
-| `internal/server` | Two HTTP apps (chat, admin) sharing no routes or cookies; SSE run streaming; background run registry; agent wiring |
-| `internal/auth` | Accounts, argon2id, TOTP, recovery codes, invites/resets, rotation policy, lockout, sessions, CSRF |
-| `internal/store` | `Store` interface + SQLite (WAL, pure Go, goose migrations, portable SQL) |
-| `internal/provider` | Read-only adapters: Ollama, llama.cpp, LiteLLM, OpenAI-compatible |
-| `internal/queue` | Per-provider fair scheduler: concurrency cap, priority classes, per-user round-robin |
-| `internal/quota` | Token/rate/parallel/session/time limits, checked before enqueue and sandbox start |
-| `internal/agent` | Agent loop, tools, approval policy, tolerant tool-call parser, context budgeting and compaction |
-| `internal/sandbox` | Hardened container spec + validator, Docker runtime, manager, reaper, watchdog, kill switch |
-| `internal/egress` | Egress policy, nftables generator, DNS resolver |
-| `internal/checkpoint` | Shadow-git workspace checkpoints |
-| `internal/rules` | `syntaxis.md`, advisory foreign files, skills |
-| `internal/secrets`, `internal/vault` | Encrypted secrets vault |
-| `internal/scanner`, `internal/redact` | Secret scanner and output redaction |
-| `internal/signing` | Server-side SSH commit signing |
-| `internal/health`, `internal/doctor` | Health-check engine (pure checks) and live collectors |
-| `internal/routing` | Optional helper-model routing (off by default) |
-| `internal/audit` | Hash-chained audit entries |
-| `web/` | React + TypeScript + Vite frontend (chat app and admin app), built into `internal/webui/dist` and embedded |
+## What happens when a user sends a message
 
-## Storage
+1. The message starts a **background run**, so closing the browser does not stop it.
+2. The run gets the session's sandbox (a gVisor container with the user's workspace) and builds the prompt from the project's rules and skills.
+3. Each model call checks the user's quota, waits its turn in the provider's fair queue, goes to your LLM server and records the tokens used.
+4. Each tool call the model makes is checked against the approval policy (risky ones wait for the user) and then runs **inside the sandbox**, with a time limit and a cap on output.
+5. Output is stripped of secrets, saved, trimmed for the model and streamed to the browser.
 
-SQLite is the default: the target is a handful of users on one server, and a backup is a single file (`syntaxis backup`). The SQL is portable, so PostgreSQL can be added later for more concurrent users or multiple instances.
+## What trusts what
 
-## A request, end to end
+- The sandbox never holds provider keys, the master key or the signing key, and cannot reach your LLM server directly.
+- Only the validating Docker proxy touches the Docker socket. It refuses anything that is not a hardened gVisor sandbox. See [security](security.md).
+- Per-user things (workspace, secrets, connections, automations) belong to one user and are not visible to others.
 
-1. Browser `POST /api/sessions/{id}/messages` → ownership check → `Runs.Start` launches a **background job** (context not tied to the HTTP request).
-2. The job ensures a sandbox (creating one under gVisor with the user's workspace volume), loads rules and skills, builds the system prompt.
-3. Each model call: quota check → queue (priority class, fair share) → provider adapter → usage recorded.
-4. Tool calls are classified by the approval policy; risky ones checkpoint and wait for the user; then they execute **inside the sandbox** via the Docker exec API with timeouts and output caps.
-5. Output is redacted, stored in full in history, truncated head+tail for the model, and streamed over SSE (replayable for late subscribers).
-
-## Trust boundaries
-
-```
-[browser] ─TLS─▶ [reverse proxy] ─▶ chat app (8080)        admin app (8081, loopback/VPN) ◀─ [admin browser]
-                                        │
-                      Syntaxis process (secrets, DB, policy)
-                        │                         │
-           docker-socket-proxy             LLM server (never reachable from sandboxes)
-                        │
-        gVisor sandbox per session ── egress firewall + DNS resolver ──▶ internet (policy)
-```
-
-- The sandbox never holds provider keys, the master key or the signing key, and never talks to the LLM server directly.
-- Only the Syntaxis process and the validating Docker proxy (`syntaxis docker-proxy`) touch Docker; the proxy alone holds the socket.
-- The admin app is a different listener, cookie, route set and account table.
-
-## Concurrency model
-
-Runs are goroutines owned by `Runs`; each model call passes through the provider's scheduler, so total in-flight calls never exceed the configured concurrency. Quotas are checked before enqueue so exhausted users never occupy a slot.
+The code lives under `internal/`, one package per concern (`agent`, `sandbox`, `egress`, `auth`, `quota`, `queue`, `provider`, `store` and so on); the web apps are in `web/`.

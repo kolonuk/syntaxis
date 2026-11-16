@@ -25,26 +25,17 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_SIGNING_MODE` | `off` | `off` / `optional` / `required` SSH commit signing |
 | `SYNTAXIS_IDLE_MINUTES` | `30` | Stop sandboxes idle this long |
 | `SYNTAXIS_SANDBOX_MAX_AGE_DAYS` | `7` | Destroy unused sandbox containers after this many days |
-| `SYNTAXIS_CPU_MINUTES_DAILY` | `240` | CPU time (core-minutes) a user's sandboxes may use per day; `0` = unlimited. See [resource limits](pitfalls.md#resource-limits) |
+| `SYNTAXIS_CPU_MINUTES_DAILY` | `240` | CPU time (core-minutes) a user's sandboxes may use per day; `0` = unlimited. See [troubleshooting](pitfalls.md#resource-limits) |
 | `SYNTAXIS_WORKSPACE_RETENTION_DAYS` | `30` | Delete a user's workspace after this many days unused (`0` keeps) |
 | `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
 | `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |
 | `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`; remove after use |
 
-## Levels, groups and per-user settings (admin UI)
+## Levels, groups and per-user settings
 
-Every chat user has a **level** (`user`, `poweruser` or `admin`) and may be in one **group**. Levels and groups carry the same settings as a user: daily and monthly token quotas, concurrent sessions, daily compute minutes, egress mode, allowed models, and switches for the terminal and cloud tooling. Set them under **Levels & groups**; put a user in a group and pick their level under **Users → Edit**.
+Every chat user has a **level** (`user`, `poweruser`, `admin`) and may be in a **group**. Levels, groups and users all carry the same settings: token quotas, concurrent sessions, daily compute minutes, egress mode, allowed models, and switches for the terminal and cloud tooling. Set levels and groups under **Levels & groups** in the admin app, and a user's level and group under **Users → Edit**.
 
-How they combine, from least to most specific: instance defaults, the user's level, their group, the user's own settings.
-
-- Numbers and modes: the most specific layer that sets a value wins, so a setting on a user overrides their group, and a group overrides the level. `0` (or empty) means "not set here"; `-1` means unlimited.
-- On/off switches: off if any layer turns them off. A user cannot be given back something their level or group takes away; change the level or group instead.
-
-The `admin` level is for an admin's own chat account: it needs an admin account with the same email, and adds an "Admin mode" link to the chat app (see `SYNTAXIS_ADMIN_URL`) and a "Chat app" link in the admin app. Admin and chat accounts stay separate, with their own sign-in.
-
-## Per-user policy (admin UI)
-
-Daily and monthly token quotas (`0` = default, `-1` = unlimited), maximum concurrent sessions, egress mode, allowed models (empty = all enabled models), cloud tooling on/off.
+The most specific setting wins: the user's own, then their group's, then their level's, then the instance default (`0` means "not set here", `-1` unlimited). An on/off switch stays off if any of the three turns it off. The `admin` level is for an admin's own chat account (same email as their admin account) and adds an "Admin mode" link; see `SYNTAXIS_ADMIN_URL`.
 
 ## Providers and models
 
