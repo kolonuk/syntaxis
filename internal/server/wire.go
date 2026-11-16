@@ -374,7 +374,10 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			Persist:      func(m provider.Message, in, out int) { a.persistMessage(bg, s.ID, m, in, out) },
 			Redact:       redactNow,
 			Checkpoint: func(c context.Context, label string) error {
-				_, err := cp.Snapshot(c, label)
+				snap, err := cp.Snapshot(c, label)
+				if err == nil {
+					a.markCheckpoint(bg, u.ID, s.ID, snap.Seq, label)
+				}
 				return err
 			},
 			Audit: ex.Audit,

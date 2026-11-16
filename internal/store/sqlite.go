@@ -1236,3 +1236,46 @@ func (s *SQLite) CountActiveShares(ctx context.Context, userID int64, now time.T
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM shares WHERE user_id=? AND revoked=0 AND expires_at>?`, userID, ts(now)).Scan(&n)
 	return n, err
 }
+
+// ---- checkpoint marks ----
+
+// PutCheckpointMark records where in a conversation a checkpoint was taken.
+func (s *SQLite) PutCheckpointMark(ctx context.Context, m CheckpointMark) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO checkpoint_marks (user_id,seq,session_id,message_id,label,created_at) VALUES (?,?,?,?,?,?)
+ON CONFLICT(user_id,seq) DO UPDATE SET session_id=excluded.session_id,message_id=excluded.message_id,label=excluded.label,created_at=excluded.created_at`,
+		m.UserID, m.Seq, m.SessionID, m.MessageID, m.Label, ts(m.CreatedAt))
+	return err
+}
+
+// GetCheckpointMark fetches one mark.
+func (s *SQLite) GetCheckpointMark(ctx context.Context, userID int64, seq int) (*CheckpointMark, error) {
+	var m CheckpointMark
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT user_id,seq,session_id,message_id,label,created_at FROM checkpoint_marks WHERE user_id=? AND seq=?`, userID, seq).
+		Scan(&m.UserID, &m.Seq, &m.SessionID, &m.MessageID, &m.Label, &at)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	m.CreatedAt = fromTS(at)
+	return &m, nil
+}
+
+// ListCheckpointMarks returns a user's marks.
+func (s *SQLite) ListCheckpointMarks(ctx context.Context, userID int64) ([]CheckpointMark, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id,seq,session_id,message_id,label,created_at FROM checkpoint_marks WHERE user_id=? ORDER BY seq`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CheckpointMark
+	for rows.Next() {
+		var m CheckpointMark
+		var at int64
+		if err := rows.Scan(&m.UserID, &m.Seq, &m.SessionID, &m.MessageID, &m.Label, &at); err != nil {
+			return nil, err
+		}
+		m.CreatedAt = fromTS(at)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

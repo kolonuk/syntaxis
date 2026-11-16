@@ -22,6 +22,7 @@ import {
 } from "../ui/ui";
 import { copyText } from "../lib/fences";
 import { commentsMessage, parseDiff } from "../lib/diff";
+import { ago } from "../lib/format";
 import { ShareDialog } from "./Shared";
 
 interface Msg {
@@ -537,6 +538,7 @@ export function Chat({
                 { id: "output", label: "Output" },
                 { id: "context", label: "Context" },
                 { id: "changes", label: "Changes" },
+                { id: "checkpoints", label: "Checkpoints" },
                 { id: "resources", label: "Resources" },
                 { id: "tools", label: "Tools" },
               ]}
@@ -580,6 +582,13 @@ export function Chat({
               setPanelOpen(false);
               toast("The comments are in the message box. Press Send when you are ready.");
             }}
+          />
+        )}
+        {panel === "checkpoints" && (
+          <Checkpoints
+            sessionId={session.id}
+            disabled={running}
+            onRestored={() => void loadMessages()}
           />
         )}
         {panel === "resources" && <Resources sessionId={session.id} />}
@@ -848,6 +857,134 @@ function Changes({
       >
         Send comments to the agent
       </Button>
+    </div>
+  );
+}
+
+interface Cp {
+  seq: number;
+  label: string;
+  time: string;
+  this_session: boolean;
+  can_rewind_conversation: boolean;
+}
+
+/** The workspace's checkpoints, newest first, with what changed since and a way back. */
+function Checkpoints({
+  sessionId,
+  disabled,
+  onRestored,
+}: {
+  sessionId: string;
+  disabled: boolean;
+  onRestored: () => void;
+}) {
+  const toast = useToast();
+  const [d, setD] = useState<{ available: boolean; reason?: string; checkpoints?: Cp[] } | null>(
+    null,
+  );
+  const [seeing, setSeeing] = useState<{ seq: number; diff: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ seq: number; conversation: boolean } | null>(null);
+  const load = useCallback(() => {
+    void get<{ available: boolean; reason?: string; checkpoints?: Cp[] }>(
+      `/sessions/${sessionId}/checkpoints`,
+    )
+      .then(setD)
+      .catch((e) => toast(errText(e), "error"));
+  }, [sessionId, toast]);
+  useEffect(load, [load]);
+  if (!d) return <Skeleton lines={3} />;
+  if (!d.available) return <p className="muted">{d.reason}</p>;
+  const list = d.checkpoints ?? [];
+  return (
+    <div className="stack">
+      <p className="muted">
+        A checkpoint is saved before each of the agent's turns and before risky actions. Restoring
+        puts your files back (and can rewind the conversation too). A restore is itself
+        checkpointed, so it can be undone. Pushes and deploys are not undone.
+      </p>
+      <Button onClick={load}>Refresh</Button>
+      {list.length === 0 && <p className="muted">No checkpoints yet.</p>}
+      {list.map((cp) => (
+        <Card key={cp.seq} title={cp.label || `Checkpoint ${cp.seq}`}>
+          <p className="muted">
+            {ago(cp.time)}
+            {cp.this_session ? "" : " · from another session"}
+          </p>
+          <div className="row">
+            <Button
+              onClick={async () => {
+                try {
+                  const r = await get<{ diff: string }>(
+                    `/sessions/${sessionId}/checkpoints/${cp.seq}/diff`,
+                  );
+                  setSeeing({ seq: cp.seq, diff: r.diff });
+                } catch (x) {
+                  toast(errText(x), "error");
+                }
+              }}
+            >
+              What changed since
+            </Button>
+            <Button
+              disabled={disabled}
+              onClick={() => setConfirm({ seq: cp.seq, conversation: false })}
+            >
+              Restore files
+            </Button>
+            {cp.can_rewind_conversation && (
+              <Button
+                disabled={disabled}
+                onClick={() => setConfirm({ seq: cp.seq, conversation: true })}
+              >
+                Restore files and conversation
+              </Button>
+            )}
+          </div>
+          {seeing?.seq === cp.seq && (
+            <Suspense fallback={<Skeleton lines={2} />}>
+              <DiffView text={seeing.diff} />
+            </Suspense>
+          )}
+        </Card>
+      ))}
+      {confirm && (
+        <Modal
+          title="Restore this checkpoint?"
+          onClose={() => setConfirm(null)}
+          actions={
+            <>
+              <Button onClick={() => setConfirm(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  try {
+                    await post(`/sessions/${sessionId}/checkpoints/${confirm.seq}/restore`, {
+                      conversation: confirm.conversation,
+                    });
+                    toast("Restored.", "success");
+                    setConfirm(null);
+                    onRestored();
+                    load();
+                  } catch (x) {
+                    toast(errText(x), "error");
+                  }
+                }}
+              >
+                Restore
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Files created since then are removed and changed files go back.{" "}
+            {confirm.conversation
+              ? "Messages after that point are set aside (kept, but no longer part of the conversation). "
+              : ""}
+            You can undo this by restoring the checkpoint taken just before it.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

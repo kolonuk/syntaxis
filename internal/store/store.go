@@ -136,6 +136,17 @@ type Share struct {
 	LastViewAt   time.Time
 }
 
+// CheckpointMark ties a workspace checkpoint to the point in a conversation where it was taken, so
+// restoring can also rewind the conversation.
+type CheckpointMark struct {
+	UserID    int64
+	Seq       int
+	SessionID string
+	MessageID int64
+	Label     string
+	CreatedAt time.Time
+}
+
 // Policy is a named PolicyData: a user level ("level") or a user group ("group").
 type Policy struct {
 	ID   int64
@@ -309,6 +320,11 @@ type Store interface {
 	AddAutomationRun(ctx context.Context, r AutomationRun) error
 	ListAutomationRuns(ctx context.Context, automationID string, limit int) ([]AutomationRun, error)
 	CountAutomationRunsSince(ctx context.Context, automationID string, since time.Time) (int, error)
+
+	// checkpoint marks
+	PutCheckpointMark(ctx context.Context, m CheckpointMark) error
+	GetCheckpointMark(ctx context.Context, userID int64, seq int) (*CheckpointMark, error)
+	ListCheckpointMarks(ctx context.Context, userID int64) ([]CheckpointMark, error)
 
 	// shared session links
 	CreateShare(ctx context.Context, s Share) error

@@ -29,6 +29,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 - Shared session links: a named, read-only, public link that expires after hours you choose and can be revoked; per-user MCP servers using each user's own credentials; replies rendered as Markdown with highlighted code and a themed diff viewer.
 
+- Checkpoints tab: a timeline with what changed since each checkpoint, and restore of the files or of the files and the conversation, tested against a real gVisor sandbox.
+
 ### Changed
 - User levels (user, power user, admin) and user groups. Levels and groups carry the same permissions and settings as a user; the most specific setting wins, and an on/off permission stays off if any layer turns it off. Admins get an "Admin mode" link from the chat app and a link back.
 - The installer installs Docker, nftables and gVisor when missing, on Debian, Ubuntu, Raspberry Pi OS, AlmaLinux, Rocky Linux, RHEL and Fedora (x86-64 and arm64); `--check` shows the plan. Package installation is tested on each in CI.

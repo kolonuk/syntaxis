@@ -18,7 +18,7 @@ With **Plan first** the agent can only read until you approve its plan. It explo
 
 ## Context and checkpoints
 
-The agent budgets against the model's **real** context window rather than the advertised one (many servers silently run with less; see [troubleshooting](pitfalls.md#context-windows)). Long conversations are summarised automatically and the full history is kept. Before each turn and before any risky action the workspace is snapshotted into a hidden git repository, separate from the user's own `.git`, so work can be rolled back. Rolling back cannot undo a push or a deploy.
+The agent budgets against the model's **real** context window rather than the advertised one (many servers silently run with less; see [troubleshooting](pitfalls.md#context-windows)). Long conversations are summarised automatically and the full history is kept. Before each turn and before any risky action the workspace is snapshotted into a hidden git repository, separate from the user's own `.git`, so work can be rolled back. The **Checkpoints** tab lists them with what changed since each one, and restores the files, or the files and the conversation (later messages are set aside, not deleted). A restore is itself checkpointed, so it can be undone. Rolling back cannot undo a push or a deploy.
 
 ## Project rules and skills
 
