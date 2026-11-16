@@ -148,6 +148,17 @@ func (s *Service) Snapshot(ctx context.Context, userID int64) (map[string]string
 	for _, v := range env {
 		vals = append(vals, v)
 	}
+	// non-secret connection settings (a GitLab address, an AWS region) are passed to the sandbox
+	// too, but are not treated as secrets, so they are not blanked out of output
+	if cs, err := s.Store.ListConnections(ctx, userID); err == nil {
+		for _, c := range cs {
+			for k, v := range c.Settings {
+				if _, taken := env[k]; !taken && v != "" {
+					env[k] = v
+				}
+			}
+		}
+	}
 	return env, redact.New(vals...), nil
 }
 

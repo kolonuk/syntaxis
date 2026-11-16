@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/config"
+	"github.com/kolonuk/syntaxis/internal/connections"
 	"github.com/kolonuk/syntaxis/internal/egress"
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/lifecycle"
@@ -57,8 +58,9 @@ type App struct {
 	FirewallState func(ctx context.Context) ([]egress.SandboxEntry, []egress.HostEntry)
 	fwMu          sync.Mutex
 	fwSeen        time.Time
-	Terms         *Terminals       // open interactive terminals
-	Monitor       *sandbox.Monitor // CPU/memory sampling and limits; may be nil
+	Connections   *connections.Registry // the services users can connect their own accounts to
+	Terms         *Terminals            // open interactive terminals
+	Monitor       *sandbox.Monitor      // CPU/memory sampling and limits; may be nil
 	Log           *slog.Logger
 	Runs          *Runs
 	Web           http.Handler // embedded frontend (may be nil)
@@ -84,6 +86,7 @@ func New(cfg *config.Config, st store.Store, as *auth.Service, q *quota.Service,
 	a := &App{Cfg: cfg, Store: st, Auth: as, Quota: q, Secrets: sec, Mail: m, Log: log, Health: health.NewEngine(health.DefaultThresholds()), Now: time.Now}
 	a.Runs = NewRuns()
 	a.Terms = NewTerminals()
+	a.Connections = connections.New(nil)
 	return a
 }
 

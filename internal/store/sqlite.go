@@ -1000,3 +1000,47 @@ func (s *SQLite) DeletePolicy(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM policies WHERE id=?`, id)
 	return affected(res, err)
 }
+
+// ---- connections ----
+
+// ListConnections returns a user's connections.
+func (s *SQLite) ListConnections(ctx context.Context, userID int64) ([]Connection, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT kind,account,detail,settings,checked_at FROM connections WHERE user_id=? ORDER BY kind`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Connection
+	for rows.Next() {
+		c := Connection{UserID: userID}
+		var settings string
+		var checked int64
+		if err := rows.Scan(&c.Kind, &c.Account, &c.Detail, &settings, &checked); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(settings), &c.Settings); err != nil {
+			c.Settings = nil
+		}
+		c.CheckedAt = fromTS(checked)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// PutConnection creates or replaces a connection record.
+func (s *SQLite) PutConnection(ctx context.Context, c Connection) error {
+	settings, _ := json.Marshal(c.Settings)
+	if c.Settings == nil {
+		settings = []byte("{}")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO connections (user_id,kind,account,detail,settings,checked_at) VALUES (?,?,?,?,?,?)
+ON CONFLICT(user_id,kind) DO UPDATE SET account=excluded.account,detail=excluded.detail,settings=excluded.settings,checked_at=excluded.checked_at`,
+		c.UserID, c.Kind, c.Account, c.Detail, string(settings), ts(c.CheckedAt))
+	return err
+}
+
+// DeleteConnection removes a connection record.
+func (s *SQLite) DeleteConnection(ctx context.Context, userID int64, kind string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM connections WHERE user_id=? AND kind=?`, userID, kind)
+	return err
+}

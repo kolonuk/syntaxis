@@ -58,6 +58,12 @@ func (a *App) UserHandler() http.Handler {
 			r.Put("/secrets/{name}", a.handleSecretPut)
 			r.Delete("/secrets/{name}", a.handleSecretDelete)
 			r.Post("/workspace/keep", a.handleWorkspaceKeep)
+			r.Get("/connections", a.handleConnections)
+			r.Put("/connections/{kind}", a.handleConnectionPut)
+			r.Delete("/connections/{kind}", a.handleConnectionDelete)
+			r.Post("/connections/{kind}/test", a.handleConnectionTest)
+			r.Get("/connections/{kind}/repos", a.handleConnectionRepos)
+			r.Post("/connections/{kind}/repos", a.handleConnectionRepoCreate)
 			r.Get("/sessions", a.handleSessions)
 			r.Post("/sessions", a.handleSessionCreate)
 			r.Route("/sessions/{id}", func(r chi.Router) {

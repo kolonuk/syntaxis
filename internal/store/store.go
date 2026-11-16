@@ -75,6 +75,17 @@ type PolicyData struct {
 	NoCloudTools  bool     `json:"no_cloud_tools,omitempty"`
 }
 
+// Connection is the record of one user's connection to an external service. The credentials
+// themselves are secrets in the user's vault; Settings holds the non-secret fields.
+type Connection struct {
+	UserID    int64
+	Kind      string
+	Account   string
+	Detail    string
+	Settings  map[string]string
+	CheckedAt time.Time
+}
+
 // Policy is a named PolicyData: a user level ("level") or a user group ("group").
 type Policy struct {
 	ID   int64
@@ -227,6 +238,11 @@ type Store interface {
 	GetUser(ctx context.Context, id int64) (*User, error)
 	UpdateUserPolicy(ctx context.Context, u User) error
 	ListUsers(ctx context.Context) ([]User, error)
+
+	// connections to external services (per user)
+	ListConnections(ctx context.Context, userID int64) ([]Connection, error)
+	PutConnection(ctx context.Context, c Connection) error
+	DeleteConnection(ctx context.Context, userID int64, kind string) error
 
 	// levels and groups
 	ListPolicies(ctx context.Context, kind string) ([]Policy, error)
