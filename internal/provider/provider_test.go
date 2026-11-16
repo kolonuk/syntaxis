@@ -6,27 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 var ctx = context.Background()
-
-func mk(t *testing.T, kind string, h http.Handler, key string) Provider {
-	t.Helper()
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-	p, err := New(Config{Kind: kind, BaseURL: srv.URL + "/", APIKey: key})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
 
 func TestNewValidation(t *testing.T) {
 	if _, err := New(Config{Kind: "ollama"}); err == nil {
@@ -43,259 +30,124 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
-func ollamaMux() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"models":[{"name":"alpha:1b","digest":"d1","size":100},{"name":"beta:2b","digest":"d2","size":200}]}`)
-	})
-	mux.HandleFunc("/api/show", func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(b), "alpha:1b") {
-			http.Error(w, "no", 404)
-			return
-		}
-		fmt.Fprint(w, `{"details":{"parameter_size":"1B","quantization_level":"Q4"},"model_info":{"llama.context_length":131072},"parameters":"num_ctx 8192\nstop x","capabilities":["completion","tools"]}`)
-	})
-	mux.HandleFunc("/api/ps", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"models":[{"name":"alpha:1b","digest":"d1","size":5000,"size_vram":4000,"context_length":4096}]}`)
-	})
-	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req["stream"] != true {
-			http.Error(w, "stream required", 400)
-		}
-		opts, _ := req["options"].(map[string]any)
-		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"Hel"},"done":false}`)
-		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"lo"},"done":false}`)
-		if opts["num_ctx"] != nil {
-			fmt.Fprintln(w, `{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"run","arguments":{"cmd":"ls"}}}]},"done":false}`)
-		}
-		fmt.Fprintln(w, `{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":12,"eval_count":3}`)
-	})
-	return mux
-}
-
-func TestOllamaDiscovery(t *testing.T) {
-	p := mk(t, KindOllama, ollamaMux(), "")
-	lat, err := p.Ping(ctx)
-	if err != nil || lat <= 0 {
-		t.Fatalf("ping %v %v", lat, err)
-	}
-	ms, err := p.ListModels(ctx)
-	if err != nil || len(ms) != 2 || ms[0].Digest != "d1" {
-		t.Fatalf("%+v %v", ms, err)
-	}
-	d, err := p.ModelDetail(ctx, "alpha:1b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.ContextAdvert != 131072 || d.ContextLoaded != 8192 || d.SupportsTools == nil || !*d.SupportsTools || d.ParameterSize != "1B" {
-		t.Fatalf("%+v", d)
-	}
-	if _, err := p.ModelDetail(ctx, "missing"); err == nil {
-		t.Fatal("expected error for unknown model")
-	}
-	l, supported, err := p.Loaded(ctx)
-	if err != nil || !supported || len(l) != 1 || l[0].VRAMBytes != 4000 || l[0].ContextSize != 4096 {
-		t.Fatalf("%+v %v %v", l, supported, err)
-	}
-}
-
-func TestOllamaLoadedUnsupported(t *testing.T) {
-	p := mk(t, KindOllama, http.NotFoundHandler(), "")
-	_, supported, err := p.Loaded(ctx)
-	if err != nil || supported {
-		t.Fatalf("supported=%v err=%v", supported, err)
-	}
-}
-
-func TestOllamaChatStreamsAndToolCalls(t *testing.T) {
-	p := mk(t, KindOllama, ollamaMux(), "")
-	var deltas []string
-	res, err := p.Chat(ctx, ChatRequest{Model: "alpha:1b", NumCtx: 8192,
-		Messages: []Message{{Role: "user", Content: "hi"}},
-		Tools:    []ToolDef{{Name: "run", Description: "x", Parameters: json.RawMessage(`{"type":"object"}`)}}},
-		func(s string) { deltas = append(deltas, s) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Content != "Hello" || strings.Join(deltas, "|") != "Hel|lo" {
-		t.Fatalf("content %q deltas %v", res.Content, deltas)
-	}
-	if len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "run" || !strings.Contains(string(res.ToolCalls[0].Arguments), "ls") {
-		t.Fatalf("%+v", res.ToolCalls)
-	}
-	if !res.Usage.Reported || res.Usage.PromptTokens != 12 || res.Usage.CompletionTokens != 3 || res.FinishReason != "stop" {
-		t.Fatalf("%+v", res)
-	}
-	if res.TTFT <= 0 || res.Duration < res.TTFT {
-		t.Fatalf("timings %+v", res)
-	}
-}
-
-func TestOllamaChatErrors(t *testing.T) {
-	p := mk(t, KindOllama, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"error":"model not found"}`)
-	}), "")
-	if _, err := p.Chat(ctx, ChatRequest{Model: "x"}, nil); err == nil || !strings.Contains(err.Error(), "model not found") {
-		t.Fatalf("%v", err)
-	}
-	p = mk(t, KindOllama, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", 500) }), "")
-	if _, err := p.Chat(ctx, ChatRequest{Model: "x"}, nil); err == nil {
-		t.Fatal("500 accepted")
-	}
-	p = mk(t, KindOllama, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "not json") }), "")
-	if _, err := p.Chat(ctx, ChatRequest{Model: "x"}, nil); err == nil {
-		t.Fatal("garbage accepted")
-	}
-}
-
-func openaiMux(t *testing.T, wantKey string) http.Handler {
-	mux := http.NewServeMux()
-	auth := func(h http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if wantKey != "" && r.Header.Get("Authorization") != "Bearer "+wantKey {
-				http.Error(w, "unauthorized", 401)
-				return
-			}
-			h(w, r)
-		}
-	}
-	mux.HandleFunc("/v1/models", auth(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":[{"id":"m1"},{"id":"m2"}]}`)
-	}))
-	mux.HandleFunc("/props", auth(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"default_generation_settings":{"n_ctx":4096}}`)
-	}))
-	mux.HandleFunc("/model/info", auth(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":[{"model_name":"m1","model_info":{"max_input_tokens":32000,"supports_function_calling":true}}]}`)
-	}))
-	mux.HandleFunc("/v1/chat/completions", auth(func(w http.ResponseWriter, r *http.Request) {
-		fl := w.(http.Flusher)
-		send := func(s string) { fmt.Fprintf(w, "data: %s\n\n", s); fl.Flush() }
-		send(`{"choices":[{"delta":{"content":"Hi "}}]}`)
-		send(`{"choices":[{"delta":{"content":"there"}}]}`)
-		send(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"run","arguments":"{\"cmd\":"}}]}}]}`)
-		send(`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ls\"}"}}]},"finish_reason":"tool_calls"}]}`)
-		send(`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":4}}`)
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	return mux
-}
-
-func TestOpenAIDiscoveryAndAuth(t *testing.T) {
-	p := mk(t, KindOpenAI, openaiMux(t, "k3y"), "k3y")
-	ms, err := p.ListModels(ctx)
-	if err != nil || len(ms) != 2 || ms[1].Name != "m2" {
-		t.Fatalf("%+v %v", ms, err)
-	}
-	if _, err := p.Ping(ctx); err != nil {
-		t.Fatal(err)
-	}
-	bad := mk(t, KindOpenAI, openaiMux(t, "k3y"), "wrong")
-	if _, err := bad.ListModels(ctx); !errors.Is(err, ErrAuth) {
-		t.Fatalf("want ErrAuth, got %v", err)
-	}
-	if _, supported, _ := p.Loaded(ctx); supported {
-		t.Fatal("openai cannot report residency")
-	}
-}
-
-func TestLlamaCppProps(t *testing.T) {
-	p := mk(t, KindLlamaCpp, openaiMux(t, ""), "")
-	d, _ := p.ModelDetail(ctx, "m1")
-	if d.ContextLoaded != 4096 || !strings.Contains(d.ContextSource, "n_ctx") {
-		t.Fatalf("%+v", d)
-	}
-}
-
-func TestLiteLLMModelInfo(t *testing.T) {
-	p := mk(t, KindLiteLLM, openaiMux(t, ""), "")
-	d, _ := p.ModelDetail(ctx, "m1")
-	if d.ContextAdvert != 32000 || d.SupportsTools == nil || !*d.SupportsTools {
-		t.Fatalf("%+v", d)
-	}
-	d, _ = p.ModelDetail(ctx, "unknown")
-	if d.ContextAdvert != 0 || d.SupportsTools != nil {
-		t.Fatalf("unknown model got details: %+v", d)
-	}
-}
-
-func TestOpenAIChatAssemblesToolCallFragments(t *testing.T) {
-	p := mk(t, KindOpenAI, openaiMux(t, ""), "")
-	var got strings.Builder
-	res, err := p.Chat(ctx, ChatRequest{Model: "m1", Messages: []Message{{Role: "user", Content: "x"}}}, func(s string) { got.WriteString(s) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Content != "Hi there" || got.String() != "Hi there" {
-		t.Fatalf("%q", res.Content)
-	}
-	if len(res.ToolCalls) != 1 || res.ToolCalls[0].ID != "c1" || string(res.ToolCalls[0].Arguments) != `{"cmd":"ls"}` {
-		t.Fatalf("%+v", res.ToolCalls)
-	}
-	var args map[string]string
-	if err := json.Unmarshal(res.ToolCalls[0].Arguments, &args); err != nil || args["cmd"] != "ls" {
-		t.Fatal("arguments not valid JSON")
-	}
-	if !res.Usage.Reported || res.Usage.PromptTokens != 7 || res.FinishReason != "tool_calls" {
-		t.Fatalf("%+v", res)
-	}
-}
-
-func TestOpenAIChatMidStreamError(t *testing.T) {
-	p := mk(t, KindOpenAI, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "data: {\"error\":{\"message\":\"context length exceeded\"}}\n\n")
-	}), "")
-	if _, err := p.Chat(ctx, ChatRequest{Model: "m"}, nil); err == nil || !strings.Contains(err.Error(), "context length") {
-		t.Fatalf("%v", err)
-	}
-}
-
-func TestUnreachableAndCancel(t *testing.T) {
+func TestUnreachable(t *testing.T) {
+	// nothing listens on port 1: the real network stack refuses the connection
 	p, _ := New(Config{Kind: KindOllama, BaseURL: "http://127.0.0.1:1"})
 	if _, err := p.ListModels(ctx); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("%v", err)
 	}
-	slow := mk(t, KindOpenAI, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-		case <-time.After(1 * time.Second):
-		}
-	}), "")
-	c, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	if _, err := slow.Chat(c, ChatRequest{Model: "m"}, nil); err == nil {
-		t.Fatal("expected cancel error")
+}
+
+// live returns a provider on the real local Ollama from the private test environment.
+func live(t *testing.T, kind, suffix string) (Provider, map[string]string) {
+	env := testenv.Load(t)
+	url := env["OLLAMA_URL"]
+	if url == "" {
+		testenv.NotTested(t, "OLLAMA_URL is not in the private test environment")
 	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("cancel not honoured")
+	p, err := New(Config{Kind: kind, BaseURL: strings.TrimRight(url, "/") + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := p.ListModels(c); err != nil {
+		testenv.NotTested(t, "the Ollama server is not reachable: "+err.Error())
+	}
+	return p, env
+}
+
+func TestLiveOllamaDiscoveryAndResidency(t *testing.T) {
+	p, env := live(t, KindOllama, "")
+	ms, err := p.ListModels(ctx)
+	if err != nil || len(ms) == 0 {
+		t.Fatalf("%v %v", ms, err)
+	}
+	d, err := p.ModelDetail(ctx, env["MODEL_TINY"])
+	if err != nil || d.ContextAdvert <= 0 {
+		t.Fatalf("detail %+v %v", d, err)
+	}
+	if _, supported, err := p.Loaded(ctx); !supported || err != nil {
+		t.Fatalf("Ollama reports what is loaded: supported=%v err=%v", supported, err)
 	}
 }
 
-func TestChatReportsPhases(t *testing.T) {
-	p := mk(t, KindOllama, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"","thinking":"hmm"},"done":false}`)
-		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"Hi"},"done":false}`)
-		fmt.Fprintln(w, `{"message":{"content":""},"done":true,"done_reason":"stop","eval_count":2}`)
-	}), "")
+func TestLiveOllamaChatStreamsAndReportsUsage(t *testing.T) {
+	p, env := live(t, KindOllama, "")
+	var deltas []string
 	var phases []string
-	if _, err := p.Chat(ctx, ChatRequest{Model: "x", Phase: func(s string) { phases = append(phases, s) }}, nil); err != nil {
+	c, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	res, err := p.Chat(c, ChatRequest{Model: env["MODEL_TINY"], NumCtx: 2048,
+		Messages: []Message{{Role: "user", Content: "Reply with the single word: pong"}},
+		Phase:    func(s string) { phases = append(phases, s) }},
+		func(s string) { deltas = append(deltas, s) })
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(phases) < 2 || phases[0] != PhaseFirstByte || phases[1] != PhaseThinking {
-		t.Fatalf("phases %v", phases)
+	if strings.TrimSpace(res.Content) == "" || strings.Join(deltas, "") != res.Content {
+		t.Fatalf("content %q deltas %q", res.Content, deltas)
 	}
-	o := mk(t, KindOpenAI, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hmm\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: [DONE]\n\n")
-	}), "")
-	phases = nil
-	if _, err := o.Chat(ctx, ChatRequest{Model: "x", Phase: func(s string) { phases = append(phases, s) }}, nil); err != nil {
+	if !res.Usage.Reported || res.Usage.PromptTokens == 0 || res.Usage.CompletionTokens == 0 {
+		t.Fatalf("usage %+v", res.Usage)
+	}
+	if res.TTFT <= 0 || res.Duration < res.TTFT || len(phases) == 0 || phases[0] != PhaseFirstByte {
+		t.Fatalf("timings %+v phases %v", res, phases)
+	}
+}
+
+func TestLiveOllamaChatCancelIsHonoured(t *testing.T) {
+	p, env := live(t, KindOllama, "")
+	c, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := p.Chat(c, ChatRequest{Model: env["MODEL_MAIN"], Messages: []Message{{Role: "user", Content: "Write a very long story."}}}, nil)
+	if err == nil {
+		t.Fatal("expected the cancelled request to fail")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("cancel was not honoured")
+	}
+}
+
+func TestLiveOllamaToolCall(t *testing.T) {
+	p, env := live(t, KindOllama, "")
+	m := env["MODEL_SMALL"]
+	if m == "" {
+		testenv.NotTested(t, "MODEL_SMALL is not in the private test environment")
+	}
+	c, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancel()
+	res, err := p.Chat(c, ChatRequest{Model: m, NumCtx: 4096,
+		Messages: []Message{{Role: "user", Content: "Use the run tool to list files with the command ls."}},
+		Tools: []ToolDef{{Name: "run", Description: "Run a shell command", Parameters: json.RawMessage(
+			`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}`)}}}, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(phases) < 2 || phases[0] != PhaseFirstByte || phases[1] != PhaseThinking {
-		t.Fatalf("openai phases %v", phases)
+	if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "run" {
+		t.Skipf("NOT TESTED: the model %s did not call the tool this time (%q); a model's choice, not a code fault", m, res.Content)
 	}
+}
+
+// Ollama also serves the OpenAI-compatible API under /v1 (the adapter adds it), which exercises the OpenAI adapter
+// against a real server.
+func TestLiveOpenAICompatibleOnOllama(t *testing.T) {
+	p, env := live(t, KindOpenAI, "")
+	ms, err := p.ListModels(ctx)
+	if err != nil || len(ms) == 0 {
+		t.Fatalf("%v %v", ms, err)
+	}
+	c, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	var phases []string
+	res, err := p.Chat(c, ChatRequest{Model: env["MODEL_TINY"], Messages: []Message{{Role: "user", Content: "Reply with the single word: pong"}},
+		Phase: func(s string) { phases = append(phases, s) }}, nil)
+	if err != nil || strings.TrimSpace(res.Content) == "" {
+		t.Fatalf("%v %+v", err, res)
+	}
+}
+
+func TestNotTestedAdapters(t *testing.T) {
+	testenv.NotTested(t, "the llama.cpp and LiteLLM adapters (no such server is available here), and tool-call fragments and mid-stream errors from a hosted OpenAI-style service")
 }

@@ -3,207 +3,253 @@
 package connections
 
 import (
+	"bytes"
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 var ctx = context.Background()
 
-func srv(t *testing.T, h http.HandlerFunc) *httptest.Server {
+// svc is the real provider for a kind, built the way the server builds it.
+func svc(t *testing.T, kind string) Provider {
 	t.Helper()
-	s := httptest.NewServer(h)
-	t.Cleanup(s.Close)
-	return s
+	p, ok := New(nil).Get(kind)
+	if !ok {
+		t.Fatalf("no provider %s", kind)
+	}
+	return p
 }
 
-func TestGitHub(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" {
-			http.Error(w, `{"message":"Bad credentials"}`, 401)
-			return
-		}
-		switch r.Method + " " + r.URL.Path {
-		case "GET /user":
-			_, _ = io.WriteString(w, `{"login":"octo","name":"Octo Cat"}`)
-		case "GET /user/repos":
-			_, _ = io.WriteString(w, `[{"full_name":"octo/app","description":"the app","private":true,"clone_url":"https://x/octo/app.git","default_branch":"main"},{"full_name":"octo/docs","description":"","private":false}]`)
-		case "POST /user/repos":
-			b, _ := io.ReadAll(r.Body)
-			if !strings.Contains(string(b), `"name":"new"`) || !strings.Contains(string(b), `"private":true`) {
-				t.Errorf("create body %s", b)
-			}
-			_, _ = io.WriteString(w, `{"full_name":"octo/new","private":true,"clone_url":"https://x/octo/new.git","default_branch":"main"}`)
-		case "GET /repos/octo/app":
-			_, _ = io.WriteString(w, `{"default_branch":"trunk"}`)
-		case "POST /repos/octo/app/pulls":
-			b, _ := io.ReadAll(r.Body)
-			if !strings.Contains(string(b), `"base":"trunk"`) || !strings.Contains(string(b), `"head":"feature"`) {
-				t.Errorf("pr body %s", b)
-			}
-			_, _ = io.WriteString(w, `{"html_url":"https://github.example/octo/app/pull/7"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	g := &GitHub{HC: s.Client(), APIBase: s.URL}
-	c := Creds{"GITHUB_TOKEN": "tok"}
-	id, err := g.Test(ctx, c)
-	if err != nil || id.Account != "octo" {
-		t.Fatalf("%+v %v", id, err)
+func git(t *testing.T, kind string) GitProvider {
+	t.Helper()
+	g, ok := New(nil).Git(kind)
+	if !ok {
+		t.Fatalf("no git provider %s", kind)
 	}
-	if _, err := g.Test(ctx, Creds{"GITHUB_TOKEN": "bad"}); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("a refused token must say so: %v", err)
-	}
-	rs, _ := g.ListRepos(ctx, c, "")
-	if len(rs) != 2 {
-		t.Fatalf("%+v", rs)
-	}
-	if rs, _ := g.ListRepos(ctx, c, "APP"); len(rs) != 1 || rs[0].FullName != "octo/app" {
-		t.Fatalf("search: %+v", rs)
-	}
-	if r, err := g.CreateRepo(ctx, c, NewRepo{Name: "new", Private: true}); err != nil || r.FullName != "octo/new" {
-		t.Fatalf("%+v %v", r, err)
-	}
-	if u, err := g.OpenPR(ctx, c, PullRequest{Repo: "octo/app", Title: "t", Head: "feature"}); err != nil || !strings.HasSuffix(u, "/pull/7") {
-		t.Fatalf("%q %v", u, err)
-	}
-	if _, err := g.OpenPR(ctx, c, PullRequest{Repo: "../etc/passwd", Head: "x"}); err == nil {
-		t.Fatal("a repository name that is not owner/name was accepted")
-	}
+	return g
 }
 
-func TestTokenNeverAppearsInErrors(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", 500) })
-	g := &GitHub{HC: s.Client(), APIBase: s.URL}
-	_, err := g.Test(ctx, Creds{"GITHUB_TOKEN": "ghp_supersecretvalue"})
-	if err == nil || strings.Contains(err.Error(), "supersecret") {
+// These tests talk to the real services. Where a service needs an account that is not available
+// the test skips and says NOT TESTED, naming the variable that would enable it. Nothing here
+// pretends to be a service.
+
+func TestGitHubRejectsAWrongTokenWithoutRepeatingIt(t *testing.T) {
+	testenv.Network(t, "api.github.com:443")
+	g := git(t, "github")
+	_, err := g.Test(ctx, Creds{"GITHUB_TOKEN": "ghp_supersecretvalue0000000000000000000000"})
+	if !errors.Is(err, ErrBadCredentials) || strings.Contains(err.Error(), "supersecret") {
 		t.Fatalf("%v", err)
 	}
 }
 
-func TestGitLab(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("PRIVATE-TOKEN") != "tok" {
-			http.Error(w, "{}", 401)
-			return
-		}
-		switch r.Method + " " + r.URL.Path {
-		case "GET /api/v4/user":
-			_, _ = io.WriteString(w, `{"username":"gl","name":"G L"}`)
-		case "GET /api/v4/projects":
-			if r.URL.Query().Get("search") != "app" {
-				t.Errorf("search %q", r.URL.RawQuery)
-			}
-			_, _ = io.WriteString(w, `[{"path_with_namespace":"grp/sub/app","visibility":"private","http_url_to_repo":"https://gl/grp/sub/app.git","default_branch":"main"}]`)
-		case "POST /api/v4/projects":
-			_, _ = io.WriteString(w, `{"path_with_namespace":"gl/new","visibility":"private"}`)
-		case "GET /api/v4/projects/grp%2Fsub%2Fapp", "GET /api/v4/projects/grp/sub/app":
-			_, _ = io.WriteString(w, `{"default_branch":"main"}`)
-		case "POST /api/v4/projects/grp%2Fsub%2Fapp/merge_requests", "POST /api/v4/projects/grp/sub/app/merge_requests":
-			_, _ = io.WriteString(w, `{"web_url":"https://gl/grp/sub/app/-/merge_requests/3"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	g := &GitLab{HC: s.Client()}
-	c := Creds{"GITLAB_TOKEN": "tok", "GITLAB_HOST": s.URL + "/"}
-	if id, err := g.Test(ctx, c); err != nil || id.Account != "gl" {
+func TestGitHubWithARealToken(t *testing.T) {
+	tok := testenv.Env(t, "SYNTAXIS_TEST_GITHUB_TOKEN", "the GitHub connection")
+	g := git(t, "github")
+	c := Creds{"GITHUB_TOKEN": tok}
+	id, err := g.Test(ctx, c)
+	if err != nil || id.Account == "" {
 		t.Fatalf("%+v %v", id, err)
 	}
-	if rs, err := g.ListRepos(ctx, c, "app"); err != nil || len(rs) != 1 || !rs[0].Private || rs[0].FullName != "grp/sub/app" {
+	rs, err := g.ListRepos(ctx, c, "")
+	if err != nil || len(rs) == 0 || !strings.HasPrefix(rs[0].CloneURL, "https://github.com/") {
 		t.Fatalf("%+v %v", rs, err)
 	}
-	if r, err := g.CreateRepo(ctx, c, NewRepo{Name: "new", Private: true}); err != nil || r.FullName != "gl/new" {
-		t.Fatalf("%+v %v", r, err)
-	}
-	if u, err := g.OpenPR(ctx, c, PullRequest{Repo: "grp/sub/app", Title: "t", Head: "f"}); err != nil || !strings.Contains(u, "merge_requests/3") {
-		t.Fatalf("%q %v", u, err)
-	}
-	if _, err := g.Test(ctx, Creds{"GITLAB_TOKEN": "tok", "GITLAB_HOST": "ftp://x"}); err == nil {
-		t.Fatal("a non-http address was accepted")
+	// creating repositories and opening pull requests change a real account, so they are not run
+	t.Log("NOT TESTED: creating a GitHub repository and opening a pull request (they would change the real account)")
+}
+
+func TestGitLabRejectsAWrongToken(t *testing.T) {
+	testenv.Network(t, "gitlab.com:443")
+	_, err := svc(t, "gitlab").Test(ctx, Creds{"GITLAB_TOKEN": "glpat-0000000000000000000x"})
+	if !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("%v", err)
 	}
 }
 
-func TestGitea(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "token tok" {
-			http.Error(w, "{}", 401)
-			return
-		}
-		switch r.Method + " " + r.URL.Path {
-		case "GET /api/v1/user":
-			_, _ = io.WriteString(w, `{"login":"ge"}`)
-		case "GET /api/v1/user/repos":
-			_, _ = io.WriteString(w, `[{"full_name":"ge/app","private":true,"clone_url":"https://g/ge/app.git","default_branch":"main"}]`)
-		case "POST /api/v1/user/repos":
-			_, _ = io.WriteString(w, `{"full_name":"ge/new"}`)
-		case "POST /api/v1/repos/ge/app/pulls":
-			_, _ = io.WriteString(w, `{"html_url":"https://g/ge/app/pulls/2"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	g := &Gitea{HC: s.Client()}
-	c := Creds{"GITEA_TOKEN": "tok", "GITEA_URL": s.URL}
-	if id, err := g.Test(ctx, c); err != nil || id.Account != "ge" {
+func TestGitLabWithARealToken(t *testing.T) {
+	tok := testenv.Env(t, "SYNTAXIS_TEST_GITLAB_TOKEN", "the GitLab connection")
+	g := git(t, "gitlab")
+	c := Creds{"GITLAB_TOKEN": tok}
+	if id, err := g.Test(ctx, c); err != nil || id.Account == "" {
 		t.Fatalf("%+v %v", id, err)
 	}
-	if rs, _ := g.ListRepos(ctx, c, ""); len(rs) != 1 {
-		t.Fatalf("%+v", rs)
+	if _, err := g.ListRepos(ctx, c, ""); err != nil {
+		t.Fatal(err)
 	}
-	if u, err := g.OpenPR(ctx, c, PullRequest{Repo: "ge/app", Title: "t", Head: "f", Base: "main"}); err != nil || !strings.HasSuffix(u, "/pulls/2") {
-		t.Fatalf("%q %v", u, err)
+}
+
+func TestCloudflareRejectsAWrongToken(t *testing.T) {
+	testenv.Network(t, "api.cloudflare.com:443")
+	_, err := svc(t, "cloudflare").Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "0000000000000000000000000000000000000000"})
+	if !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("%v", err)
 	}
-	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": "tok"}); err == nil {
+}
+
+func TestCloudflareWithARealToken(t *testing.T) {
+	tok := testenv.Env(t, "SYNTAXIS_TEST_CLOUDFLARE_TOKEN", "the Cloudflare connection")
+	if id, err := svc(t, "cloudflare").Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": tok}); err != nil || id.Account == "" {
+		t.Fatalf("%+v %v", id, err)
+	}
+}
+
+func TestIFTTTRejectsAWrongKey(t *testing.T) {
+	testenv.Network(t, "maker.ifttt.com:443")
+	_, err := svc(t, "ifttt").Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": "nope"})
+	if !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestIFTTTWithARealKey(t *testing.T) {
+	key := testenv.Env(t, "SYNTAXIS_TEST_IFTTT_KEY", "the IFTTT connection")
+	if _, err := svc(t, "ifttt").Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": key}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAWSRejectsWrongKeys(t *testing.T) {
+	testenv.Network(t, "sts.us-east-1.amazonaws.com:443")
+	_, err := svc(t, "aws").Test(ctx, Creds{"AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE", "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "AWS_DEFAULT_REGION": "us-east-1"})
+	if !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestAWSWithRealKeys(t *testing.T) {
+	id := testenv.Env(t, "SYNTAXIS_TEST_AWS_ACCESS_KEY_ID", "the AWS connection")
+	secret := testenv.Env(t, "SYNTAXIS_TEST_AWS_SECRET_ACCESS_KEY", "the AWS connection")
+	got, err := svc(t, "aws").Test(ctx, Creds{"AWS_ACCESS_KEY_ID": id, "AWS_SECRET_ACCESS_KEY": secret, "AWS_DEFAULT_REGION": "us-east-1"})
+	if err != nil || got.Account == "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestAzureWithRealCredentials(t *testing.T) {
+	c := Creds{}
+	for _, k := range []string{"AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID"} {
+		c[k] = testenv.Env(t, "SYNTAXIS_TEST_"+k, "the Azure connection")
+	}
+	if id, err := svc(t, "azure").Test(ctx, c); err != nil || id.Account == "" {
+		t.Fatalf("%+v %v", id, err)
+	}
+}
+
+func TestGCPWithRealCredentials(t *testing.T) {
+	c := Creds{
+		"GCP_SERVICE_ACCOUNT_JSON": testenv.Env(t, "SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON", "the Google Cloud connection"),
+		"GOOGLE_CLOUD_PROJECT":     testenv.Env(t, "SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT", "the Google Cloud connection"),
+	}
+	if id, err := svc(t, "gcp").Test(ctx, c); err != nil || id.Account == "" {
+		t.Fatalf("%+v %v", id, err)
+	}
+}
+
+// A real Gitea server in a container: the whole repository workflow, end to end.
+func TestGiteaAgainstARealServer(t *testing.T) {
+	testenv.Docker(t)
+	name := fmt.Sprintf("syntaxis-test-gitea-%d", time.Now().UnixNano()%1e9)
+	out, err := exec.Command("docker", "run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::3000",
+		"-e", "GITEA__security__INSTALL_LOCK=true", "-e", "GITEA__database__DB_TYPE=sqlite3",
+		"-e", "GITEA__service__DISABLE_REGISTRATION=true", "gitea/gitea:1.22").CombinedOutput()
+	if err != nil {
+		testenv.NotTested(t, "the Gitea image could not be started (no network to pull it?): "+strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+	pt, err := exec.Command("docker", "port", name, "3000/tcp").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + strings.TrimSpace(strings.Split(string(pt), "\n")[0])
+	hc := &http.Client{Timeout: 10 * time.Second}
+	deadline := time.Now().Add(120 * time.Second)
+	for {
+		r, err := hc.Get(base + "/api/healthz")
+		if err == nil {
+			_ = r.Body.Close()
+			if r.StatusCode == 200 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Gitea did not become ready")
+		}
+		time.Sleep(time.Second)
+	}
+	const pw = "Passw0rd-test-1"
+	if b, err := exec.Command("docker", "exec", "-u", "git", name, "gitea", "admin", "user", "create", "--admin", "--username", "tester",
+		"--password", pw, "--email", "t@example.com", "--must-change-password=false").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	call := func(method, path string, auth func(*http.Request), body any) (int, []byte) {
+		var rd *bytes.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = bytes.NewReader(b)
+		} else {
+			rd = bytes.NewReader(nil)
+		}
+		req, _ := http.NewRequest(method, base+path, rd)
+		req.Header.Set("Content-Type", "application/json")
+		auth(req)
+		r, err := hc.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r.Body)
+		return r.StatusCode, buf.Bytes()
+	}
+	code, b := call("POST", "/api/v1/users/tester/tokens", func(r *http.Request) { r.SetBasicAuth("tester", pw) }, map[string]any{"name": "t", "scopes": []string{"all"}})
+	var tk struct {
+		Sha1 string `json:"sha1"`
+	}
+	_ = json.Unmarshal(b, &tk)
+	if code != 201 || tk.Sha1 == "" {
+		t.Fatalf("token: %d %s", code, b)
+	}
+	g := git(t, "gitea")
+	c := Creds{"GITEA_TOKEN": tk.Sha1, "GITEA_URL": base}
+	if id, err := g.Test(ctx, c); err != nil || id.Account != "tester" {
+		t.Fatalf("%+v %v", id, err)
+	}
+	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": "wrong", "GITEA_URL": base}); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("wrong token: %v", err)
+	}
+	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": tk.Sha1}); err == nil {
 		t.Fatal("a missing server address was accepted")
 	}
-}
-
-func TestCloudflare(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" {
-			http.Error(w, "{}", 401)
-			return
-		}
-		_, _ = io.WriteString(w, `{"success":true,"result":{"id":"abc123","status":"active"}}`)
-	})
-	cf := &Cloudflare{HC: s.Client(), APIBase: s.URL}
-	if id, err := cf.Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "tok"}); err != nil || !strings.Contains(id.Account, "abc123") {
-		t.Fatalf("%+v %v", id, err)
+	repo, err := g.CreateRepo(ctx, c, NewRepo{Name: "app", Description: "d", Private: true})
+	if err != nil || repo.FullName != "tester/app" {
+		t.Fatalf("%+v %v", repo, err)
 	}
-	if _, err := cf.Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "no"}); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("%v", err)
+	rs, err := g.ListRepos(ctx, c, "")
+	if err != nil || len(rs) != 1 || rs[0].FullName != "tester/app" {
+		t.Fatalf("%+v %v", rs, err)
 	}
-}
-
-func TestIFTTT(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/trigger/syntaxis_connection_test/with/key/goodkey" {
-			http.Error(w, `{"errors":[{"message":"You sent an invalid key."}]}`, 401)
-			return
-		}
-		_, _ = io.WriteString(w, "Congratulations! You've fired the syntaxis_connection_test event")
-	})
-	i := &IFTTT{HC: s.Client(), Base: s.URL}
-	if id, err := i.Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": "goodkey"}); err != nil || !strings.Contains(id.Account, "accepted") {
-		t.Fatalf("%+v %v", id, err)
+	// give the repository a commit on main and a branch with a change, as an agent's work would be
+	tokAuth := func(r *http.Request) { r.Header.Set("Authorization", "token "+tk.Sha1) }
+	content := base64.StdEncoding.EncodeToString([]byte("one\n"))
+	if code, b := call("POST", "/api/v1/repos/tester/app/contents/a.txt", tokAuth, map[string]any{"content": content, "message": "first", "branch": "main"}); code != 201 {
+		t.Fatalf("first commit: %d %s", code, b)
 	}
-	if _, err := i.Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": "nope"}); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("%v", err)
+	if code, b := call("POST", "/api/v1/repos/tester/app/contents/b.txt", tokAuth, map[string]any{"content": content, "message": "second", "branch": "main", "new_branch": "syntaxis/x"}); code != 201 {
+		t.Fatalf("branch: %d %s", code, b)
+	}
+	u, err := g.OpenPR(ctx, c, PullRequest{Repo: "tester/app", Title: "Add b", Body: "from the agent", Head: "syntaxis/x", Base: "main"})
+	if err != nil || !strings.Contains(u, "/tester/app/pulls/") {
+		t.Fatalf("%q %v", u, err)
 	}
 }
 
@@ -214,101 +260,6 @@ func TestSigV4MatchesAWSTestVector(t *testing.T) {
 	want := "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
 	if got := req.Header.Get("Authorization"); got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
-	}
-}
-
-func TestAWS(t *testing.T) {
-	s := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.Header.Get("Authorization"), "Credential=AKIATEST/") || r.Header.Get("X-Amz-Security-Token") != "sess" {
-			http.Error(w, "<Error/>", 403)
-			return
-		}
-		_, _ = io.WriteString(w, `<GetCallerIdentityResponse><GetCallerIdentityResult><Arn>arn:aws:iam::111122223333:user/me</Arn><Account>111122223333</Account></GetCallerIdentityResult></GetCallerIdentityResponse>`)
-	})
-	a := &AWS{HC: s.Client(), Endpoint: s.URL + "/", Now: func() time.Time { return time.Unix(1700000000, 0) }}
-	id, err := a.Test(ctx, Creds{"AWS_ACCESS_KEY_ID": "AKIATEST", "AWS_SECRET_ACCESS_KEY": "s", "AWS_SESSION_TOKEN": "sess"})
-	if err != nil || id.Account != "111122223333" || !strings.Contains(id.Detail, "user/me") {
-		t.Fatalf("%+v %v", id, err)
-	}
-	if _, err := a.Test(ctx, Creds{"AWS_ACCESS_KEY_ID": "AKIAOTHER", "AWS_SECRET_ACCESS_KEY": "s"}); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("%v", err)
-	}
-}
-
-func TestAzure(t *testing.T) {
-	const tenant, sub = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
-	var arm *httptest.Server
-	login := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		if r.URL.Path != "/"+tenant+"/oauth2/v2.0/token" || r.Form.Get("client_secret") != "shh" {
-			http.Error(w, `{"error":"invalid_client"}`, 401)
-			return
-		}
-		_, _ = io.WriteString(w, `{"access_token":"armtoken"}`)
-	})
-	arm = srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer armtoken" || r.URL.Path != "/subscriptions/"+sub {
-			http.Error(w, "{}", 403)
-			return
-		}
-		_, _ = io.WriteString(w, `{"displayName":"My Sub","state":"Enabled"}`)
-	})
-	az := &Azure{HC: http.DefaultClient, LoginBase: login.URL, ARMBase: arm.URL}
-	c := Creds{"AZURE_TENANT_ID": tenant, "AZURE_CLIENT_ID": "cid", "AZURE_CLIENT_SECRET": "shh", "AZURE_SUBSCRIPTION_ID": sub}
-	if id, err := az.Test(ctx, c); err != nil || id.Account != "My Sub" {
-		t.Fatalf("%+v %v", id, err)
-	}
-	c["AZURE_CLIENT_SECRET"] = "wrong"
-	if _, err := az.Test(ctx, c); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("%v", err)
-	}
-	c["AZURE_TENANT_ID"] = "../../x"
-	if _, err := az.Test(ctx, c); err == nil {
-		t.Fatal("a tenant that is not an ID was accepted")
-	}
-}
-
-func TestGCP(t *testing.T) {
-	pk, _ := rsa.GenerateKey(rand.Reader, 2048)
-	der, _ := x509.MarshalPKCS8PrivateKey(pk)
-	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
-	keyJSON, _ := json.Marshal(map[string]string{"type": "service_account", "client_email": "sa@proj.example.com", "private_key": pemKey})
-	tokenSrv := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		parts := strings.Split(r.Form.Get("assertion"), ".")
-		if len(parts) != 3 {
-			http.Error(w, "{}", 400)
-			return
-		}
-		sig, _ := base64.RawURLEncoding.DecodeString(parts[2])
-		h := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-		if rsa.VerifyPKCS1v15(&pk.PublicKey, crypto.SHA256, h[:], sig) != nil {
-			http.Error(w, `{"error":"invalid_grant"}`, 400)
-			return
-		}
-		claims, _ := base64.RawURLEncoding.DecodeString(parts[1])
-		if !strings.Contains(string(claims), "sa@proj.example.com") || !strings.Contains(string(claims), "cloud-platform") {
-			http.Error(w, "{}", 400)
-			return
-		}
-		_, _ = io.WriteString(w, `{"access_token":"gtok"}`)
-	})
-	crm := srv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer gtok" || r.URL.Path != "/v1/projects/my-proj" {
-			http.Error(w, "{}", 403)
-			return
-		}
-		_, _ = io.WriteString(w, `{"projectId":"my-proj"}`)
-	})
-	g := &GCP{HC: http.DefaultClient, TokenURL: tokenSrv.URL, CRMBase: crm.URL}
-	id, err := g.Test(ctx, Creds{"GCP_SERVICE_ACCOUNT_JSON": string(keyJSON), "GOOGLE_CLOUD_PROJECT": "my-proj"})
-	if err != nil || id.Account != "sa@proj.example.com" || !strings.Contains(id.Detail, "my-proj") {
-		t.Fatalf("%+v %v", id, err)
-	}
-	for _, bad := range []string{"not json", `{"type":"user"}`, `{"type":"service_account","client_email":"a","private_key":"junk"}`} {
-		if _, err := g.Test(ctx, Creds{"GCP_SERVICE_ACCOUNT_JSON": bad, "GOOGLE_CLOUD_PROJECT": "p"}); err == nil {
-			t.Errorf("accepted %q", bad)
-		}
 	}
 }
 

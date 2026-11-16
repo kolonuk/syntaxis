@@ -7,10 +7,13 @@ package testenv
 
 import (
 	"bufio"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Path returns the env file location (SYNTAXIS_TEST_ENV or ~/.config/syntaxis-test/env).
@@ -47,4 +50,49 @@ func Load(t testing.TB) map[string]string {
 		}
 	}
 	return m
+}
+
+// NotTested skips the test and says so in a form scripts/not-tested.sh can collect. Use it whenever a
+// test cannot run for lack of a real service, never to stand in a pretend one.
+func NotTested(t testing.TB, reason string) {
+	t.Helper()
+	t.Skip("NOT TESTED: " + reason)
+}
+
+// Network skips the test unless the real internet host is reachable.
+func Network(t testing.TB, hostport string) {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", hostport, 5*time.Second)
+	if err != nil {
+		NotTested(t, hostport+" is not reachable from here: "+err.Error())
+	}
+	_ = c.Close()
+}
+
+// Env returns a credential the test needs from the environment, or skips saying which one is missing.
+func Env(t testing.TB, name, what string) string {
+	t.Helper()
+	v := os.Getenv(name)
+	if v == "" {
+		NotTested(t, what+" needs a real account: set "+name+" to run it")
+	}
+	return v
+}
+
+// Docker skips unless a real Docker engine answers. The engine's own client is the source of truth.
+func Docker(t testing.TB) {
+	t.Helper()
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		NotTested(t, "no Docker engine is reachable")
+	}
+}
+
+// GVisor skips unless Docker has the runsc runtime registered.
+func GVisor(t testing.TB) {
+	t.Helper()
+	Docker(t)
+	out, err := exec.Command("docker", "info", "--format", "{{json .Runtimes}}").Output()
+	if err != nil || !strings.Contains(string(out), "runsc") {
+		NotTested(t, "gVisor (runsc) is not registered with Docker")
+	}
 }
