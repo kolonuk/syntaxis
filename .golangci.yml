@@ -35,6 +35,8 @@ linters:
     rules:
       - path: _test\.go
         linters: [gosec, errcheck, bodyclose, staticcheck]
+      - path: internal/testenv/ # test helpers that start containers with names they made themselves
+        linters: [gosec, errcheck, bodyclose]
 formatters:
   enable: [gofmt]
 run:

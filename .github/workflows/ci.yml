@@ -27,7 +27,11 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
-      - run: go test -race -coverprofile=coverage.out ./...
+      - name: Tests (what needs something real that is not here is skipped and listed below)
+        run: go test -race -coverprofile=coverage.out -json ./... > results.json
+      - name: What was not tested
+        if: always()
+        run: scripts/not-tested.sh results.json | tee -a "$GITHUB_STEP_SUMMARY"
       - run: go build -trimpath -o bin/syntaxis ./cmd/syntaxis
 
   web:
@@ -48,6 +52,42 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+      - name: Bundle size budget
+        run: npm run budget
+
+  checks:
+    name: Workflow, Dockerfile and documentation checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - name: hadolint (sandbox image)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: images/sandbox/Dockerfile
+      - name: Links in the documentation
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --exclude-mail --accept 200,403,429 README.md docs/*.md CHANGELOG.md
+          fail: true
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
   security:
     runs-on: ubuntu-latest
@@ -128,8 +168,14 @@ jobs:
           docker run --rm --runtime=runsc alpine:3.20 uname -a
       - name: Build sandbox image
         run: docker build -t syntaxis-sandbox:latest images/sandbox
-      - name: Isolation and containment tests against real gVisor
-        run: SYNTAXIS_IT_EGRESS=1 go test -count=1 -v -run Integration ./internal/sandbox/... ./internal/server/...
+      - name: Every test, against real Docker, real gVisor and the real internet
+        env:
+          SYNTAXIS_IT_EGRESS: "1"
+          SYNTAXIS_TEST_GITHUB_TOKEN: ${{ secrets.SYNTAXIS_TEST_GITHUB_TOKEN }}
+        run: go test -count=1 -timeout 30m -json ./... > results.json
+      - name: What was not tested
+        if: always()
+        run: scripts/not-tested.sh results.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The same sandbox tests through the validating Docker proxy
         run: |
           go build -o bin/syntaxis ./cmd/syntaxis
@@ -140,7 +186,7 @@ jobs:
             echo "the proxy allowed a privileged container"; exit 1
           fi
           DOCKER_HOST=tcp://127.0.0.1:2375 SYNTAXIS_IT_EGRESS=1 go test -count=1 -v \
-            -run 'TestIntegration(GVisorIsolation|ForkBomb|Egress|AgentRun)' ./internal/sandbox/... ./internal/server/...
+            -run 'TestIntegration(GVisorIsolation|ForkBomb|Egress)' ./internal/sandbox/...
 
   install:
     name: Fresh install on a clean machine
@@ -203,7 +249,12 @@ jobs:
           export SYNTAXIS_DATA_DIR=$RUNNER_TEMP/data SYNTAXIS_LOG_LEVEL=warn
           ./bin/syntaxis serve &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 1; done
-      - run: cd web && npm run e2e
+      - name: Playwright flows and accessibility (axe)
+        run: cd web && npm run e2e
+      - name: Lighthouse (accessibility, best practices, SEO, performance)
+        run: |
+          export CHROME_PATH=$(cd web && node -e "console.log(require('@playwright/test').chromium.executablePath())")
+          cd web && npm run lighthouse
 
   installer:
     name: Installer on ${{ matrix.image }} (${{ matrix.arch }})

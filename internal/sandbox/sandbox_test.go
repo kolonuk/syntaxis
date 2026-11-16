@@ -3,13 +3,10 @@
 package sandbox
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 )
-
-var ctx = context.Background()
 
 func TestBuildSpecIsolationProperties(t *testing.T) {
 	s, err := BuildSpec(DefaultConfig(), 7, "sess-1", map[string]string{"GH_TOKEN": "x"}, false)
