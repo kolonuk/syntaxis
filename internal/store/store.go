@@ -232,6 +232,8 @@ type ChatSession struct {
 	PlanMode  bool
 	PlanState string // "" | "proposed" | "approved"
 	PlanText  string
+	// BatchID groups attempts at the same task that were started together to be compared.
+	BatchID string
 }
 
 // Message is a stored conversation message.

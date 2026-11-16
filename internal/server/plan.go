@@ -91,7 +91,7 @@ func (a *App) handleDiff(w http.ResponseWriter, r *http.Request) {
 	dir := sandbox.WorkspacePath
 	base := s.RepoBase
 	if s.RepoName != "" {
-		dir += "/" + repoDirName(s.RepoName)
+		dir += "/" + sessionRepoDir(s)
 	}
 	res, err := a.Sandbox.Exec(r.Context(), s.ID, cid, sandbox.ExecSpec{Cmd: []string{"sh", "-c", diffScript, "_", dir, base}, WorkingDir: "/", Timeout: 60 * time.Second, MaxOutput: 600_000})
 	if err != nil {

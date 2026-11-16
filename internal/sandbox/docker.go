@@ -55,6 +55,15 @@ func (d *Docker) Ping(ctx context.Context) error {
 	return err
 }
 
+// HostInfo implements Runtime.
+func (d *Docker) HostInfo(ctx context.Context) (HostInfo, error) {
+	info, err := d.cli.Info(ctx)
+	if err != nil {
+		return HostInfo{}, err
+	}
+	return HostInfo{CPUs: info.NCPU, MemoryBytes: info.MemTotal, Name: info.Name}, nil
+}
+
 // HasRuntime implements Runtime.
 func (d *Docker) HasRuntime(ctx context.Context, name string) (bool, error) {
 	info, err := d.cli.Info(ctx)

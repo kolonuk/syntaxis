@@ -16,6 +16,10 @@ Each session has an autonomy level: **ask** (every action waits for you), **work
 
 With **Plan first** the agent can only read until you approve its plan. It explores, proposes a numbered plan, and stops; you edit and approve it, or ask for changes. The server enforces this: the planning step has no way to change anything. The **Changes** tab shows what the agent changed, file by file, and a comment on a file can be sent back to the agent.
 
+## Parallel attempts
+
+A new session can run the same task 2 or more times at once. Each attempt gets its own sandbox clone and branch (`syntaxis/<id>`), and the compare view shows their changes side by side; **Keep this one** removes the rest. The offered number is the smallest of: the machine (CPUs and memory against the sandbox limits), your remaining concurrent sessions, and the model server's concurrency (extra attempts would only wait in its queue). A model that is not loaded yet is flagged, since the first attempt loads it.
+
 ## Context and checkpoints
 
 The agent budgets against the model's **real** context window rather than the advertised one (many servers silently run with less; see [troubleshooting](pitfalls.md#context-windows)). Long conversations are summarised automatically and the full history is kept. Before each turn and before any risky action the workspace is snapshotted into a hidden git repository, separate from the user's own `.git`, so work can be rolled back. The **Checkpoints** tab lists them with what changed since each one, and restores the files, or the files and the conversation (later messages are set aside, not deleted). A restore is itself checkpointed, so it can be undone. Rolling back cannot undo a push or a deploy.

@@ -13,6 +13,7 @@ import {
   Modal,
   Select,
   Skeleton,
+  TextArea,
   StatusPill,
   Toggle,
   ToastProvider,
@@ -23,6 +24,7 @@ import { ChangePassword, Forgot, Login, SetPassword, TwoFactorSetup, AuthFrame }
 import { Automations } from "./Automations";
 import { SharedPage } from "./Shared";
 import { Chat } from "./Chat";
+import { Compare, type Capacity } from "./Parallel";
 import { RepoPicker, type RepoChoice } from "./RepoPicker";
 import { Settings, UsagePanel } from "./Settings";
 import { useMe, useRoute } from "./hooks";
@@ -51,9 +53,11 @@ interface ModelOpt {
 function NewSession({
   onClose,
   onCreated,
+  onBatch,
 }: {
   onClose: () => void;
   onCreated: (s: Session) => void;
+  onBatch: (batch: string) => void;
 }) {
   const toast = useToast();
   const [models, setModels] = useState<ModelOpt[] | null>(null);
@@ -62,6 +66,15 @@ function NewSession({
   const [title, setTitle] = useState("");
   const [repo, setRepo] = useState<RepoChoice | null>(null);
   const [plan, setPlan] = useState(false);
+  const [attempts, setAttempts] = useState(1);
+  const [task, setTask] = useState("");
+  const [cap, setCap] = useState<Capacity | null>(null);
+  useEffect(() => {
+    if (!model) return;
+    void get<Capacity>("/parallel/capacity?model=" + encodeURIComponent(model))
+      .then(setCap)
+      .catch(() => setCap(null));
+  }, [model]);
   useEffect(() => {
     void get<ModelOpt[]>("/models").then((m) => {
       const sorted = [...m].sort(
@@ -76,6 +89,19 @@ function NewSession({
   }, []);
   async function create() {
     try {
+      if (attempts > 1) {
+        const r = await post<{ batch: string }>("/parallel", {
+          model,
+          autonomy,
+          title,
+          repo,
+          plan,
+          count: attempts,
+          prompt: task,
+        });
+        onBatch(r.batch);
+        return;
+      }
       onCreated(await post<Session>("/sessions", { model, autonomy, title, repo, plan }));
     } catch (x) {
       toast(errText(x), "error");
@@ -105,7 +131,11 @@ function NewSession({
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={create} disabled={!model}>
+          <Button
+            variant="primary"
+            onClick={create}
+            disabled={!model || (attempts > 1 && !task.trim())}
+          >
             Create
           </Button>
         </>
@@ -136,6 +166,32 @@ function NewSession({
             }))}
           />
           <RepoPicker onChange={setRepo} />
+          {cap && cap.max > 1 && (
+            <>
+              <Input
+                label={`Parallel attempts (1 to ${cap.max}; ${cap.recommended} would run at once)`}
+                type="number"
+                min={1}
+                max={cap.max}
+                value={attempts}
+                onChange={(e) =>
+                  setAttempts(Math.max(1, Math.min(cap.max, Number(e.target.value) || 1)))
+                }
+              />
+              {(cap.limits ?? []).map((l) => (
+                <small key={l} style={{ display: "block" }}>
+                  {l}
+                </small>
+              ))}
+              {attempts > 1 && (
+                <TextArea
+                  label="Task for every attempt"
+                  value={task}
+                  onChange={(e) => setTask(e.target.value)}
+                />
+              )}
+            </>
+          )}
           <Toggle
             label="Plan first: the agent proposes a plan and changes nothing until you approve it"
             checked={plan}
@@ -177,8 +233,9 @@ function Shell({
 }) {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [current, setCurrent] = useState<string>("");
-  const [view, setView] = useState<"chat" | "settings" | "automations">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "automations" | "compare">("chat");
   const [creating, setCreating] = useState(false);
+  const [batch, setBatch] = useState("");
   const [pref, setPref] = useState<ThemePref>(loadPref());
   const [dismissed2fa, setDismissed2fa] = useState(false);
   const [q, setQ] = useState("");
@@ -347,6 +404,20 @@ function Shell({
                 void refresh();
               }}
             />
+          ) : view === "compare" && batch ? (
+            <Compare
+              batch={batch}
+              onOpen={(id) => {
+                setCurrent(id);
+                setView("chat");
+              }}
+              onDone={(id) => {
+                setCurrent(id);
+                setBatch("");
+                setView("chat");
+                void refresh();
+              }}
+            />
           ) : cur ? (
             <Chat
               key={cur.id}
@@ -383,6 +454,12 @@ function Shell({
       {creating && (
         <NewSession
           onClose={() => setCreating(false)}
+          onBatch={(b) => {
+            setCreating(false);
+            setBatch(b);
+            setView("compare");
+            void refresh();
+          }}
           onCreated={(s) => {
             setCreating(false);
             setCurrent(s.id);

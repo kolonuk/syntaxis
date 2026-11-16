@@ -175,7 +175,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	repoDir := ""
 	var gitEnv []string
 	if s.RepoName != "" {
-		repoDir = sandbox.WorkspacePath + "/" + repoDirName(s.RepoName)
+		repoDir = sandbox.WorkspacePath + "/" + sessionRepoDir(s)
 		gitEnv = a.gitIdentity(bg, u, s.RepoKind)
 	}
 	exec := func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
@@ -604,6 +604,16 @@ if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null; then
 else
   if git rev-parse --verify --quiet "refs/remotes/origin/$base" >/dev/null; then git checkout --quiet -B "$branch" "origin/$base"; else git checkout --quiet -B "$branch"; fi
 fi`
+
+// sessionRepoDir is the folder a session works in. Attempts started together share the user's
+// workspace, so each gets its own clone rather than fighting over one working tree.
+func sessionRepoDir(s *store.ChatSession) string {
+	d := repoDirName(s.RepoName)
+	if s.BatchID != "" {
+		d += "-" + s.ID[:min(8, len(s.ID))]
+	}
+	return d
+}
 
 // repoDirName is the folder a repository is cloned into: its name, made safe.
 func repoDirName(fullName string) string {

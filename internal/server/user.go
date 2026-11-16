@@ -79,6 +79,10 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/connections/{kind}/test", a.handleConnectionTest)
 			r.Get("/connections/{kind}/repos", a.handleConnectionRepos)
 			r.Post("/connections/{kind}/repos", a.handleConnectionRepoCreate)
+			r.Get("/parallel/capacity", a.handleParallelCapacity)
+			r.Post("/parallel", a.handleParallelCreate)
+			r.Get("/parallel/{batch}", a.handleParallelGet)
+			r.Post("/parallel/{batch}/keep", a.handleParallelKeep)
 			r.Get("/sessions", a.handleSessions)
 			r.Post("/sessions", a.handleSessionCreate)
 			r.Route("/sessions/{id}", func(r chi.Router) {
@@ -386,7 +390,7 @@ func sessionJSON(s store.ChatSession, run *Run) map[string]any {
 	}
 	return map[string]any{"id": s.ID, "title": s.Title, "model": s.Model, "autonomy": s.Autonomy, "state": state,
 		"created_at": s.CreatedAt, "updated_at": s.UpdatedAt, "tokens_in": s.TokensIn, "tokens_out": s.TokensOut,
-		"repo": s.RepoName, "repo_kind": s.RepoKind, "repo_branch": s.RepoBranch,
+		"batch": s.BatchID, "repo": s.RepoName, "repo_kind": s.RepoKind, "repo_branch": s.RepoBranch,
 		"plan_mode": s.PlanMode, "plan_state": s.PlanState, "plan_text": s.PlanText}
 }
 
@@ -407,6 +411,8 @@ type SessionParams struct {
 	Repo     *RepoSpec `json:"repo"`
 	// Plan makes the agent propose a plan first and change nothing until the user approves it.
 	Plan bool `json:"plan"`
+	// batchID is set when the session is one of several attempts started together.
+	batchID string
 }
 
 // statusError is an error with the HTTP status it should be reported with.
@@ -445,7 +451,7 @@ func (a *App) newSession(ctx context.Context, u *store.User, b SessionParams) (s
 		title = "New session"
 	}
 	now := a.Now().UTC()
-	s := store.ChatSession{ID: newID(), UserID: u.ID, Title: title, ProviderID: provID, Model: modelName, Autonomy: b.Autonomy, State: "idle", CreatedAt: now, UpdatedAt: now, PlanMode: b.Plan}
+	s := store.ChatSession{ID: newID(), UserID: u.ID, Title: title, ProviderID: provID, Model: modelName, Autonomy: b.Autonomy, State: "idle", CreatedAt: now, UpdatedAt: now, PlanMode: b.Plan, BatchID: b.batchID}
 	if b.Repo != nil {
 		rp, err := a.resolveRepo(ctx, u.ID, b.Repo.Kind, b.Repo.FullName, b.Repo.CloneURL, b.Repo.Branch, b.Repo.Create)
 		if err != nil {

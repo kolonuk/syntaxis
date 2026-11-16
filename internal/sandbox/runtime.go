@@ -72,10 +72,19 @@ type Stats struct {
 	At             time.Time
 }
 
+// HostInfo is what the container engine says about the machine it runs on.
+type HostInfo struct {
+	CPUs        int
+	MemoryBytes int64
+	Name        string
+}
+
 // Runtime abstracts the container engine. The Docker implementation talks to
 // the Docker API through the socket proxy; tests use Fake.
 type Runtime interface {
 	Ping(ctx context.Context) error
+	// HostInfo reports the machine's processors and memory (used to size parallel work).
+	HostInfo(ctx context.Context) (HostInfo, error)
 	// HasRuntime reports whether the named OCI runtime (runsc) is registered.
 	HasRuntime(ctx context.Context, name string) (bool, error)
 	ImagePresent(ctx context.Context, image string) (bool, error)

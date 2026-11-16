@@ -52,6 +52,11 @@ func (f *Fake) Count() int {
 	return len(f.Containers)
 }
 
+// HostInfo implements Runtime.
+func (f *Fake) HostInfo(context.Context) (HostInfo, error) {
+	return HostInfo{CPUs: 4, MemoryBytes: 8 << 30, Name: "fake"}, nil
+}
+
 // Ping implements Runtime.
 func (f *Fake) Ping(context.Context) error { return nil }
 
