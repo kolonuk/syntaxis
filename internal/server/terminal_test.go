@@ -16,8 +16,8 @@ import (
 func TestTerminalIsolationAndPolicy(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	fake := sandbox.NewFake()
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	u := e.userSession("a@example.com")
 	other := e.userSession("b@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
@@ -42,21 +42,24 @@ func TestTerminalIsolationAndPolicy(t *testing.T) {
 	if code, m, _ := u.do("GET", "/api/sessions/"+id+"/terminal", nil); code != 403 || !strings.Contains(m["error"].(string), "turned the terminal off") {
 		t.Fatalf("admin switch: %d %v", code, m)
 	}
-	if fake.Count() != 0 {
-		t.Fatal("a sandbox was created for a refused terminal")
+	cs, _ := e.app.Sandbox.RT.List(context.Background())
+	for _, c := range cs {
+		if c.Labels[sandbox.LabelSession] == id {
+			t.Fatal("a sandbox was created for a refused terminal")
+		}
 	}
 }
 
 func TestTerminalRoundTripAndTakeover(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	fake := sandbox.NewFake()
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	u := e.userSession("a@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
 	id := s["id"].(string)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	dial := func() *websocket.Conn {
 		c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(e.user.URL, "http")+"/api/sessions/"+id+"/terminal?rows=30&cols=100", &websocket.DialOptions{HTTPClient: u.hc})
@@ -66,32 +69,43 @@ func TestTerminalRoundTripAndTakeover(t *testing.T) {
 		return c
 	}
 	c1 := dial()
-	if err := c1.Write(ctx, websocket.MessageBinary, []byte("echo hi\n")); err != nil {
+	// a real shell in the real sandbox: the arithmetic is done by the shell, not by an echo
+	if err := c1.Write(ctx, websocket.MessageBinary, []byte("echo $((20+22)); pwd; id -u\n")); err != nil {
 		t.Fatal(err)
 	}
-	_, got, err := c1.Read(ctx)
-	if err != nil || string(got) != "echo hi\n" {
-		t.Fatalf("%q %v", got, err)
+	var out strings.Builder
+	for !(strings.Contains(out.String(), "\n42") && strings.Contains(out.String(), "/workspace") && strings.Contains(out.String(), "10001")) {
+		_, got, err := c1.Read(ctx)
+		if err != nil {
+			t.Fatalf("the shell did not answer: %v (got %q)", err, out.String())
+		}
+		out.Write(got)
 	}
 	_ = c1.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","rows":40,"cols":120}`))
-	if len(fake.Containers) != 1 {
-		t.Fatalf("containers %d", len(fake.Containers))
-	}
-	for _, c := range fake.Containers {
-		if c.Spec.Runtime != "runsc" || len(c.Execs) != 1 || c.Execs[0].WorkingDir != sandbox.WorkspacePath {
-			t.Fatalf("terminal must run in the same hardened sandbox: %+v", c)
-		}
+	sess, _ := e.st.GetChatSession(context.Background(), id)
+	if got := dockerInspect(t, sess.SandboxID, "{{.HostConfig.Runtime}}"); got != "runsc" {
+		t.Fatalf("the terminal must run in the same hardened sandbox, got runtime %q", got)
 	}
 	// a second connection replaces the first
 	c2 := dial()
 	defer c2.CloseNow()
-	if _, _, err := c1.Read(ctx); err == nil || !strings.Contains(err.Error(), "Opened somewhere else") {
-		t.Fatalf("first connection should be closed with a reason: %v", err)
+	for {
+		if _, _, err := c1.Read(ctx); err != nil {
+			if !strings.Contains(err.Error(), "Opened somewhere else") {
+				t.Fatalf("first connection should be closed with a reason: %v", err)
+			}
+			break
+		}
 	}
 	// starting an agent run closes the terminal
 	e.app.Terms.CloseSession(id, "The agent started working, so the terminal was closed.")
-	if _, _, err := c2.Read(ctx); err == nil || !strings.Contains(err.Error(), "agent started working") {
-		t.Fatalf("%v", err)
+	for {
+		if _, _, err := c2.Read(ctx); err != nil {
+			if !strings.Contains(err.Error(), "agent started working") {
+				t.Fatalf("%v", err)
+			}
+			return
+		}
 	}
 }
 
@@ -101,7 +115,8 @@ func TestTerminalClosesWhenTheSignInIsRevoked(t *testing.T) {
 	e := newEnv(t)
 	e.app.TerminalRecheck = 50 * time.Millisecond
 	seedModel(e)
-	e.app.Sandbox = sandbox.NewManager(sandbox.NewFake(), sandbox.DefaultConfig(), nil)
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	u := e.userSession("a@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
 	id := s["id"].(string)

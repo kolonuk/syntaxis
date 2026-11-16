@@ -3,6 +3,7 @@
 package sandbox
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -122,20 +123,27 @@ func TestWatchdogForgetAndDisabledChecks(t *testing.T) {
 	}
 }
 
-func TestApplyActions(t *testing.T) {
-	f := NewFake()
-	m := NewManager(f, DefaultConfig(), nil)
-	id, _ := m.Create(ctx, 1, "s", nil, false)
-	_ = Apply(ctx, f, id, ActionWarn)
-	if !f.Containers[id].Info.Running {
+func TestIntegrationApplyActions(t *testing.T) {
+	m, d := integrationManager(t)
+	ctx := context.Background()
+	const uid = 910130
+	id, err := m.Create(ctx, uid, "it-apply", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Destroy(ctx, "it-apply", id); _ = d.RemoveVolume(ctx, WorkspaceVolume(uid)) })
+	state := func() ContainerInfo { ci, _ := d.Inspect(ctx, id); return *ci }
+	_ = Apply(ctx, d, id, ActionWarn)
+	if !state().Running {
 		t.Fatal("warn must not stop")
 	}
-	_ = Apply(ctx, f, id, ActionPause)
-	if !f.Containers[id].Info.Paused {
+	_ = Apply(ctx, d, id, ActionPause)
+	if !state().Paused {
 		t.Fatal("pause")
 	}
-	_ = Apply(ctx, f, id, ActionKill)
-	if f.Containers[id].Info.Running {
+	_ = d.Unpause(ctx, id)
+	_ = Apply(ctx, d, id, ActionKill)
+	if state().Running {
 		t.Fatal("kill")
 	}
 	if ActionKill.String() != "kill" {

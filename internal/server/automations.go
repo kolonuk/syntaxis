@@ -380,20 +380,12 @@ func (a *App) sendIFTTT(ctx context.Context, userID int64, event, name, state, s
 		summary = summary[:500] + "..."
 	}
 	body, _ := json.Marshal(map[string]string{"value1": name, "value2": state, "value3": summary})
-	base := a.IFTTTBase
-	if base == "" {
-		base = "https://maker.ifttt.com"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/trigger/"+event+"/with/key/"+env["IFTTT_WEBHOOK_KEY"], strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://maker.ifttt.com/trigger/"+event+"/with/key/"+env["IFTTT_WEBHOOK_KEY"], strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	hc := a.NotifyClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 15 * time.Second}
-	}
-	resp, err := hc.Do(req)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return errors.New("could not reach IFTTT")
 	}

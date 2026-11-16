@@ -3,7 +3,13 @@
 // embed placeholder so `go build` works from a clean checkout.
 import { existsSync, writeFileSync } from "node:fs";
 const dist = new URL("../../internal/webui/dist/", import.meta.url).pathname;
-for (const f of ["index.html", "admin/index.html", "sw.js", "manifest.webmanifest", "offline.html"]) {
+for (const f of [
+  "index.html",
+  "admin/index.html",
+  "sw.js",
+  "manifest.webmanifest",
+  "offline.html",
+]) {
   if (!existsSync(dist + f)) {
     console.error("missing build output: " + f);
     process.exit(1);

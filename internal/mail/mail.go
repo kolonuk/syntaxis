@@ -45,8 +45,6 @@ func (c Console) Send(_ context.Context, m Message) error {
 type SMTP struct {
 	Host, User, Password, From string
 	Port                       int
-	// send is overridable in tests.
-	send func(addr string, a smtp.Auth, from string, to []string, msg []byte) error
 }
 
 // ErrHeaderInjection is returned when a header value contains CR/LF.
@@ -62,11 +60,7 @@ func (s *SMTP) Send(_ context.Context, m Message) error {
 	if s.User != "" {
 		auth = smtp.PlainAuth("", s.User, s.Password, s.Host)
 	}
-	send := s.send
-	if send == nil {
-		send = smtp.SendMail
-	}
-	return send(net.JoinHostPort(s.Host, strconv.Itoa(s.Port)), auth, s.From, []string{m.To}, raw)
+	return smtp.SendMail(net.JoinHostPort(s.Host, strconv.Itoa(s.Port)), auth, s.From, []string{m.To}, raw)
 }
 
 // Format renders an RFC 5322 message, rejecting header injection.

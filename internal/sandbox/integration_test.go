@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kolonuk/syntaxis/internal/egress"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 // Integration tests run against a real Docker host with gVisor registered.
@@ -256,6 +257,7 @@ func hostLANAddr(t *testing.T) string {
 func TestIntegrationDNSWorksOnUserDefinedNetworkUnderGVisor(t *testing.T) {
 	m, d := integrationManager(t)
 	ctx := context.Background()
+	testenv.KeepDNSVolume(t, m.Cfg.Image)
 	m.Cfg.Network = "syntaxis-dns-it"
 	m.SetDNS([]string{"1.1.1.1"})
 	if err := d.EnsureNetwork(ctx, m.Cfg.Network); err != nil {

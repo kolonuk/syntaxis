@@ -26,6 +26,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/quota"
 	"github.com/kolonuk/syntaxis/internal/secrets"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 	"github.com/kolonuk/syntaxis/internal/vault"
 	"github.com/pquerna/otp/totp"
 )
@@ -623,6 +624,10 @@ func TestDisablingUserRevokesSessions(t *testing.T) {
 	}
 }
 
+// The run-registry tests below hand the server a plain Go function in place of the agent, to test the
+// registry, the event stream and the approval and stop endpoints on their own. The real agent in a
+// real sandbox with a real model is exercised by the live tests.
+
 // A run already in progress must not keep spending tokens for a disabled account.
 func TestDisablingUserStopsRunningWork(t *testing.T) {
 	e := newEnv(t)
@@ -668,37 +673,25 @@ func TestProviderKeysEncryptedAndNeverReturned(t *testing.T) {
 	_ = m
 }
 
-func TestProviderRefreshDiscoversModelsReadOnly(t *testing.T) {
+// Refresh against the real Ollama: every model the server lists is found, and each starts disabled.
+func TestProviderRefreshDiscoversModelsDisabled(t *testing.T) {
+	cfg := testenv.Load(t)
+	if cfg["OLLAMA_URL"] == "" {
+		testenv.NotTested(t, "OLLAMA_URL is not in the private test environment")
+	}
 	e := newEnv(t)
-	var paths []string
-	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.Method+" "+r.URL.Path)
-		switch r.URL.Path {
-		case "/api/tags":
-			io.WriteString(w, `{"models":[{"name":"alpha","digest":"d"},{"name":"beta","digest":"e"}]}`)
-		case "/api/show":
-			io.WriteString(w, `{"capabilities":["tools"]}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer llm.Close()
 	adm := e.makeAdminSession()
-	_, m, _ := adm.do("POST", "/api/providers", map[string]any{"name": "p", "kind": "ollama", "base_url": llm.URL})
+	_, m, _ := adm.do("POST", "/api/providers", map[string]any{"name": "p", "kind": cfg["OLLAMA_KIND"], "base_url": cfg["OLLAMA_URL"]})
 	id := itoa(int64(m["id"].(float64)))
 	code, r, _ := adm.do("POST", "/api/providers/"+id+"/refresh", nil)
-	if code != 200 || r["models"] != float64(2) {
+	if code != 200 || r["models"].(float64) < 1 {
 		t.Fatalf("%d %v", code, r)
 	}
-	for _, p := range paths {
-		if strings.HasPrefix(p, "DELETE") || strings.Contains(p, "/api/pull") || strings.Contains(p, "/api/delete") {
-			t.Fatalf("Syntaxis must be read-only toward the LLM server, saw %s", p)
-		}
-	}
 	_, _, raw := adm.do("GET", "/api/models", nil)
-	if !strings.Contains(string(raw), `"enabled":false`) {
+	if strings.Contains(string(raw), `"enabled":true`) || !strings.Contains(string(raw), cfg["MODEL_TINY"]) {
 		t.Fatalf("discovered models must start disabled: %s", raw)
 	}
+	t.Log("NOT TESTED: that Syntaxis only reads from the model server (a real server cannot show what it was not asked)")
 }
 
 func TestRunContinuesAfterClientDisconnectAndStreams(t *testing.T) {

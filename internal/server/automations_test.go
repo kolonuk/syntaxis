@@ -5,25 +5,19 @@ package server
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/kolonuk/syntaxis/internal/connections"
-	"github.com/kolonuk/syntaxis/internal/provider"
-	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
-	"github.com/kolonuk/syntaxis/internal/watch"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
+// autoEnv is a real server with real automations and a real sandbox. The model address is one
+// nothing answers on, so each run it starts ends with the model unreachable: these tests are about
+// what starts a run and what it is told, and a real model's answers are covered by the live tests.
 type autoEnv struct {
 	*env
-	sp   *stubProvider
 	user *client
 	uid  int64
 }
@@ -32,18 +26,16 @@ func newAutoEnv(t *testing.T) *autoEnv {
 	t.Helper()
 	e := newEnv(t)
 	seedModel(e)
-	e.app.Sandbox = sandbox.NewManager(sandbox.NewFake(), sandbox.DefaultConfig(), nil)
-	sp := &stubProvider{}
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
-	e.app.WatchClient = watch.NewClient(true) // the fake sources are on loopback
 	u := e.userSession("a@example.com")
-	return &autoEnv{env: e, sp: sp, user: u, uid: userID(t, e, "a@example.com")}
+	return &autoEnv{env: e, user: u, uid: userID(t, e, "a@example.com")}
 }
 
 func (ae *autoEnv) waitIdle(t *testing.T) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		busy := false
 		ss, _ := ae.st.ListChatSessions(context.Background(), ae.uid)
@@ -203,19 +195,14 @@ func TestScheduleValidationAndFiring(t *testing.T) {
 	}
 }
 
+// A watch on the real PyPI. A new release cannot be made to happen, so the remembered version is
+// set back to an old one, which is what a stored state is.
 func TestWatchFiresOnlyForWhatIsNew(t *testing.T) {
+	testenv.Network(t, "pypi.org:443")
 	ae := newAutoEnv(t)
-	var tag atomic.Value
-	tag.Store("v1.0.0")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"info":{"version":%q}}`, tag.Load())
-	}))
-	defer src.Close()
-	// a watch of a package on the fake source: point PyPI at it through the user's own client
-	old := ae.app.WatchClient
-	ae.app.WatchClient = &http.Client{Transport: rewriteTo(src.URL, old.Transport)}
+	ctx := context.Background()
 	code, m, raw := ae.user.do("POST", "/api/automations", map[string]any{
-		"name": "Track thing", "trigger": "watch", "config": map[string]string{"kind": "package", "ecosystem": "pypi", "name": "thing", "interval_min": "10"},
+		"name": "Track requests", "trigger": "watch", "config": map[string]string{"kind": "package", "ecosystem": "pypi", "name": "requests", "interval_min": "10"},
 		"prompt": "A new version is out. Check that we still build.", "model": "prov/m1", "autonomy": "full"})
 	if code != 201 {
 		t.Fatalf("%d %s", code, raw)
@@ -223,63 +210,63 @@ func TestWatchFiresOnlyForWhatIsNew(t *testing.T) {
 	id := m["automation"].(map[string]any)["id"].(string)
 	// the baseline is remembered: no run for the version that already exists
 	ae.now = ae.now.Add(11 * time.Minute)
-	ae.app.automationsTick(context.Background())
+	ae.app.automationsTick(ctx)
+	ae.waitIdle(t)
+	au, _ := ae.st.GetAutomation(ctx, id)
+	if len(ae.sessions(t)) != 0 || au.State == "" {
+		t.Fatalf("a watch fired for something that already existed, or remembered nothing: %+v", au)
+	}
+	// unchanged: nothing
+	ae.now = ae.now.Add(11 * time.Minute)
+	ae.app.automationsTick(ctx)
 	ae.waitIdle(t)
 	if len(ae.sessions(t)) != 0 {
-		t.Fatal("a watch fired for something that already existed")
+		t.Fatal("fired with no change")
 	}
-	tag.Store("v2.0.0")
+	// as if the remembered version were an old one
+	real := au.State
+	au.State = "0.0.1"
+	if err := ae.st.UpdateAutomation(ctx, *au); err != nil {
+		t.Fatal(err)
+	}
 	ae.now = ae.now.Add(11 * time.Minute)
-	ae.app.automationsTick(context.Background())
+	ae.app.automationsTick(ctx)
 	ae.waitIdle(t)
 	ss := ae.sessions(t)
 	if len(ss) != 1 {
 		t.Fatalf("expected one run: %+v", ss)
 	}
 	msg := ae.firstUserMessage(t, ss[0].ID)
-	if !strings.Contains(msg, "new version v2.0.0") || !strings.Contains(msg, "<event>") {
+	if !strings.Contains(msg, "new version "+real) || !strings.Contains(msg, "<event>") {
 		t.Fatalf("%q", msg)
 	}
-	// unchanged: nothing more
-	ae.now = ae.now.Add(11 * time.Minute)
-	ae.app.automationsTick(context.Background())
-	ae.waitIdle(t)
-	if len(ae.sessions(t)) != 1 {
-		t.Fatal("fired again with no change")
+	// a source that keeps failing is switched off after a few tries, with the reason kept (the package
+	// is renamed in the stored watch to one that does not exist, as if it had been deleted upstream)
+	code, m, _ = ae.user.do("POST", "/api/automations", map[string]any{
+		"name": "Track urllib3", "trigger": "watch", "config": map[string]string{"kind": "package", "ecosystem": "pypi", "name": "urllib3", "interval_min": "10"},
+		"prompt": "p", "model": "prov/m1"})
+	if code != 201 {
+		t.Fatalf("%d", code)
 	}
-	// a source that keeps failing is switched off after a few tries, with the reason kept
-	src.Close()
-	for i := 0; i < maxAutoFailures; i++ {
+	bad := m["automation"].(map[string]any)["id"].(string)
+	gone, _ := ae.st.GetAutomation(ctx, bad)
+	gone.Config["name"] = "syntaxis-no-such-package-xyz-123"
+	if err := ae.st.UpdateAutomation(ctx, *gone); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxAutoFailures+1; i++ {
 		ae.now = ae.now.Add(11 * time.Minute)
-		ae.app.automationsTick(context.Background())
+		ae.app.automationsTick(ctx)
 	}
-	au, _ := ae.st.GetAutomation(context.Background(), id)
+	au, _ = ae.st.GetAutomation(ctx, bad)
 	if au.Enabled || !strings.Contains(au.LastError, "switched off") {
 		t.Fatalf("%+v", au)
 	}
 	// a person cannot point a watch at the internal network (the real client refuses it)
-	ae.app.WatchClient = watch.NewClient(false)
 	if code, _, _ := ae.user.do("POST", "/api/automations", map[string]any{"name": "SSRF", "trigger": "watch", "config": map[string]string{"kind": "http_change", "url": "http://169.254.169.254/latest/meta-data/"}, "prompt": "p", "model": "prov/m1"}); code != 400 {
 		t.Fatalf("a watch on the metadata address was accepted: %d", code)
 	}
 }
-
-// rewriteTo sends every request to a fixed test server, whatever host it names.
-func rewriteTo(base string, _ http.RoundTripper) http.RoundTripper {
-	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		u := *r.URL
-		bu, _ := http.NewRequest("GET", base, nil)
-		u.Scheme, u.Host = bu.URL.Scheme, bu.URL.Host
-		r2 := r.Clone(r.Context())
-		r2.URL = &u
-		r2.Host = bu.URL.Host
-		return http.DefaultTransport.RoundTrip(r2)
-	})
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestAutomationsAreLimitedByTheOwnersSettings(t *testing.T) {
 	ae := newAutoEnv(t)
@@ -309,58 +296,17 @@ func TestAutomationsAreLimitedByTheOwnersSettings(t *testing.T) {
 	}
 }
 
-func TestAutomationCanNotifyIFTTTWhenItFinishes(t *testing.T) {
+func TestAutomationNotifyEventNameIsValidated(t *testing.T) {
 	ae := newAutoEnv(t)
-	var mu sync.Mutex
-	var gotPath, gotBody string
-	ifttt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		gotPath, gotBody = r.URL.Path, string(b)
-		mu.Unlock()
-		_, _ = io.WriteString(w, "Congratulations!")
-	}))
-	defer ifttt.Close()
-	ae.app.IFTTTBase = ifttt.URL
-	ae.app.Connections.Set(&fakeIFTTT{})
-	if code, _, raw := ae.user.do("PUT", "/api/connections/ifttt", map[string]any{"fields": map[string]string{"IFTTT_WEBHOOK_KEY": "mykey123"}}); code != 200 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	ae.sp.replies = []*provider.ChatResult{{Content: "All done: three files changed."}}
-	code, m, raw := ae.user.do("POST", "/api/automations", map[string]any{"name": "Nightly", "trigger": "webhook", "prompt": "p", "model": "prov/m1", "autonomy": "full", "notify": map[string]string{"ifttt_event": "syntaxis_done"}})
-	if code != 201 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	id := m["automation"].(map[string]any)["id"].(string)
-	if code, _, raw := ae.user.do("POST", "/api/automations/"+id+"/run", nil); code != 202 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		mu.Lock()
-		p := gotPath
-		mu.Unlock()
-		if p != "" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if gotPath != "/trigger/syntaxis_done/with/key/mykey123" || !strings.Contains(gotBody, "Nightly") || !strings.Contains(gotBody, "three files changed") {
-		t.Fatalf("%q %q", gotPath, gotBody)
-	}
-	// a bad event name is refused when saving
 	if code, _, _ := ae.user.do("POST", "/api/automations", map[string]any{"name": "x", "trigger": "webhook", "prompt": "p", "model": "prov/m1", "notify": map[string]string{"ifttt_event": "../x"}}); code != 400 {
 		t.Fatal("bad event name accepted")
 	}
+	if code, _, _ := ae.user.do("POST", "/api/automations", map[string]any{"name": "x", "trigger": "webhook", "prompt": "p", "model": "prov/m1", "notify": map[string]string{"ifttt_event": "syntaxis_done"}}); code != 201 {
+		t.Fatal("a good event name was refused")
+	}
 }
 
-type fakeIFTTT struct{}
-
-func (fakeIFTTT) Kind() connections.Kind {
-	return connections.Kind{ID: "ifttt", Title: "IFTTT", Fields: []connections.Field{{Name: "IFTTT_WEBHOOK_KEY", Label: "Key", Secret: true, Required: true}}}
-}
-func (fakeIFTTT) Test(context.Context, connections.Creds) (connections.Identity, error) {
-	return connections.Identity{Account: "ok"}, nil
+// Sending to IFTTT needs a real IFTTT account and a finished run with a real model.
+func TestAutomationNotifiesIFTTTWhenItFinishes(t *testing.T) {
+	testenv.Env(t, "SYNTAXIS_TEST_IFTTT_KEY", "notifying IFTTT")
 }

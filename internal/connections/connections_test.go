@@ -3,14 +3,10 @@
 package connections
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -157,77 +153,17 @@ func TestGCPWithRealCredentials(t *testing.T) {
 
 // A real Gitea server in a container: the whole repository workflow, end to end.
 func TestGiteaAgainstARealServer(t *testing.T) {
-	testenv.Docker(t)
-	name := fmt.Sprintf("syntaxis-test-gitea-%d", time.Now().UnixNano()%1e9)
-	out, err := exec.Command("docker", "run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::3000",
-		"-e", "GITEA__security__INSTALL_LOCK=true", "-e", "GITEA__database__DB_TYPE=sqlite3",
-		"-e", "GITEA__service__DISABLE_REGISTRATION=true", "gitea/gitea:1.22").CombinedOutput()
-	if err != nil {
-		testenv.NotTested(t, "the Gitea image could not be started (no network to pull it?): "+strings.TrimSpace(string(out)))
-	}
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
-	pt, err := exec.Command("docker", "port", name, "3000/tcp").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := "http://" + strings.TrimSpace(strings.Split(string(pt), "\n")[0])
-	hc := &http.Client{Timeout: 10 * time.Second}
-	deadline := time.Now().Add(120 * time.Second)
-	for {
-		r, err := hc.Get(base + "/api/healthz")
-		if err == nil {
-			_ = r.Body.Close()
-			if r.StatusCode == 200 {
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("Gitea did not become ready")
-		}
-		time.Sleep(time.Second)
-	}
-	const pw = "Passw0rd-test-1"
-	if b, err := exec.Command("docker", "exec", "-u", "git", name, "gitea", "admin", "user", "create", "--admin", "--username", "tester",
-		"--password", pw, "--email", "t@example.com", "--must-change-password=false").CombinedOutput(); err != nil {
-		t.Fatalf("%v: %s", err, b)
-	}
-	call := func(method, path string, auth func(*http.Request), body any) (int, []byte) {
-		var rd *bytes.Reader
-		if body != nil {
-			b, _ := json.Marshal(body)
-			rd = bytes.NewReader(b)
-		} else {
-			rd = bytes.NewReader(nil)
-		}
-		req, _ := http.NewRequest(method, base+path, rd)
-		req.Header.Set("Content-Type", "application/json")
-		auth(req)
-		r, err := hc.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer r.Body.Close()
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r.Body)
-		return r.StatusCode, buf.Bytes()
-	}
-	code, b := call("POST", "/api/v1/users/tester/tokens", func(r *http.Request) { r.SetBasicAuth("tester", pw) }, map[string]any{"name": "t", "scopes": []string{"all"}})
-	var tk struct {
-		Sha1 string `json:"sha1"`
-	}
-	_ = json.Unmarshal(b, &tk)
-	if code != 201 || tk.Sha1 == "" {
-		t.Fatalf("token: %d %s", code, b)
-	}
+	gs := testenv.Gitea(t)
+	base := gs.URL
 	g := git(t, "gitea")
-	c := Creds{"GITEA_TOKEN": tk.Sha1, "GITEA_URL": base}
+	c := Creds{"GITEA_TOKEN": gs.Token, "GITEA_URL": base}
 	if id, err := g.Test(ctx, c); err != nil || id.Account != "tester" {
 		t.Fatalf("%+v %v", id, err)
 	}
 	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": "wrong", "GITEA_URL": base}); !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("wrong token: %v", err)
 	}
-	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": tk.Sha1}); err == nil {
+	if _, err := g.Test(ctx, Creds{"GITEA_TOKEN": gs.Token}); err == nil {
 		t.Fatal("a missing server address was accepted")
 	}
 	repo, err := g.CreateRepo(ctx, c, NewRepo{Name: "app", Description: "d", Private: true})
@@ -239,12 +175,11 @@ func TestGiteaAgainstARealServer(t *testing.T) {
 		t.Fatalf("%+v %v", rs, err)
 	}
 	// give the repository a commit on main and a branch with a change, as an agent's work would be
-	tokAuth := func(r *http.Request) { r.Header.Set("Authorization", "token "+tk.Sha1) }
 	content := base64.StdEncoding.EncodeToString([]byte("one\n"))
-	if code, b := call("POST", "/api/v1/repos/tester/app/contents/a.txt", tokAuth, map[string]any{"content": content, "message": "first", "branch": "main"}); code != 201 {
+	if code, b := gs.Do(t, "POST", "/api/v1/repos/tester/app/contents/a.txt", map[string]any{"content": content, "message": "first", "branch": "main"}); code != 201 {
 		t.Fatalf("first commit: %d %s", code, b)
 	}
-	if code, b := call("POST", "/api/v1/repos/tester/app/contents/b.txt", tokAuth, map[string]any{"content": content, "message": "second", "branch": "main", "new_branch": "syntaxis/x"}); code != 201 {
+	if code, b := gs.Do(t, "POST", "/api/v1/repos/tester/app/contents/b.txt", map[string]any{"content": content, "message": "second", "branch": "main", "new_branch": "syntaxis/x"}); code != 201 {
 		t.Fatalf("branch: %d %s", code, b)
 	}
 	u, err := g.OpenPR(ctx, c, PullRequest{Repo: "tester/app", Title: "Add b", Body: "from the agent", Head: "syntaxis/x", Base: "main"})

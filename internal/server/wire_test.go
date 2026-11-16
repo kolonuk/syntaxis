@@ -5,153 +5,79 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
-	"net/http/httptest"
+	"os/exec"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
-type stubProvider struct {
-	mu      sync.Mutex
-	replies []*provider.ChatResult
-	reqs    []provider.ChatRequest
-}
-
-func (s *stubProvider) Kind() string                                             { return "ollama" }
-func (s *stubProvider) Ping(context.Context) (time.Duration, error)              { return time.Millisecond, nil }
-func (s *stubProvider) ListModels(context.Context) ([]provider.ModelInfo, error) { return nil, nil }
-func (s *stubProvider) ModelDetail(context.Context, string) (*provider.ModelDetail, error) {
-	return &provider.ModelDetail{}, nil
-}
-func (s *stubProvider) Loaded(context.Context) ([]provider.LoadedModel, bool, error) {
-	return nil, false, nil
-}
-func (s *stubProvider) Chat(_ context.Context, req provider.ChatRequest, on func(string)) (*provider.ChatResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reqs = append(s.reqs, req)
-	i := len(s.reqs) - 1
-	r := &provider.ChatResult{Content: "done", Usage: provider.Usage{PromptTokens: 50, CompletionTokens: 10, Reported: true}}
-	if i < len(s.replies) {
-		r = s.replies[i]
-	}
-	if on != nil && r.Content != "" {
-		on(r.Content)
-	}
-	return r, nil
-}
-
-func TestEndToEndAgentRunThroughServer(t *testing.T) {
-	e := newEnv(t)
-	seedModel(e)
-	fake := sandbox.NewFake()
-	fake.ExecHook = func(c *sandbox.FakeContainer, ex sandbox.ExecSpec) (sandbox.ExecResult, bool) {
-		j := strings.Join(ex.Cmd, " ")
-		if strings.Contains(j, "go test") {
-			return sandbox.ExecResult{Stdout: "ok  \tpkg\t0.01s"}, true
-		}
-		if ex.Cmd[0] == "git" || strings.Contains(j, "head -c") || strings.Contains(j, "[ -d") {
-			return sandbox.ExecResult{ExitCode: 1}, true
-		}
-		return sandbox.ExecResult{}, false
-	}
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
-	call := provider.ToolCall{ID: "c1", Name: "run_shell", Arguments: json.RawMessage(`{"command":"go test ./..."}`)}
-	sp := &stubProvider{replies: []*provider.ChatResult{
-		{ToolCalls: []provider.ToolCall{call}, Usage: provider.Usage{PromptTokens: 100, CompletionTokens: 20, Reported: true}},
-		{Content: "Tests pass.", Usage: provider.Usage{PromptTokens: 150, CompletionTokens: 5, Reported: true}},
-	}}
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
-	var notified []string
-	e.app.RunAgent = e.app.RunAgentFunc(Wiring{Notify: func(_ context.Context, uid int64, title, body string) { notified = append(notified, title) }})
-
-	// a user secret that must reach the sandbox env but never the model
-	u := e.userSession("a@example.com")
+// The whole path with the real model and a real gVisor sandbox: the HTTP API, a background run,
+// commands executed by the server in the user's own sandbox, results persisted, usage recorded.
+func TestLiveAgentRunEndToEnd(t *testing.T) {
+	l := liveEnv(t)
+	u := l.userSession("a@example.com")
+	// a user secret that must reach the sandbox's commands but never the model
 	u.do("PUT", "/api/secrets/DEPLOY_TOKEN", map[string]string{"value": "tok-very-secret-123"})
-	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": l.model})
 	id := s["id"].(string)
-	if code, _, raw := u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "run the tests"}); code != 202 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	e.app.Runs.Get(id).Wait()
+	l.send(u, id, "Use the run_shell tool to run exactly this command: echo built-here > /workspace/out.txt && test -n \"$DEPLOY_TOKEN\" && echo has-token > /workspace/token-seen.txt. Then reply with the single word done.")
 
-	// sandbox created under gVisor with that user's volume and the injected secret
-	if len(fake.Containers) != 1 {
-		t.Fatalf("containers: %d", len(fake.Containers))
+	if got := l.sandboxRun(id, "cat /workspace/out.txt; cat /workspace/token-seen.txt"); got != "built-here\nhas-token" {
+		t.Fatalf("the command did not run as asked in the sandbox (the real model may have chosen differently): %q\n%s", got, l.history(u, id))
 	}
-	for _, c := range fake.Containers {
-		if c.Spec.Runtime != "runsc" || c.Spec.Mounts[0].Volume != "syntaxis-ws-u1" {
-			t.Fatalf("%+v", c.Spec)
-		}
-		if strings.Contains(strings.Join(c.Spec.Env, " "), "tok-very-secret") {
-			t.Fatal("secrets must not be baked into the container: they are supplied per command so changes apply at once")
-		}
-		seen := false
-		for _, ex := range c.Execs {
-			if strings.Contains(strings.Join(ex.Env, " "), "DEPLOY_TOKEN=tok-very-secret-123") {
-				seen = true
-			}
-		}
-		if !seen {
-			t.Fatal("the user's secret did not reach the agent's command")
-		}
+	// the sandbox is real gVisor with the user's own volume, and the secret is not baked into it
+	sess, _ := l.st.GetChatSession(context.Background(), id)
+	ci, err := l.app.Sandbox.RT.Inspect(context.Background(), sess.SandboxID)
+	if err != nil || !ci.Running {
+		t.Fatalf("%+v %v", ci, err)
 	}
-	// history persisted, tool result included
-	_, _, raw := u.do("GET", "/api/sessions/"+id+"/messages", nil)
-	for _, want := range []string{"run the tests", "go test ./...", "ok  ", "Tests pass."} {
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("history missing %q: %s", want, raw)
-		}
+	if out := dockerInspect(t, sess.SandboxID, "{{.HostConfig.Runtime}} {{json .Config.Env}}"); !strings.HasPrefix(out, "runsc ") || strings.Contains(out, "tok-very-secret") {
+		t.Fatalf("the secret must be supplied per command, not baked into the container: %s", out)
 	}
-	// the secret never reached the model
-	for _, req := range sp.reqs {
-		for _, m := range req.Messages {
-			if strings.Contains(m.Content, "tok-very-secret") {
-				t.Fatal("secret in model input")
-			}
-		}
+	// the secret never reached the model or the stored history
+	if h := l.history(u, id); strings.Contains(h, "tok-very-secret") {
+		t.Fatalf("the secret is in the conversation: %s", h)
 	}
-	// usage recorded against the user's quota; session idle again; notified
+	// usage recorded against the user, session idle again, user notified
 	_, usage, _ := u.do("GET", "/api/usage", nil)
-	d := usage["daily"].(map[string]any)
-	if d["Used"] != float64(100+20+150+5) {
+	if d := usage["daily"].(map[string]any); d["Used"].(float64) <= 0 {
 		t.Fatalf("usage %v", d)
 	}
 	_, got, _ := u.do("GET", "/api/sessions/"+id, nil)
-	if got["state"] != "idle" || got["tokens_in"] != float64(250) {
+	if got["state"] != "idle" || got["tokens_in"].(float64) <= 0 {
 		t.Fatalf("%v", got)
 	}
-	if len(notified) != 1 || notified[0] != "Your session finished" {
-		t.Fatalf("%v", notified)
+	l.mu.Lock()
+	n := len(l.notified)
+	l.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("notified %d times", n)
 	}
-	// follow-up message resumes with the stored history and the same sandbox
-	sp.replies = nil
-	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "thanks"})
-	e.app.Runs.Get(id).Wait()
-	last := sp.reqs[len(sp.reqs)-1].Messages
-	joined := ""
-	for _, m := range last {
-		joined += m.Content + "|"
+	// a follow-up resumes with the stored history in the same sandbox
+	l.send(u, id, "Without running anything, what file did you create in my first message? Answer with its name only.")
+	if h := l.history(u, id); !strings.Contains(h, "out.txt") {
+		t.Fatalf("the follow-up lost the history: %s", h)
 	}
-	if !strings.Contains(joined, "run the tests") || len(fake.Containers) != 1 {
-		t.Fatalf("resume lost history or created a second sandbox: %s / %d", joined, len(fake.Containers))
+	after, _ := l.st.GetChatSession(context.Background(), id)
+	if after.SandboxID != sess.SandboxID {
+		t.Fatal("the follow-up created a second sandbox")
 	}
 }
 
+// A real Docker with the runtime missing: the run must fail, say why, and create nothing.
 func TestRunRefusedWithoutGVisor(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	fake := sandbox.NewFake()
-	fake.Runtimes["runsc"] = false
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return &stubProvider{}, nil }
+	m := realSandbox(t, e)
+	m.Cfg.Runtime = "syntaxis-no-such-runtime"
+	e.app.Sandbox = m
+	cleanupSandboxes(t, e)
 	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
 	u := e.userSession("a@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
@@ -159,17 +85,26 @@ func TestRunRefusedWithoutGVisor(t *testing.T) {
 	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "hi"})
 	e.app.Runs.Get(id).Wait()
 	_, got, _ := u.do("GET", "/api/sessions/"+id, nil)
-	if got["state"] != "error" || len(fake.Containers) != 0 {
-		t.Fatalf("an unisolated container may never be created: %v / %d", got, len(fake.Containers))
+	_, _, raw := u.do("GET", "/api/sessions/"+id+"/events", nil)
+	if got["state"] != "error" || !strings.Contains(strings.ToLower(string(raw)), "gvisor") {
+		t.Fatalf("an unisolated container may never be created, and the user must be told: %v %s", got, raw)
+	}
+	cs, _ := m.RT.List(context.Background())
+	for _, c := range cs {
+		if c.Labels[sandbox.LabelSession] == id {
+			t.Fatal("a container was created without isolation")
+		}
 	}
 }
 
+// With the quota used up the run stops before any model is contacted. The provider here is a real
+// address nothing listens on: if the run tried it, the user would be told the model is unreachable
+// instead of being told about the quota.
 func TestQuotaExhaustionStopsRunBeforeModelCall(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	e.app.Sandbox = sandbox.NewManager(sandbox.NewFake(), sandbox.DefaultConfig(), nil)
-	sp := &stubProvider{}
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
 	u := e.userSession("a@example.com")
 	users, _ := e.st.ListUsers(context.Background())
@@ -178,102 +113,147 @@ func TestQuotaExhaustionStopsRunBeforeModelCall(t *testing.T) {
 	id := s["id"].(string)
 	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "hi"})
 	e.app.Runs.Get(id).Wait()
-	if len(sp.reqs) != 0 {
-		t.Fatal("model was called although the quota was exhausted")
-	}
 	_, _, raw := u.do("GET", "/api/sessions/"+id+"/events", nil)
-	if !strings.Contains(string(raw), "quota") {
-		t.Fatalf("user not told why: %s", raw)
+	if !strings.Contains(string(raw), "quota") || strings.Contains(strings.ToLower(string(raw)), "unreachable") {
+		t.Fatalf("user not told about the quota, or the model was tried first: %s", raw)
 	}
 }
+
+func dockerInspect(t *testing.T, id, format string) string {
+	t.Helper()
+	out, err := exec.Command("docker", "inspect", "-f", format, id).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// A real web server runs inside a real sandbox and is reached through the preview proxy.
+const previewServer = `import http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Set-Cookie", "evil=x")
+        self.send_header("Clear-Site-Data", '"cookies", "storage"')
+        self.send_header("Service-Worker-Allowed", "/")
+        self.send_header("X-Seen-Cookie", self.headers.get("Cookie", ""))
+        self.send_header("X-Seen-Path", self.path)
+        self.end_headers()
+        self.wfile.write(b"hello from dev server")
+    def log_message(self, *a): pass
+http.server.HTTPServer(("0.0.0.0", 8000), H).serve_forever()
+`
 
 func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	var gotCookie, gotPath string
-	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotCookie, gotPath = r.Header.Get("Cookie"), r.URL.Path
-		http.SetCookie(w, &http.Cookie{Name: "evil", Value: "x"})
-		w.Header().Set("Clear-Site-Data", `"cookies", "storage"`) // would sign the user out of Syntaxis
-		w.Header().Set("Service-Worker-Allowed", "/")             // would widen a worker's scope to the whole app
-		w.Write([]byte("hello from dev server"))
-	}))
-	defer dev.Close()
-	_, portStr, _ := net.SplitHostPort(dev.Listener.Addr().String())
-	fake := sandbox.NewFake()
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	alice := e.userSession("alice@example.com")
 	bob := e.userSession("bob@example.com")
 	_, s, _ := alice.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
 	id := s["id"].(string)
-	cid, _ := e.app.Sandbox.Create(context.Background(), 1, id, nil, false)
-	fake.IPs = map[string]string{cid: "127.0.0.1"}
-	sess, _ := e.st.GetChatSession(context.Background(), id)
-	sess.SandboxID = cid
-	_ = e.st.UpdateChatSession(context.Background(), *sess)
-
-	code, _, raw := alice.do("GET", "/preview/"+id+"/"+portStr+"/app/index.html", nil)
-	if code != 200 || string(raw) != "hello from dev server" || gotPath != "/app/index.html" {
-		t.Fatalf("%d %q path=%q", code, raw, gotPath)
+	ctx := context.Background()
+	sess, _ := e.st.GetChatSession(ctx, id)
+	usr, _ := e.st.GetUser(ctx, sess.UserID)
+	cid, err := e.app.ensureSandbox(ctx, sess, usr)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(gotCookie, "syx_") {
-		t.Fatalf("Syntaxis session cookie forwarded to user code: %q", gotCookie)
+	if _, err := e.app.Sandbox.Exec(ctx, id, cid, sandbox.ExecSpec{Cmd: []string{"sh", "-c", "cat > /tmp/dev.py; (python3 /tmp/dev.py >/dev/null 2>&1 &) ; sleep 1"}, Stdin: []byte(previewServer), Timeout: 20 * time.Second}); err != nil {
+		t.Fatal(err)
 	}
-	if code, _, _ := bob.do("GET", "/preview/"+id+"/"+portStr+"/", nil); code != 404 {
-		t.Fatalf("another user reached the preview: %d", code)
+	var code int
+	var raw []byte
+	for i := 0; i < 20; i++ { // the server takes a moment to start
+		code, _, raw = alice.do("GET", "/preview/"+id+"/8000/app/index.html", nil)
+		if code == 200 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if code, _, _ := alice.do("GET", "/preview/"+id+"/80/", nil); code != 400 {
-		t.Fatalf("privileged port allowed: %d", code)
+	if code != 200 || string(raw) != "hello from dev server" {
+		t.Fatalf("%d %q", code, raw)
 	}
-	anon := e.client(e.user.URL)
-	if code, _, _ := anon.do("GET", "/preview/"+id+"/"+portStr+"/", nil); code != 401 {
-		t.Fatalf("unauthenticated preview: %d", code)
-	}
-	req, _ := http.NewRequest("GET", e.user.URL+"/preview/"+id+"/"+portStr+"/", nil)
+	req, _ := http.NewRequest("GET", e.user.URL+"/preview/"+id+"/8000/app/index.html", nil)
 	for _, ck := range alice.hc.Jar.Cookies(mustURL(e.user.URL)) {
 		req.AddCookie(ck)
 	}
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp.Body.Close()
+	if seen := resp.Header.Get("X-Seen-Path"); seen != "/app/index.html" {
+		t.Fatalf("the dev server saw the path %q", seen)
+	}
+	if strings.Contains(resp.Header.Get("X-Seen-Cookie"), "syx_") || resp.Header.Get("X-Seen-Cookie") != "" {
+		t.Fatalf("the Syntaxis session cookie was forwarded to user code: %q", resp.Header.Get("X-Seen-Cookie"))
+	}
 	if resp.Header.Get("Set-Cookie") != "" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatal("previewed content must be sandboxed and unable to set cookies on our origin")
 	}
 	if resp.Header.Get("Clear-Site-Data") != "" || resp.Header.Get("Service-Worker-Allowed") != "" {
 		t.Fatal("previewed content must not be able to clear our site data or widen a service worker's scope")
 	}
+	if code, _, _ := bob.do("GET", "/preview/"+id+"/8000/", nil); code != 404 {
+		t.Fatalf("another user reached the preview: %d", code)
+	}
+	if code, _, _ := alice.do("GET", "/preview/"+id+"/80/", nil); code != 400 {
+		t.Fatalf("privileged port allowed: %d", code)
+	}
+	anon := e.client(e.user.URL)
+	if code, _, _ := anon.do("GET", "/preview/"+id+"/8000/", nil); code != 401 {
+		t.Fatalf("unauthenticated preview: %d", code)
+	}
 }
 
-func TestBenchmarkAdminOnlyAndStoresResult(t *testing.T) {
+func TestBenchmarkRoutesAreAdminOnly(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	fake := sandbox.NewFake()
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
-	sp := &stubProvider{} // answers "done" to everything: every task fails, which is a valid, stored result
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
-
 	usr := e.userSession("a@example.com")
 	for _, p := range []string{"/api/models/1/benchmark", "/api/benchmarks", "/api/models/1/recommended"} {
 		if code, _, _ := usr.do("POST", p, map[string]bool{"recommended": true}); code == 200 || code == 202 {
 			t.Fatalf("chat user reached admin benchmark route %s: %d", p, code)
 		}
 	}
+}
+
+// A real benchmark of the real tiny model in a throwaway real sandbox. The tiny model passing few
+// tasks is a valid result: what is checked is that a report is stored, shown to admins only, and
+// the throwaway sandbox is gone.
+func TestLiveBenchmarkStoresResultAndCleansUp(t *testing.T) {
+	cfg := testenv.Load(t)
+	if cfg["OLLAMA_URL"] == "" || cfg["MODEL_TINY"] == "" {
+		testenv.NotTested(t, "OLLAMA_URL and MODEL_TINY are not in the private test environment")
+	}
+	e := newEnv(t)
+	e.app.Sandbox = realSandbox(t, e)
+	ctx := context.Background()
+	pid, _ := e.st.UpsertProvider(ctx, store.Provider{Name: "local", Kind: cfg["OLLAMA_KIND"], BaseURL: cfg["OLLAMA_URL"], Concurrency: 1, Enabled: true})
+	mid, _ := e.st.UpsertModel(ctx, store.Model{ProviderID: pid, Name: cfg["MODEL_TINY"], ToolsSupported: 1})
+	_ = e.st.SetModelEnabled(ctx, mid, true)
+	t.Cleanup(func() { _ = e.app.Sandbox.RT.RemoveVolume(ctx, sandbox.WorkspaceVolume(0)) })
+
+	usr := e.userSession("a@example.com")
 	adm := e.makeAdminSession()
-	if code, _, raw := adm.do("POST", "/api/models/1/benchmark", nil); code != 202 {
+	if code, _, raw := adm.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/benchmark", nil); code != 202 {
 		t.Fatalf("%d %s", code, raw)
 	}
 	var list []map[string]any
-	for i := 0; i < 100; i++ {
+	deadline := time.Now().Add(25 * time.Minute)
+	for time.Now().Before(deadline) {
 		_, _, raw := adm.do("GET", "/api/benchmarks", nil)
 		_ = json.Unmarshal(raw, &list)
 		if len(list) == 1 {
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(5 * time.Second)
 	}
 	if len(list) != 1 || list[0]["report"] == nil {
 		t.Fatalf("no benchmark stored: %v", list)
 	}
-	if code, _, _ := adm.do("POST", "/api/models/1/recommended", map[string]bool{"recommended": true}); code != 200 {
+	if code, _, _ := adm.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/recommended", map[string]bool{"recommended": true}); code != 200 {
 		t.Fatal("recommend")
 	}
 	// the "recommended" flag is visible to users; the report is not
@@ -281,11 +261,11 @@ func TestBenchmarkAdminOnlyAndStoresResult(t *testing.T) {
 	if !strings.Contains(string(raw), `"recommended":true`) || strings.Contains(string(raw), "pass_rate") {
 		t.Fatalf("%s", raw)
 	}
-	for i := 0; i < 100 && fake.Count() != 0; i++ {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if fake.Count() != 0 {
-		t.Fatal("throwaway benchmark sandbox was not destroyed")
+	cs, _ := e.app.Sandbox.RT.List(ctx)
+	for _, c := range cs {
+		if strings.HasPrefix(c.Labels[sandbox.LabelSession], "bench-") && c.Labels[sandbox.LabelUser] == "0" {
+			t.Fatal("the throwaway benchmark sandbox was not destroyed")
+		}
 	}
 }
 

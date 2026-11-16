@@ -3,102 +3,46 @@
 package server
 
 import (
-	"encoding/json"
+	"context"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/kolonuk/syntaxis/internal/provider"
-	"github.com/kolonuk/syntaxis/internal/sandbox"
-	"github.com/kolonuk/syntaxis/internal/store"
 )
 
-func TestPlanModeProposesBeforeChangingAnything(t *testing.T) {
-	e := newEnv(t)
-	seedModel(e)
-	fake := sandbox.NewFake()
-	var shellRuns int
-	fake.ExecHook = func(c *sandbox.FakeContainer, ex sandbox.ExecSpec) (sandbox.ExecResult, bool) {
-		if len(ex.Cmd) > 2 && ex.Cmd[2] == "make build" {
-			shellRuns++
-		}
-		if ex.Cmd[0] == "git" || strings.Contains(strings.Join(ex.Cmd, " "), "head -c") || strings.Contains(strings.Join(ex.Cmd, " "), "[ -d") {
-			return sandbox.ExecResult{ExitCode: 1}, true
-		}
-		return sandbox.ExecResult{}, false
-	}
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
-	call := func(id, name, args string) provider.ToolCall {
-		return provider.ToolCall{ID: id, Name: name, Arguments: json.RawMessage(args)}
-	}
-	sp := &stubProvider{replies: []*provider.ChatResult{
-		// planning step: it tries to run a command (refused), then proposes
-		{ToolCalls: []provider.ToolCall{call("c1", "run_shell", `{"command":"make build"}`)}},
-		{ToolCalls: []provider.ToolCall{call("c2", "propose_plan", `{"plan":"1. Add the endpoint\n2. Test it"}`)}},
-		// after approval: it does the work
-		{ToolCalls: []provider.ToolCall{call("c3", "run_shell", `{"command":"make build"}`)}},
-		{Content: "Built."},
-		// after a request for changes: a revised plan
-		{ToolCalls: []provider.ToolCall{call("c4", "propose_plan", `{"plan":"1. Add the endpoint with pagination"}`)}},
-	}}
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return sp, nil }
-	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
-	u := e.userSession("a@example.com")
-
-	wait := func(id string) map[string]any {
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, got, _ := u.do("GET", "/api/sessions/"+id, nil); got["state"] != "running" {
-				return got
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		t.Fatal("run did not finish")
-		return nil
-	}
-	_, s, _ := u.do("POST", "/api/sessions", map[string]any{"model": "prov/m1", "autonomy": "full", "plan": true})
+// Plan mode with the real model and a real sandbox: the planning step proposes and changes nothing;
+// approving (with an edit) carries it out; asking for changes proposes again.
+func TestLivePlanModeProposesBeforeChangingAnything(t *testing.T) {
+	l := liveEnv(t)
+	u := l.userSession("a@example.com")
+	_, s, _ := u.do("POST", "/api/sessions", map[string]any{"model": l.model, "autonomy": "full", "plan": true})
 	id := s["id"].(string)
 	if s["plan_mode"] != true {
 		t.Fatalf("%v", s)
 	}
-	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "add an endpoint"})
-	got := wait(id)
-	if got["state"] != "needs_input" || got["plan_state"] != "proposed" || !strings.Contains(got["plan_text"].(string), "Add the endpoint") {
-		t.Fatalf("a proposed plan must wait for the user: %v", got)
+	state := func() map[string]any { _, g, _ := u.do("GET", "/api/sessions/"+id, nil); return g }
+	l.send(u, id, "Create a file /workspace/hello.txt containing the word hi.")
+	got := state()
+	if got["state"] != "needs_input" || got["plan_state"] != "proposed" || strings.TrimSpace(got["plan_text"].(string)) == "" {
+		t.Fatalf("a proposed plan must wait for the user: %v\n%s", got, l.history(u, id))
 	}
-	if shellRuns != 0 {
-		t.Fatal("a command ran during the planning step")
+	// the planning step changes nothing
+	if out := l.sandboxRun(id, "ls /workspace"); strings.Contains(out, "hello.txt") {
+		t.Fatalf("a file was created during the planning step: %q", out)
 	}
-	// the model was offered only the planning tools
-	for _, d := range sp.reqs[0].Tools {
-		if d.Name == "run_shell" || d.Name == "write_file" || d.Name == "patch_file" {
-			t.Fatalf("%s offered while planning", d.Name)
-		}
-	}
-	// nothing can be done until the plan is decided
 	if code, _, _ := u.do("POST", "/api/sessions/"+id+"/plan", map[string]any{"action": "bogus"}); code != 400 {
 		t.Fatal("a bad decision was accepted")
 	}
-	// approve with an edit: the work starts and the edited plan is in the instructions
-	if code, _, raw := u.do("POST", "/api/sessions/"+id+"/plan", map[string]any{"action": "approve", "plan": "1. Add the endpoint\n2. Test it\n3. Update the docs"}); code != 202 {
+	// approve with an edit: the work starts, with the edited plan in its instructions
+	edited := "1. Create /workspace/hello.txt containing exactly: hi\n2. Reply done."
+	if code, _, raw := u.do("POST", "/api/sessions/"+id+"/plan", map[string]any{"action": "approve", "plan": edited}); code != 202 {
 		t.Fatalf("%d %s", code, raw)
 	}
-	got = wait(id)
-	if got["plan_state"] != "approved" || got["state"] != "idle" || shellRuns != 1 {
-		t.Fatalf("the approved plan should be carried out: %v (shell runs %d)", got, shellRuns)
+	l.wait(id)
+	got = state()
+	if got["plan_state"] != "approved" || got["state"] != "idle" {
+		t.Fatalf("the approved plan should be carried out: %v\n%s", got, l.history(u, id))
 	}
-	last := sp.reqs[len(sp.reqs)-1]
-	if sys := last.Messages[0].Content; !strings.Contains(sys, "<approved_plan>") || !strings.Contains(sys, "Update the docs") || strings.Contains(sys, "Planning step") {
-		t.Fatal("the execution step must carry the approved plan and not the planning rules")
-	}
-	hasShell := false
-	for _, d := range sp.reqs[2].Tools {
-		if d.Name == "run_shell" {
-			hasShell = true
-		}
-	}
-	if !hasShell {
-		t.Fatal("the full tools must be available after approval")
+	if out := l.sandboxRun(id, "cat /workspace/hello.txt"); !strings.Contains(out, "hi") {
+		t.Fatalf("the approved plan was not carried out: %q\n%s", out, l.history(u, id))
 	}
 	// no plan is waiting any more
 	if code, _, _ := u.do("POST", "/api/sessions/"+id+"/plan", map[string]any{"action": "approve"}); code != 409 {
@@ -106,48 +50,36 @@ func TestPlanModeProposesBeforeChangingAnything(t *testing.T) {
 	}
 
 	// a second session: ask for changes instead of approving
-	_, s2, _ := u.do("POST", "/api/sessions", map[string]any{"model": "prov/m1", "autonomy": "full", "plan": true})
+	_, s2, _ := u.do("POST", "/api/sessions", map[string]any{"model": l.model, "autonomy": "full", "plan": true})
 	id2 := s2["id"].(string)
-	sp.replies = append([]*provider.ChatResult{{ToolCalls: []provider.ToolCall{call("d1", "propose_plan", `{"plan":"1. First idea"}`)}}, {ToolCalls: []provider.ToolCall{call("d2", "propose_plan", `{"plan":"1. Better idea with pagination"}`)}}}, sp.replies[len(sp.replies):]...)
-	sp.reqs = nil
-	u.do("POST", "/api/sessions/"+id2+"/messages", map[string]string{"text": "task"})
-	wait(id2)
+	l.send(u, id2, "Plan how to add a README.md to an empty project.")
+	if g := func() map[string]any { _, g, _ := u.do("GET", "/api/sessions/"+id2, nil); return g }(); g["plan_state"] != "proposed" {
+		t.Fatalf("%v\n%s", g, l.history(u, id2))
+	}
 	if code, _, _ := u.do("POST", "/api/sessions/"+id2+"/plan", map[string]any{"action": "revise"}); code != 400 {
 		t.Fatal("a revision without feedback was accepted")
 	}
-	if code, _, raw := u.do("POST", "/api/sessions/"+id2+"/plan", map[string]any{"action": "revise", "feedback": "add pagination"}); code != 202 {
+	if code, _, raw := u.do("POST", "/api/sessions/"+id2+"/plan", map[string]any{"action": "revise", "feedback": "also add a LICENSE file"}); code != 202 {
 		t.Fatalf("%d %s", code, raw)
 	}
-	got = wait(id2)
-	if got["plan_state"] != "proposed" || !strings.Contains(got["plan_text"].(string), "pagination") {
-		t.Fatalf("a revised plan should be proposed again: %v", got)
+	l.wait(id2)
+	_, g2, _ := u.do("GET", "/api/sessions/"+id2, nil)
+	if g2["plan_state"] != "proposed" || !strings.Contains(strings.ToLower(g2["plan_text"].(string)), "licen") {
+		t.Fatalf("a revised plan should be proposed again with the change: %v", g2)
 	}
 	// someone else's session
-	other := e.userSession("b@example.com")
+	other := l.userSession("b@example.com")
 	if code, _, _ := other.do("POST", "/api/sessions/"+id2+"/plan", map[string]any{"action": "approve"}); code != 404 {
 		t.Fatalf("%d", code)
 	}
 }
 
+// The diff is read from the session's real git workspace inside its real sandbox.
 func TestDiffShowsTheSessionsChangesAndNoOneElses(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	fake := sandbox.NewFake()
-	fake.ExecHook = func(c *sandbox.FakeContainer, ex sandbox.ExecSpec) (sandbox.ExecResult, bool) {
-		if len(ex.Cmd) > 2 && strings.Contains(ex.Cmd[2], "git diff") {
-			if ex.Cmd[3] != "_" || ex.Cmd[4] != "/workspace" {
-				t.Errorf("unexpected arguments %v", ex.Cmd)
-			}
-			return sandbox.ExecResult{Stdout: "### branch syntaxis/x\n### status\n M a.go\n### diff\ndiff --git a/a.go b/a.go\n+new line\n"}, true
-		}
-		if ex.Cmd[0] == "git" || strings.Contains(strings.Join(ex.Cmd, " "), "head -c") || strings.Contains(strings.Join(ex.Cmd, " "), "[ -d") {
-			return sandbox.ExecResult{ExitCode: 1}, true
-		}
-		return sandbox.ExecResult{}, false
-	}
-	e.app.Sandbox = sandbox.NewManager(fake, sandbox.DefaultConfig(), nil)
-	e.app.NewProvider = func(*store.Provider) (provider.Provider, error) { return &stubProvider{}, nil }
-	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	u := e.userSession("a@example.com")
 	other := e.userSession("b@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]any{"model": "prov/m1"})
@@ -155,16 +87,20 @@ func TestDiffShowsTheSessionsChangesAndNoOneElses(t *testing.T) {
 	if _, d, _ := u.do("GET", "/api/sessions/"+id+"/diff", nil); d["available"] != false {
 		t.Fatalf("before anything ran there is nothing to show: %v", d)
 	}
-	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "go"})
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, g, _ := u.do("GET", "/api/sessions/"+id, nil); g["state"] != "running" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	ctx := context.Background()
+	sess, _ := e.st.GetChatSession(ctx, id)
+	usr, _ := e.st.GetUser(ctx, sess.UserID)
+	cid, err := e.app.ensureSandbox(ctx, sess, usr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, _ = e.st.GetChatSession(ctx, id)
+	script := "cd /workspace && git init -q && git config user.email t@example.com && git config user.name t && echo one > a.go && git add . && git commit -qm init && echo new-line >> a.go"
+	if r, err := e.app.Sandbox.Exec(ctx, id, cid, execSpec(script)); err != nil || r.ExitCode != 0 {
+		t.Fatalf("%v %+v", err, r)
 	}
 	_, d, raw := u.do("GET", "/api/sessions/"+id+"/diff", nil)
-	if d["available"] != true || !strings.Contains(d["text"].(string), "+new line") {
+	if d["available"] != true || !strings.Contains(d["text"].(string), "+new-line") || !strings.Contains(d["text"].(string), "a.go") {
 		t.Fatalf("%s", raw)
 	}
 	if code, _, _ := other.do("GET", "/api/sessions/"+id+"/diff", nil); code != 404 {

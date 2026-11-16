@@ -31,11 +31,11 @@ func Path() string {
 func Load(t testing.TB) map[string]string {
 	t.Helper()
 	if os.Getenv("SYNTAXIS_LIVE") != "1" {
-		t.Skip("live tests are opt-in: set SYNTAXIS_LIVE=1")
+		NotTested(t, "live tests are opt-in: set SYNTAXIS_LIVE=1 (they use the private test environment)")
 	}
 	f, err := os.Open(Path())
 	if err != nil {
-		t.Skip("no private test environment (" + Path() + ")")
+		NotTested(t, "no private test environment file")
 	}
 	defer f.Close()
 	m := map[string]string{}
@@ -95,4 +95,28 @@ func GVisor(t testing.TB) {
 	if err != nil || !strings.Contains(string(out), "runsc") {
 		NotTested(t, "gVisor (runsc) is not registered with Docker")
 	}
+}
+
+// KeepDNSVolume remembers the resolver file in Syntaxis's shared DNS volume and puts it back when
+// the test ends. Tests that start sandboxes with a resolver rewrite that file, and another
+// Syntaxis on the same Docker host only writes it when it starts, so it must not be left changed.
+func KeepDNSVolume(t testing.TB, image string) {
+	t.Helper()
+	const vol = "syntaxis-dns"
+	existed := exec.Command("docker", "volume", "inspect", vol).Run() == nil
+	var before []byte
+	if existed {
+		before, _ = exec.Command("docker", "run", "--rm", "--user", "0", "-v", vol+":/d", image, "sh", "-c", "cat /d/resolv.conf 2>/dev/null").Output()
+	}
+	t.Cleanup(func() {
+		if !existed {
+			_ = exec.Command("docker", "volume", "rm", "-f", vol).Run()
+			return
+		}
+		if len(before) > 0 {
+			cmd := exec.Command("docker", "run", "--rm", "-i", "--user", "0", "-v", vol+":/d", image, "sh", "-c", "cat > /d/resolv.conf")
+			cmd.Stdin = strings.NewReader(string(before))
+			_ = cmd.Run()
+		}
+	})
 }

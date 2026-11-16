@@ -4,9 +4,16 @@ package mail
 
 import (
 	"context"
-	"net/smtp"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
 func TestFormatRejectsInjection(t *testing.T) {
@@ -22,23 +29,62 @@ func TestFormatRejectsInjection(t *testing.T) {
 	}
 }
 
-func TestSMTPSend(t *testing.T) {
-	var gotAddr, gotFrom string
-	var gotTo []string
-	s := &SMTP{Host: "smtp.example.com", Port: 587, User: "u", Password: "p", From: "from@example.com",
-		send: func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
-			gotAddr, gotFrom, gotTo = addr, from, to
-			if a == nil {
-				t.Error("auth expected")
-			}
-			return nil
-		}}
-	if err := s.Send(context.Background(), Message{To: "to@example.com", Subject: "s", Body: "b"}); err != nil {
+// Delivery through a real SMTP server (Mailpit in a container), read back from its own API.
+func TestSMTPSendDeliversThroughARealServer(t *testing.T) {
+	testenv.Docker(t)
+	smtpPort, apiPort := freePort(t), freePort(t)
+	name := fmt.Sprintf("syntaxis-test-mailpit-%d", time.Now().UnixNano()%1e9)
+	if out, err := exec.Command("docker", "run", "-d", "--rm", "--name", name,
+		"-p", fmt.Sprintf("127.0.0.1:%d:1025", smtpPort), "-p", fmt.Sprintf("127.0.0.1:%d:8025", apiPort), "axllent/mailpit:latest").CombinedOutput(); err != nil {
+		testenv.NotTested(t, "the Mailpit image could not be started (no network to pull it?): "+strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+	api := fmt.Sprintf("http://127.0.0.1:%d/api/v1/messages", apiPort)
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if r, err := http.Get(api); err == nil {
+			_ = r.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Mailpit did not start")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	s := &SMTP{Host: "127.0.0.1", Port: smtpPort, From: "from@example.com"}
+	if err := s.Send(context.Background(), Message{To: "to@example.com", Subject: "Your invite", Body: "Open https://syntaxis.example.com/#token=abc"}); err != nil {
 		t.Fatal(err)
 	}
-	if gotAddr != "smtp.example.com:587" || gotFrom != "from@example.com" || gotTo[0] != "to@example.com" {
-		t.Fatalf("%s %s %v", gotAddr, gotFrom, gotTo)
+	r, err := http.Get(api)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer r.Body.Close()
+	var got struct {
+		Messages []struct {
+			Subject string
+			Snippet string
+			From    struct{ Address string }
+			To      []struct{ Address string }
+		}
+	}
+	if err := json.NewDecoder(r.Body).Decode(&got); err != nil || len(got.Messages) != 1 {
+		t.Fatalf("%v %+v", err, got)
+	}
+	m := got.Messages[0]
+	if m.Subject != "Your invite" || m.From.Address != "from@example.com" || len(m.To) != 1 || m.To[0].Address != "to@example.com" || !strings.Contains(m.Snippet, "token=abc") {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
 }
 
 func TestRecorderAndConsole(t *testing.T) {
@@ -53,4 +99,8 @@ func TestRecorderAndConsole(t *testing.T) {
 	if err := (Console{}).Send(context.Background(), Message{To: "x"}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSMTPAuthAndStartTLS(t *testing.T) {
+	testenv.NotTested(t, "SMTP login and STARTTLS against a real mail relay (needs an account on one)")
 }

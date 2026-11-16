@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
@@ -43,7 +42,8 @@ func TestGroupAndLevelSettingsReachTheUser(t *testing.T) {
 		t.Fatalf("the group's limit must apply: %v", usage)
 	}
 	// the group turns the terminal off
-	e.app.Sandbox = sandbox.NewManager(sandbox.NewFake(), sandbox.DefaultConfig(), nil)
+	e.app.Sandbox = realSandbox(t, e)
+	cleanupSandboxes(t, e)
 	seedModel(e)
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
 	if code, body, _ := u.do("GET", "/api/sessions/"+s["id"].(string)+"/terminal", nil); code != 403 || !strings.Contains(body["error"].(string), "turned the terminal off") {
