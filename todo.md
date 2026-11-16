@@ -17,16 +17,11 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 - [ ] Parallel tasks: several runs of one task (or several tasks) at once, each in its own sandbox, with a side-by-side comparison.
 - [ ] `devcontainer.json` support and per-project image templates.
-- [ ] Prompt presets.
 - [ ] Read-only session sharing.
 - [ ] Checkpoints: a timeline in the UI, apply or discard individual hunks, restore the conversation as well as the files (fork, with the abandoned branch kept), per-user disk budget.
-- [ ] Wire helper-model routing into the agent for titles, summaries and compaction (the decision logic exists; off by default; never load or swap a model mid-session).
-- [ ] An `AgentAdapter` interface with an experimental adapter that runs another agent inside the sandbox, reaching the model only through a Syntaxis-hosted endpoint with a per-session token.
-- [ ] Side panel tabs for files and a dev-server preview.
-- [ ] Optional terminal recording.
+- [ ] Helper-model routing. A small, fast "helper" model does the cheap jobs so the main model's queue and context stay free for the real work: session titles, conversation summaries when the context is compacted, commit and pull-request messages, a one-line summary of what a watch found, and drafts of plans. The admin picks a helper model per provider (or none); each job falls back to the session's own model if the helper is missing or fails. A helper is used only if the server reports it is already loaded, because Syntaxis never loads or swaps a model mid-session, and a health check says when it is not. The decision logic and tests against a real Ollama server exist; wiring it into the agent, the settings page and the health check does not.
 
 ## 6. Operations
 
 - [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
 - [ ] Run the Playwright and accessibility (axe-core) suites in CI against the instance the fresh-install job creates; add a Lighthouse PWA check.
-- [ ] Workspace size cap enforced by a filesystem quota. Today the size is measured every minute; over the limit new messages are refused until space is freed (the terminal stays open), and the sandbox is stopped when far over.
