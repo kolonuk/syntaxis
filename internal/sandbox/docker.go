@@ -12,6 +12,7 @@ import (
 	"io"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -228,7 +229,21 @@ func (d *Docker) Unpause(ctx context.Context, id string) error {
 
 // Remove implements Runtime.
 func (d *Docker) Remove(ctx context.Context, id string) error {
-	return mapNotFound(d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: false}))
+	err := d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: false})
+	if err != nil && cerrdefs.IsConflict(err) && strings.Contains(err.Error(), "already in progress") {
+		// someone else (the reaper, a second delete) is removing it: wait for that to finish
+		for i := 0; i < 50; i++ {
+			if _, ierr := d.cli.ContainerInspect(ctx, id); cerrdefs.IsNotFound(ierr) {
+				return ErrNotFound
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	return mapNotFound(err)
 }
 
 // Exec implements Runtime. Output is capped at e.MaxOutput bytes per stream.
