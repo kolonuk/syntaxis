@@ -23,6 +23,7 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] SMTP login and STARTTLS against a real relay.
 - [ ] The llama.cpp and LiteLLM adapters against real servers.
 - [ ] The installer on a full virtual machine per distribution (CI checks package installation and the fresh install on one image; this host has no hardware virtualisation).
+- [ ] A real update through the admin app on a disposable Docker host: a published release (none exists yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 
 ## 4. Features

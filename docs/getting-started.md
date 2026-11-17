@@ -45,7 +45,7 @@ In the admin app, open **Providers & models → Add provider** and enter your se
 
 ## 4. Invite a user
 
-Go to **Users → Invite user**. They get a single-use link to set their own password. Without email configured, find the link with `docker compose logs syntaxis`.
+Go to **Users → Invite user**. The invite is emailed to them, and the same single-use link is shown to you on screen with a **Copy link** button, so you can send it yourself (a message, a chat) if email is not set up or the mail goes astray. The link is valid for 3 days, and anyone who has it can set that account's password, so pass it on privately. **Resend** on a pending user gives a fresh link the same way.
 
 They sign in at the address you gave with `--url`, start a session and describe a task.
 
@@ -59,11 +59,23 @@ docker compose exec syntaxis syntaxis doctor
 
 ## Updating
 
+In the admin app, **Updates** shows what is running and what is available, and a banner and an **Update available** button in the header appear when a new release is out. From there you can:
+
+- **update to the latest release**, or **switch to any other release** (including an older one);
+- **follow the development branch (edge)**, which builds the newest code from the main branch on your host. It has the newest fixes and the newest mistakes, so use it if you want to try things before they are released.
+
+Syntaxis backs up its database, installs the version, restarts (running sessions stop, workspaces are kept) and waits for it to report healthy. If it does not, the old version and its data are put back automatically.
+
+The installer sets up a small service on the Docker host that does this (`syntaxis-update-agent`), because only the host can pull images and restart containers. Syntaxis never sends it a command: it only accepts "latest", "edge" or a version number. If the service is not running the page says so; start it with `sudo systemctl start syntaxis-update-agent`, or update by hand:
+
 ```sh
-sudo sh scripts/update.sh
+sudo sh scripts/update.sh                    # update within the current channel
+sudo sh scripts/update.sh --release v1.4.0   # switch to a release (latest if no version is given)
+sudo sh scripts/update.sh --edge             # follow the main branch
+sudo sh scripts/update.sh --dry-run --edge   # say what it would do, change nothing
 ```
 
-It backs up the database, pulls (source installs) or downloads (pinned installs) the new version, restarts, and rolls back the image and database if the new version does not report healthy. The running version is shown in the apps, at `/api/version` and by `syntaxis version`.
+The running version is shown in the apps, at `/api/version` and by `syntaxis version`. To check for releases Syntaxis asks GitHub's public API for the project's releases and branch (at most once an hour); nothing else is sent.
 
 ## Installing by hand
 

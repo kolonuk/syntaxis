@@ -246,6 +246,14 @@ jobs:
           sudo sh scripts/install.sh --yes > /dev/null
           [ "$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)" = "$key" ]
           curl -fsS http://127.0.0.1:8080/healthz
+      - name: Updating from the development branch works and the update service is running
+        run: |
+          systemctl is-active syntaxis-update-agent.service
+          sudo sh scripts/update.sh --dry-run --release v0.0.1 | grep -q 'channel=release target=v0.0.1'
+          sudo sh scripts/update.sh --edge
+          curl -fsS http://127.0.0.1:8080/healthz
+          [ "$(sudo grep '^SYNTAXIS_CHANNEL=' .env)" = "SYNTAXIS_CHANNEL=edge" ]
+          [ "$(stat -c %a .env)" = 600 ]
       - name: Firewall comes back after it is flushed
         run: |
           sudo nft delete table inet syntaxis_sandbox

@@ -34,6 +34,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/secrets"
 	"github.com/kolonuk/syntaxis/internal/signing"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/update"
 	"github.com/kolonuk/syntaxis/internal/watch"
 )
 
@@ -62,6 +63,8 @@ type App struct {
 	fwSeen        time.Time
 	// WatchClient makes the requests watches need; it refuses private addresses.
 	WatchClient *http.Client
+	Updates     *update.Source // where releases are looked up; nil = the project's own
+	updAgent    updateAgent
 	Connections *connections.Registry // the services users can connect their own accounts to
 	Terms       *Terminals            // open interactive terminals
 	Monitor     *sandbox.Monitor      // CPU/memory sampling and limits; may be nil

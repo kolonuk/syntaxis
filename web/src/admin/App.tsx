@@ -146,11 +146,12 @@ function UsersTab() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [edit, setEdit] = useState<User | null>(null);
+  const [link, setLink] = useState<{ url: string; who: string; warning?: string } | null>(null);
   async function invite(e: FormEvent) {
     e.preventDefault();
     try {
-      await post("/users", { email, name });
-      toast("Invite sent.", "success");
+      const r = await post<{ invite_url: string; warning?: string }>("/users", { email, name });
+      setLink({ url: r.invite_url, who: name, warning: r.warning });
       setAdding(false);
       setEmail("");
       setName("");
@@ -204,8 +205,14 @@ function UsersTab() {
                   {u.invited && (
                     <Button
                       onClick={async () => {
-                        await post(`/users/${u.id}/resend`);
-                        toast("Invite re-sent.", "success");
+                        try {
+                          const r = await post<{ invite_url: string; warning?: string }>(
+                            `/users/${u.id}/resend`,
+                          );
+                          setLink({ url: r.invite_url, who: u.name, warning: r.warning });
+                        } catch (x) {
+                          toast(errText(x), "error");
+                        }
                       }}
                     >
                       Resend
@@ -217,6 +224,39 @@ function UsersTab() {
           </tbody>
         </table>
       </div>
+      {link && (
+        <Modal
+          title={`Invite link for ${link.who}`}
+          onClose={() => setLink(null)}
+          actions={
+            <>
+              <Button
+                onClick={() => {
+                  void navigator.clipboard?.writeText(link.url);
+                  toast("Link copied.", "success");
+                }}
+              >
+                Copy link
+              </Button>
+              <Button variant="primary" onClick={() => setLink(null)}>
+                Done
+              </Button>
+            </>
+          }
+        >
+          {link.warning ? (
+            <Banner tone="warn">{link.warning}. Send them this link yourself.</Banner>
+          ) : (
+            <p>The same link was emailed to them. You can also pass it on yourself.</p>
+          )}
+          <Input
+            label="Single-use link (valid for 3 days; anyone who has it can set the password)"
+            readOnly
+            value={link.url}
+            onFocus={(e) => e.target.select()}
+          />
+        </Modal>
+      )}
       {adding && (
         <Modal title="Invite user" onClose={() => setAdding(false)}>
           <form onSubmit={invite}>
@@ -230,7 +270,7 @@ function UsersTab() {
               hint="They receive a single-use link to set their own password."
             />
             <Button variant="primary" type="submit">
-              Send invite
+              Invite
             </Button>
           </form>
         </Modal>
@@ -741,6 +781,190 @@ function EnvironmentsTab() {
         </Button>
       </Card>
     </>
+  );
+}
+
+interface UpdateInfo {
+  current: { version: string; commit: string; date: string };
+  mode: "release" | "edge";
+  releases: { tag: string; name: string; published: string; url: string; prerelease: boolean }[];
+  latest?: { tag: string; published: string; url: string };
+  release_available?: boolean;
+  edge?: { sha: string; date: string; subject: string; newer: boolean };
+  check_error?: string;
+  agent: { running: boolean; manual: string };
+  status: { state?: string; target?: string; message?: string; at?: string };
+}
+
+function UpdatesTab() {
+  const toast = useToast();
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [lost, setLost] = useState(false);
+  const [pick, setPick] = useState("");
+  const [confirm, setConfirm] = useState<{ target: string; label: string } | null>(null);
+  const load = useCallback(async (refresh = false) => {
+    try {
+      setInfo(await get<UpdateInfo>("/update" + (refresh ? "?refresh=1" : "")));
+      setLost(false);
+    } catch {
+      setLost(true); // the server restarts while it updates
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const busy = info?.status.state === "requested" || info?.status.state === "running";
+  useEffect(() => {
+    if (!busy && !lost) return;
+    const t = setInterval(() => void load(), 5000);
+    return () => clearInterval(t);
+  }, [busy, lost, load]);
+  async function start() {
+    if (!confirm) return;
+    try {
+      await post("/update", { target: confirm.target });
+      toast("Update requested.", "success");
+      setConfirm(null);
+      void load();
+    } catch (x) {
+      toast(errText(x), "error");
+      setConfirm(null);
+    }
+  }
+  if (!info) return lost ? <Banner tone="warn">Reconnecting…</Banner> : <Skeleton />;
+  const cur = info.current;
+  return (
+    <div className="stack">
+      {(busy || lost) && (
+        <Banner tone="info">
+          {busy ? `Updating to ${info.status.target}. ` : ""}Syntaxis restarts during an update;
+          this page reconnects by itself and sessions that are running will be stopped.
+        </Banner>
+      )}
+      {info.status.state === "failed" && (
+        <Banner tone="danger">
+          The last update to {info.status.target} failed and was rolled back. {info.status.message}
+        </Banner>
+      )}
+      {info.status.state === "done" && (
+        <Banner>
+          Updated to {info.status.target}. {info.status.message}
+        </Banner>
+      )}
+      {!info.agent.running && (
+        <Banner tone="warn">
+          The update service on the Docker host is not running, so updates cannot be started from
+          here. Start it with <code>sudo systemctl start syntaxis-update-agent</code>, or update by
+          hand with <code>{info.agent.manual}</code>.
+        </Banner>
+      )}
+      <Card title="Running now">
+        <p>
+          <strong>{cur.version}</strong> {cur.commit && <code>{cur.commit.slice(0, 8)}</code>}{" "}
+          <Badge>{info.mode === "release" ? "published release" : "development branch"}</Badge>
+        </p>
+        {cur.date && <p className="muted">Built {new Date(cur.date).toLocaleString()}</p>}
+      </Card>
+      <Card title="Releases">
+        {info.check_error && <Banner tone="warn">{info.check_error}</Banner>}
+        {info.releases.length === 0 && !info.check_error && (
+          <p className="muted">No release has been published yet.</p>
+        )}
+        {info.latest && (
+          <p>
+            Latest: <strong>{info.latest.tag}</strong>{" "}
+            <span className="muted">
+              {new Date(info.latest.published).toLocaleDateString()} ·{" "}
+              <a href={info.latest.url} target="_blank" rel="noreferrer">
+                release notes
+              </a>
+            </span>{" "}
+            {info.release_available ? <Badge tone="warn">new</Badge> : <Badge>up to date</Badge>}
+          </p>
+        )}
+        {info.release_available && info.latest && (
+          <Button
+            variant="primary"
+            disabled={busy || !info.agent.running}
+            onClick={() =>
+              setConfirm({ target: info.latest!.tag, label: `Update to ${info.latest!.tag}` })
+            }
+          >
+            Update to {info.latest.tag}
+          </Button>
+        )}
+        {info.releases.length > 0 && (
+          <div className="row">
+            <Select
+              label="Switch to another release"
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+              options={[
+                { value: "", label: "Choose a version" },
+                ...info.releases.map((r) => ({
+                  value: r.tag,
+                  label:
+                    r.tag +
+                    (r.prerelease ? " (pre-release)" : "") +
+                    (r.tag === cur.version ? " — running" : ""),
+                })),
+              ]}
+            />
+            <Button
+              disabled={!pick || busy || !info.agent.running || pick === cur.version}
+              onClick={() => setConfirm({ target: pick, label: `Switch to ${pick}` })}
+            >
+              Switch
+            </Button>
+          </div>
+        )}
+      </Card>
+      <Card title="Development branch (edge)">
+        <p className="muted">
+          Builds the newest code on the main branch on this host. It has the latest changes and
+          fixes, and also the newest mistakes; it is not what releases are tested as.
+        </p>
+        {info.edge && (
+          <p>
+            Newest commit: <code>{info.edge.sha.slice(0, 8)}</code> {info.edge.subject}{" "}
+            {info.edge.newer ? (
+              <Badge tone="warn">different from what is running</Badge>
+            ) : (
+              <Badge>running</Badge>
+            )}
+          </p>
+        )}
+        <Button
+          disabled={busy || !info.agent.running}
+          onClick={() => setConfirm({ target: "edge", label: "Follow the development branch" })}
+        >
+          {info.mode === "edge"
+            ? "Update to the newest commit"
+            : "Switch to the development branch"}
+        </Button>
+      </Card>
+      <Button onClick={() => void load(true)}>Check again</Button>
+      {confirm && (
+        <Modal
+          title={confirm.label}
+          onClose={() => setConfirm(null)}
+          actions={
+            <>
+              <Button onClick={() => setConfirm(null)}>Cancel</Button>
+              <Button variant="primary" onClick={() => void start()}>
+                Update now
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Syntaxis backs up its database, installs the new version and restarts. Running sessions
+            are stopped, and the work in their workspaces is kept. If the new version does not start
+            properly, the old one and its data are put back automatically.
+          </p>
+        </Modal>
+      )}
+    </div>
   );
 }
 
@@ -1467,6 +1691,7 @@ function Console({
 }) {
   const [tab, setTab] = useState("health");
   const { data: h } = useLoad<Health>("/health");
+  const { data: upd } = useLoad<UpdateInfo>("/update");
   return (
     <div className="shell">
       <header className="topbar">
@@ -1485,6 +1710,16 @@ function Console({
           </Badge>
         )}
         <VersionLabel />
+        {upd?.release_available && upd.latest && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setTab("updates")}
+            title="A new release is available"
+          >
+            Update available: {upd.latest.tag}
+          </button>
+        )}
         {chatUrl && (
           <a className="btn btn-ghost" href={chatUrl} title="Back to the chat app">
             Chat app
@@ -1505,6 +1740,7 @@ function Console({
             { id: "groups", label: "Levels & groups" },
             { id: "providers", label: "Providers & models" },
             { id: "envs", label: "Environments" },
+            { id: "updates", label: upd?.release_available ? "Updates ●" : "Updates" },
             { id: "bench", label: "Benchmarks" },
             { id: "mcp", label: "MCP servers" },
             { id: "sessions", label: "Sessions" },
@@ -1519,6 +1755,7 @@ function Console({
         {tab === "groups" && <GroupsTab />}
         {tab === "providers" && <ProvidersTab />}
         {tab === "envs" && <EnvironmentsTab />}
+        {tab === "updates" && <UpdatesTab />}
         {tab === "bench" && <BenchmarksTab />}
         {tab === "mcp" && <McpTab />}
         {tab === "sessions" && <SessionsTab />}

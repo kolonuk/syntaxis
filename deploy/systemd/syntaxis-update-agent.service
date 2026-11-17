@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Lets an admin start an update from the admin app: polls Syntaxis for a request and runs
+# scripts/update.sh. Installed by scripts/install.sh, which replaces @ROOT@ with the checkout directory.
+[Unit]
+Description=Syntaxis update service
+Documentation=https://github.com/kolonuk/syntaxis/blob/main/docs/getting-started.md#updating
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@
+ExecStart=/bin/sh @ROOT@/scripts/update-agent.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

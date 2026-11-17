@@ -126,43 +126,44 @@ func (s *Service) AdminSetupLink(ctx context.Context, email, name string, ttl ti
 
 // ---- invite / reset ----
 
-// InviteUser creates a chat user without a password and emails an invite link.
-func (s *Service) InviteUser(ctx context.Context, actorAdminID int64, email, name string) (int64, error) {
+// InviteUser creates a chat user without a password, emails an invite link and returns it too, so an
+// admin can pass it on by hand when mail is not set up. The link is single use and a secret.
+func (s *Service) InviteUser(ctx context.Context, actorAdminID int64, email, name string) (int64, string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !strings.Contains(email, "@") || strings.ContainsAny(email, " \r\n") {
-		return 0, errors.New("invalid email")
+		return 0, "", errors.New("invalid email")
 	}
 	id, err := s.Store.CreateAccount(ctx, store.Account{Kind: store.KindUser, Email: email, Name: name, CreatedAt: s.now()})
 	if err != nil {
-		return 0, err
-	}
-	if err := s.sendToken(ctx, id, email, name, TokenInvite, InviteTTL); err != nil {
-		return id, err
+		return 0, "", err
 	}
 	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("admin:%d", actorAdminID), "user.invite", fmt.Sprintf("user:%d", id), email)
-	return id, nil
+	link, err := s.sendToken(ctx, id, email, name, TokenInvite, InviteTTL)
+	return id, link, err
 }
 
 // ResendInvite issues a fresh invite for a user who has not set a password.
-func (s *Service) ResendInvite(ctx context.Context, actorAdminID, userID int64) error {
+func (s *Service) ResendInvite(ctx context.Context, actorAdminID, userID int64) (string, error) {
 	u, err := s.Store.GetAccount(ctx, store.KindUser, userID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if u.PasswordHash != "" {
-		return errors.New("user already set a password")
+		return "", errors.New("user already set a password")
 	}
 	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("admin:%d", actorAdminID), "user.invite.resend", fmt.Sprintf("user:%d", userID), "")
 	return s.sendToken(ctx, userID, u.Email, u.Name, TokenInvite, InviteTTL)
 }
 
-func (s *Service) sendToken(ctx context.Context, userID int64, email, name, kind string, ttl time.Duration) error {
+// sendToken makes a single-use link, emails it and returns it. If the email cannot be sent the link
+// is still returned, with the error.
+func (s *Service) sendToken(ctx context.Context, userID int64, email, name, kind string, ttl time.Duration) (string, error) {
 	tok, hash, err := NewToken()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := s.Store.PutToken(ctx, store.Token{Hash: hash, Kind: kind, UserID: userID, ExpiresAt: s.now().Add(ttl)}); err != nil {
-		return err
+		return "", err
 	}
 	link := s.BaseURL + "/set-password?token=" + url.QueryEscape(tok)
 	subject, body := "You have been invited to Syntaxis", fmt.Sprintf("Hello %s,\n\nAn administrator created an account for you. Set your password here (valid %s, single use):\n\n%s\n", name, ttl, link)
@@ -170,7 +171,7 @@ func (s *Service) sendToken(ctx context.Context, userID int64, email, name, kind
 		link = s.BaseURL + "/reset-password?token=" + url.QueryEscape(tok)
 		subject, body = "Reset your Syntaxis password", fmt.Sprintf("Hello %s,\n\nUse this link to choose a new password (valid %s, single use). If you did not ask for this, ignore this email.\n\n%s\n", name, ttl, link)
 	}
-	return s.Mail.Send(ctx, mail.Message{To: email, Subject: subject, Body: body})
+	return link, s.Mail.Send(ctx, mail.Message{To: email, Subject: subject, Body: body})
 }
 
 // RequestReset starts a password reset. It always returns nil so callers can
@@ -180,7 +181,8 @@ func (s *Service) RequestReset(ctx context.Context, email string) error {
 	if err != nil || u.Disabled || u.PasswordHash == "" {
 		return nil
 	}
-	return s.sendToken(ctx, u.ID, u.Email, u.Name, TokenReset, ResetTTL)
+	_, err = s.sendToken(ctx, u.ID, u.Email, u.Name, TokenReset, ResetTTL)
+	return err
 }
 
 // CompleteToken consumes an invite or reset token and sets the password.

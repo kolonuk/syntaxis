@@ -912,3 +912,33 @@ func TestAdminSetupLink(t *testing.T) {
 		t.Fatal("setup link issued for an admin with a password")
 	}
 }
+
+// The admin gets the invite link in the response, so it can be passed on by hand; it is the same
+// single-use link that was emailed, and it works.
+func TestInviteResponseCarriesTheSingleUseLink(t *testing.T) {
+	e := newEnv(t)
+	adm := e.makeAdminSession()
+	code, m, raw := adm.do("POST", "/api/users", map[string]string{"email": "new@example.com", "name": "New Person"})
+	if code != 201 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	link, _ := m["invite_url"].(string)
+	msg, _ := e.mail.Last()
+	if !strings.HasPrefix(link, e.app.Cfg.BaseURL+"/set-password?token=") || !strings.Contains(msg.Body, link) {
+		t.Fatalf("link %q, mail %q", link, msg.Body)
+	}
+	tok, _ := url.QueryUnescape(strings.SplitN(link, "token=", 2)[1])
+	pub := e.client(e.user.URL)
+	if code, _, raw := pub.do("POST", "/api/invite/accept", map[string]string{"token": tok, "password": pw}); code != 200 {
+		t.Fatalf("the link did not work: %d %s", code, raw)
+	}
+	// a user who has set a password has nothing to resend; a chat user cannot see any of this
+	users, _ := e.st.ListUsers(context.Background())
+	if code, _, _ := adm.do("POST", "/api/users/"+itoa(users[0].ID)+"/resend", nil); code != 400 {
+		t.Fatalf("%d", code)
+	}
+	usr := e.userSession("b@example.com")
+	if code, _, raw := usr.do("POST", "/api/users", map[string]string{"email": "c@example.com", "name": "C"}); code == 201 || strings.Contains(string(raw), "invite_url") {
+		t.Fatalf("a chat user reached the admin invite: %d", code)
+	}
+}

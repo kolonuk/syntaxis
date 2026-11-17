@@ -64,7 +64,7 @@ const goodPW = "correct horse battery staple"
 
 func (f *fixture) makeUser(t *testing.T, email string) *store.Account {
 	t.Helper()
-	id, err := f.s.InviteUser(ctx, 1, email, "Test Person")
+	id, _, err := f.s.InviteUser(ctx, 1, email, "Test Person")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func (f *fixture) enableTOTP(t *testing.T, kind string, id int64) (secret string
 
 func TestInviteFlow(t *testing.T) {
 	f := newFixture(t)
-	id, err := f.s.InviteUser(ctx, 1, "New@Example.com", "New Person")
+	id, _, err := f.s.InviteUser(ctx, 1, "New@Example.com", "New Person")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,21 +132,21 @@ func TestInviteFlow(t *testing.T) {
 
 func TestInviteValidationAndDuplicate(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.s.InviteUser(ctx, 1, "not-an-email", "x"); err == nil {
+	if _, _, err := f.s.InviteUser(ctx, 1, "not-an-email", "x"); err == nil {
 		t.Fatal("bad email accepted")
 	}
-	if _, err := f.s.InviteUser(ctx, 1, "a@example.com\r\nbcc:x@y.z", "x"); err == nil {
+	if _, _, err := f.s.InviteUser(ctx, 1, "a@example.com\r\nbcc:x@y.z", "x"); err == nil {
 		t.Fatal("newline email accepted")
 	}
-	_, _ = f.s.InviteUser(ctx, 1, "a@example.com", "A")
-	if _, err := f.s.InviteUser(ctx, 1, "a@example.com", "A"); !errors.Is(err, store.ErrConflict) {
+	_, _, _ = f.s.InviteUser(ctx, 1, "a@example.com", "A")
+	if _, _, err := f.s.InviteUser(ctx, 1, "a@example.com", "A"); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("duplicate: %v", err)
 	}
 }
 
 func TestInviteExpiry(t *testing.T) {
 	f := newFixture(t)
-	_, _ = f.s.InviteUser(ctx, 1, "a@example.com", "Test Person")
+	_, _, _ = f.s.InviteUser(ctx, 1, "a@example.com", "Test Person")
 	tok := f.lastToken(t)
 	f.now = f.now.Add(InviteTTL + time.Minute)
 	if _, err := f.s.CompleteToken(ctx, TokenInvite, tok, goodPW); !errors.Is(err, ErrInvalidToken) {
@@ -154,20 +154,20 @@ func TestInviteExpiry(t *testing.T) {
 	}
 	// admin can resend
 	u, _ := f.st.GetAccountByEmail(ctx, store.KindUser, "a@example.com")
-	if err := f.s.ResendInvite(ctx, 1, u.ID); err != nil {
+	if _, err := f.s.ResendInvite(ctx, 1, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.CompleteToken(ctx, TokenInvite, f.lastToken(t), goodPW); err != nil {
 		t.Fatalf("resent invite: %v", err)
 	}
-	if err := f.s.ResendInvite(ctx, 1, u.ID); err == nil {
+	if _, err := f.s.ResendInvite(ctx, 1, u.ID); err == nil {
 		t.Fatal("resend allowed after password set")
 	}
 }
 
 func TestTokenKindsNotInterchangeable(t *testing.T) {
 	f := newFixture(t)
-	_, _ = f.s.InviteUser(ctx, 1, "a@example.com", "Test Person")
+	_, _, _ = f.s.InviteUser(ctx, 1, "a@example.com", "Test Person")
 	if _, err := f.s.CompleteToken(ctx, TokenReset, f.lastToken(t), goodPW); !errors.Is(err, ErrInvalidToken) {
 		t.Fatal("invite token accepted as reset")
 	}
@@ -229,7 +229,7 @@ func TestResetIgnoresDisabledAndUninvited(t *testing.T) {
 	if len(f.mail.Sent) != n {
 		t.Fatal("reset mailed to disabled user")
 	}
-	_, _ = f.s.InviteUser(ctx, 1, "b@example.com", "B Person")
+	_, _, _ = f.s.InviteUser(ctx, 1, "b@example.com", "B Person")
 	n = len(f.mail.Sent)
 	_ = f.s.RequestReset(ctx, "b@example.com")
 	if len(f.mail.Sent) != n {

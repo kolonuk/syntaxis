@@ -15,6 +15,7 @@
 #   --https DOMAIN       add the bundled Caddy reverse proxy with automatic certificates
 #   --auto-update        install a weekly timer that runs scripts/update.sh
 #   --no-firewall        do not install the egress firewall units (not recommended)
+#   --no-update-agent    do not install the service that lets an admin start updates from the admin app
 #   --yes                do not ask before installing Docker, gVisor and other packages
 #   --check              show what is missing and would be installed, change nothing
 #
@@ -25,7 +26,7 @@
 # downloads.
 set -eu
 
-URL="" ADMIN_EMAIL="" ADMIN_NAME="Admin" VERSION="" HTTPS_DOMAIN="" AUTO_UPDATE=0 FIREWALL=1 YES=0 LLM="" CHECK=0
+URL="" ADMIN_EMAIL="" ADMIN_NAME="Admin" VERSION="" HTTPS_DOMAIN="" AUTO_UPDATE=0 FIREWALL=1 UPDATE_AGENT=1 YES=0 LLM="" CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
@@ -36,6 +37,7 @@ while [ $# -gt 0 ]; do
     --https) HTTPS_DOMAIN="$2"; shift 2 ;;
     --auto-update) AUTO_UPDATE=1; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
+    --no-update-agent) UPDATE_AGENT=0; shift ;;
     --yes|-y) YES=1; shift ;;
     --check) CHECK=1; shift ;;
     -h|--help) sed -n '3,28p' "$0"; exit 0 ;;
@@ -215,6 +217,13 @@ if [ "$FIREWALL" = 1 ]; then
   systemctl --no-pager --lines=0 status syntaxis-egress.service | head -3 || true
 else
   echo "skipped (--no-firewall): apply scripts/apply-egress.sh yourself, at every boot"
+fi
+
+if [ "$UPDATE_AGENT" = 1 ] && command -v systemctl >/dev/null 2>&1; then
+  say "Installing the update service (lets an admin update from the admin app)"
+  sed "s#@ROOT@#$ROOT#g" deploy/systemd/syntaxis-update-agent.service > /etc/systemd/system/syntaxis-update-agent.service
+  systemctl daemon-reload
+  systemctl enable --now syntaxis-update-agent.service >/dev/null
 fi
 
 if [ "$AUTO_UPDATE" = 1 ]; then

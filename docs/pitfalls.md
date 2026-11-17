@@ -22,7 +22,7 @@ The installer's `--https <domain>` option sets up [Caddy](https://caddyserver.co
 
 ## Email
 
-Invites and password resets need working SMTP; without it the links appear in `docker compose logs syntaxis`. Set up SPF, DKIM and DMARC for the sender domain or they land in spam. Two-factor codes need an accurate clock, so keep NTP running.
+Password resets need working SMTP (invites do not: the admin app shows the invite link to copy; without SMTP the links also appear in `docker compose logs syntaxis`). Set up SPF, DKIM and DMARC for the sender domain or they land in spam. Two-factor codes need an accurate clock, so keep NTP running.
 
 ## gVisor
 

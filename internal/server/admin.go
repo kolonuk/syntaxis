@@ -43,6 +43,8 @@ func (a *App) AdminHandler() http.Handler {
 	r.Get("/api/version", handleVersion)
 	r.Get("/internal/firewall", a.handleFirewallState)
 	r.Post("/internal/firewall/log", a.handleFirewallLog)
+	r.Get("/internal/update", a.handleUpdatePoll)
+	r.Post("/internal/update/status", a.handleUpdateStatus)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", a.handleLogin(store.KindAdmin))
 		r.Post("/login/mfa", a.handleMFA(store.KindAdmin))
@@ -80,6 +82,8 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/models/{id}/recommended", a.adminModelRecommended)
 			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
 			r.Post("/models/{id}/probe", a.adminModelProbe)
+			r.Get("/update", a.adminUpdateInfo)
+			r.Post("/update", a.adminUpdateRequest)
 			r.Get("/image-templates", a.adminImageTemplates)
 			r.Put("/image-templates/{name}", a.adminImageTemplateSet)
 			r.Delete("/image-templates/{name}", a.adminImageTemplateDelete)
@@ -156,7 +160,7 @@ func (a *App) adminInvite(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b) {
 		return
 	}
-	id, err := a.Auth.InviteUser(r.Context(), a.actorID(r), b.Email, b.Name)
+	id, link, err := a.Auth.InviteUser(r.Context(), a.actorID(r), b.Email, b.Name)
 	if err != nil && id == 0 {
 		code := 400
 		if errors.Is(err, store.ErrConflict) {
@@ -165,7 +169,8 @@ func (a *App) adminInvite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, code, err.Error())
 		return
 	}
-	resp := map[string]any{"id": id}
+	// the link goes to the admin who made the invite, so it can be passed on by hand
+	resp := map[string]any{"id": id, "invite_url": link}
 	if err != nil { // user created but email failed
 		resp["warning"] = "user created but the invite email could not be sent: " + err.Error()
 	}
@@ -173,11 +178,16 @@ func (a *App) adminInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) adminResend(w http.ResponseWriter, r *http.Request) {
-	if err := a.Auth.ResendInvite(r.Context(), a.actorID(r), pathID(r)); err != nil {
-		writeErr(w, 400, err.Error())
-		return
+	link, err := a.Auth.ResendInvite(r.Context(), a.actorID(r), pathID(r))
+	resp := map[string]any{"ok": err == nil, "invite_url": link}
+	if err != nil {
+		if link == "" {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		resp["warning"] = "the invite email could not be sent: " + err.Error()
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	writeJSON(w, 200, resp)
 }
 
 func (a *App) adminUserPatch(w http.ResponseWriter, r *http.Request) {
