@@ -37,6 +37,7 @@ const (
 	EvPlan            = "plan"
 	EvPhase           = "phase" // what the run is doing right now, for the progress line in the UI
 	EvNotice          = "notice"
+	EvTodos           = "todos" // the agent's task list, shown as progress
 )
 
 // Result statuses.
@@ -82,6 +83,8 @@ type Deps struct {
 	Redact func(string) string
 	// Checkpoint snapshots the workspace.
 	Checkpoint func(ctx context.Context, label string) error
+	// Images loads the pictures a user message carries, for a model that can see them. nil = none.
+	Images func(ctx context.Context, content string) []provider.Image
 	// Summarize condenses old turns (session model or helper model).
 	Summarize Summarizer
 	Audit     func(action, detail string)
@@ -105,6 +108,7 @@ type Config struct {
 	SkillsEnabled  bool
 	KeepLast       int // message groups kept verbatim on compaction (default 6)
 	Temperature    *float64
+	Hooks          []Hook // commands run before or after tool calls
 }
 
 // Result summarises a run.
@@ -201,6 +205,9 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 	budget := Budget{Window: cfg.Window, Reserve: cfg.ReserveTokens}
 
 	um := provider.Message{Role: "user", Content: userMsg}
+	if a.Deps.Images != nil {
+		um.Images = a.Deps.Images(ctx, userMsg)
+	}
 	a.Messages = append(a.Messages, um)
 	a.persist(um, 0, 0)
 	if a.Deps.Checkpoint != nil {
@@ -223,6 +230,14 @@ func (a *Agent) Run(ctx context.Context, userMsg string) Result {
 		for _, d := range extraTools {
 			known[d.Name] = true
 		}
+	}
+	if a.Deps.Tools != nil && a.Deps.Tools.Memory != nil && !cfg.PlanPhase {
+		extraTools = append(extraTools, MemoryDefs...)
+		known[ToolRemember], known[ToolForget] = true, true
+	}
+	if a.Deps.Tools != nil && a.Deps.Tools.Search != nil && !cfg.PlanPhase {
+		extraTools = append(extraTools, WebSearchDef)
+		known[ToolWebSearch] = true
 	}
 
 	finish := func(status, reason string) Result {
@@ -400,7 +415,12 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 			risk = Risk{Risky: true, Reason: "calls a third-party MCP tool that may change state"}
 		}
 	}
-	isAction := mcpTool || call.Name == ToolShell || call.Name == ToolWrite || call.Name == ToolPatch || call.Name == ToolGit || call.Name == ToolFetch
+	if call.Name == ToolRemember || call.Name == ToolForget {
+		// a note outlives this session, so it is shown to the user first (unless they chose full
+		// autonomy, where it is audited and listed in their settings)
+		risk = Risk{Risky: true, Reason: "saves or deletes a note that is remembered in future sessions"}
+	}
+	isAction := mcpTool || call.Name == ToolRemember || call.Name == ToolForget || call.Name == ToolShell || call.Name == ToolWrite || call.Name == ToolPatch || call.Name == ToolApply || call.Name == ToolGit || call.Name == ToolFetch
 	need, why := false, ""
 	if isAction {
 		need, why = NeedsApproval(cfg.Autonomy, risk, call.Name)
@@ -441,12 +461,21 @@ func (a *Agent) runCall(ctx context.Context, call provider.ToolCall, known map[s
 		}
 	}
 
+	if why := a.runHooks(ctx, HookPre, call.Name, call.Arguments); why != "" {
+		return a.addToolResult(call, "error: "+why, 0), ""
+	}
 	a.emit(EvPhase, "phase", "tool", "detail", firstLine(a.redact(describeForPhase(call)), 80))
 	o := a.Deps.Tools.Run(ctx, call.Name, call.Arguments)
+	if post := a.runHooks(ctx, HookPost, call.Name, call.Arguments); post != "" {
+		o.Text += "\n" + post
+	}
 	if o.Plan != "" {
 		a.emit(EvPlan, "plan", a.redact(o.Plan))
 		a.addToolResult(call, "the plan was shown to the user, who will approve it or ask for changes", 0)
 		return a.redact(o.Plan), StatusPlan
+	}
+	if o.TodosSet {
+		a.emit(EvTodos, "todos", o.Todos)
 	}
 	if o.Question != "" {
 		if a.Deps.Answer == nil {

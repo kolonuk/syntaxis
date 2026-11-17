@@ -3,7 +3,7 @@
 #   docker build -t syntaxis-sandbox:latest images/sandbox
 # Supply your own image by setting SYNTAXIS_SANDBOX_IMAGE (it must have a
 # non-root user with uid 10001, git, and a POSIX shell; ripgrep and curl are
-# used by agent tools). Node and Go come from the official images so they are
+# used by agent tools; poppler-utils and tesseract-ocr read PDFs and images). Node and Go come from the official images so they are
 # current (many tools, including modern MCP servers, need Node 20+).
 FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 FROM golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS golang
@@ -13,6 +13,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git openssh-client curl wget jq ripgrep build-essential pkg-config \
       python3 python3-pip python3-venv python-is-python3 unzip zip less procps \
+      poppler-utils tesseract-ocr tesseract-ocr-eng \
     && pip3 install --break-system-packages --no-cache-dir uv \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/ /usr/local/

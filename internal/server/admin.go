@@ -10,6 +10,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +32,11 @@ const (
 	SettingUserOverride  = "secret_scan_allow_user_override"
 	SettingDailyTokens   = "default_daily_tokens"
 	SettingMonthlyTokens = "default_monthly_tokens"
+	// SettingVisionModels lists models (provider-reported names, comma separated) that accept pictures
+	// although their server does not say so (OpenAI-compatible servers never do).
+	SettingVisionModels = "vision_models"
+	// SettingSearchURL is the address of a SearXNG instance the web_search tool uses; empty = no web search.
+	SettingSearchURL = "search_url"
 )
 
 // AdminHandler returns the admin app: separate routes, cookie and credentials.
@@ -619,6 +625,7 @@ func (a *App) adminSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 var settingDefaults = map[string]string{
 	SettingRotationDays: "30", SettingScanMode: "warn", SettingUserOverride: "true", SettingDailyTokens: "0", SettingMonthlyTokens: "0",
+	SettingVisionModels: "", SettingSearchURL: "",
 }
 
 func validSetting(k, v string) bool {
@@ -627,6 +634,10 @@ func validSetting(k, v string) bool {
 		return v == "off" || v == "warn" || v == "block"
 	case SettingUserOverride:
 		return v == "true" || v == "false"
+	case SettingVisionModels:
+		return len(v) <= 2000 && !strings.ContainsAny(v, "\n\r")
+	case SettingSearchURL:
+		return v == "" || validSearchURL(v)
 	case SettingRotationDays, SettingDailyTokens, SettingMonthlyTokens:
 		n, err := strconv.Atoi(v)
 		return err == nil && n >= 0

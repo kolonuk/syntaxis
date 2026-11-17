@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ func realSandbox(t *testing.T, e *env) *sandbox.Manager {
 		t.Skip("NOT TESTED: gVisor (runsc) is not registered with Docker")
 	}
 	cfg := sandbox.DefaultConfig()
+	if img := os.Getenv("SYNTAXIS_TEST_SANDBOX_IMAGE"); img != "" {
+		cfg.Image = img // a freshly built image under another tag, so a running instance's image is not replaced
+	}
 	if ok, _ := d.ImagePresent(ctx, cfg.Image); !ok {
 		t.Skip("NOT TESTED: the sandbox image " + cfg.Image + " is not built (docker build -t syntaxis-sandbox:latest images/sandbox)")
 	}

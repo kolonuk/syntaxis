@@ -11,7 +11,10 @@ import (
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"github.com/kolonuk/syntaxis/internal/connections"
 	"github.com/kolonuk/syntaxis/internal/policy"
+	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +72,14 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/automations/{id}/run", a.handleAutomationRunNow)
 			r.Post("/automations/{id}/token", a.handleAutomationToken)
 			r.Get("/automations/{id}/runs", a.handleAutomationRuns)
+			r.Get("/commands", a.handleMyCommands)
+			r.Put("/commands", a.handleMyCommandsPut)
+			r.Get("/hooks", a.handleMyHooks)
+			r.Put("/hooks", a.handleMyHooksPut)
+			r.Get("/memory", a.handleMemoryList)
+			r.Post("/memory", a.handleMemoryAdd)
+			r.Put("/memory/{id}", a.handleMemoryPut)
+			r.Delete("/memory/{id}", a.handleMemoryDelete)
 			r.Get("/shares", a.handleShares)
 			r.Delete("/shares/{id}", a.handleShareRevoke)
 			r.Get("/mcp", a.handleMyMCP)
@@ -92,6 +103,8 @@ func (a *App) UserHandler() http.Handler {
 				r.Delete("/", a.handleSessionDelete)
 				r.Get("/messages", a.handleMessages)
 				r.Post("/messages", a.handleSend)
+				r.Post("/edit", a.handleEdit)
+				r.Post("/fork", a.handleFork)
 				r.Get("/events", a.handleEvents)
 				r.Post("/stop", a.handleStop)
 				r.Post("/approvals/{call}", a.handleApproval)
@@ -105,6 +118,14 @@ func (a *App) UserHandler() http.Handler {
 				r.Get("/export", a.handleExport)
 				r.Get("/resources", a.handleResources)
 				r.Get("/terminal", a.handleTerminal)
+				r.Get("/commands", a.handleSessionCommands)
+				r.Get("/files", a.handleFileList)
+				r.Get("/files/content", a.handleFileGet)
+				r.Put("/files/content", a.handleFilePut)
+				r.Get("/files/download", a.handleFileDownload)
+				r.Post("/files/upload", a.handleFileUpload)
+				r.Post("/files/mkdir", a.handleFileMkdir)
+				r.Delete("/files", a.handleFileDelete)
 				r.Get("/mcp", a.handleSessionMCP)
 				r.Put("/mcp", a.handleSessionMCPSet)
 			})
@@ -646,16 +667,66 @@ func (a *App) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var b struct {
-		Text string `json:"text"`
+		Text        string   `json:"text"`
+		Attachments []string `json:"attachments"`
 	}
 	if !decode(w, r, &b) {
 		return
 	}
-	if strings.TrimSpace(b.Text) == "" || len(b.Text) > 100_000 {
+	text := b.Text
+	if expanded, c := expandCommand(text, a.commandsFor(r.Context(), s, principal(r).Account.ID)); c != nil {
+		text = expanded
+	}
+	if len(b.Attachments) > 0 {
+		items, err := a.checkAttachments(r.Context(), s, b.Attachments)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.TrimSpace(text) == "" {
+			text = "Please look at the attached file."
+			if len(items) > 1 {
+				text = "Please look at the attached files."
+			}
+		}
+		text = agent.ComposeAttachments(text, items)
+	}
+	if strings.TrimSpace(text) == "" || len(text) > 100_000 {
 		writeErr(w, 400, "message is empty or too long")
 		return
 	}
-	a.startRun(w, r, s, b.Text)
+	a.startRun(w, r, s, text)
+}
+
+const maxAttachments = 8
+
+// checkAttachments confirms that the named files were uploaded to this session's attachment folder.
+func (a *App) checkAttachments(ctx context.Context, s *store.ChatSession, paths []string) ([]agent.Attachment, error) {
+	if len(paths) > maxAttachments {
+		return nil, fmt.Errorf("attach at most %d files to one message", maxAttachments)
+	}
+	if s.SandboxID == "" || a.Sandbox == nil {
+		return nil, errors.New("upload the files first")
+	}
+	var items []agent.Attachment
+	seen := map[string]bool{}
+	for _, p := range paths {
+		sp, err := agent.SafePath(p)
+		if err != nil || !strings.HasPrefix(sp, agent.AttachmentDir+"/") {
+			return nil, errors.New("attachments must be files uploaded with the paperclip")
+		}
+		if seen[sp] {
+			continue
+		}
+		seen[sp] = true
+		res, err := a.Sandbox.Exec(ctx, s.ID, s.SandboxID, sandbox.ExecSpec{Cmd: []string{"sh", "-c", `[ -f "$1" ] && stat -c %s -- "$1"`, "_", sp}, WorkingDir: "/", Timeout: 20 * time.Second})
+		if err != nil || res.ExitCode != 0 {
+			return nil, fmt.Errorf("%s is not uploaded (any more)", path.Base(sp))
+		}
+		n, _ := strconv.ParseInt(strings.TrimSpace(res.Stdout), 10, 64)
+		items = append(items, agent.Attachment{Path: sp, Kind: agent.KindOf(sp), Size: n})
+	}
+	return items, nil
 }
 
 func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {

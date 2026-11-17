@@ -249,7 +249,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	if s.PlanMode && s.PlanState == "approved" {
 		approvedPlan = s.PlanText
 	}
-	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled, PlanPhase: planPhase, ApprovedPlan: approvedPlan, Repo: s.RepoName, RepoDir: repoDir, RepoBranch: s.RepoBranch, RepoBase: s.RepoBase})
+	system := agent.BuildSystemPrompt(agent.PromptOptions{Autonomy: autonomy, ToolsEnabled: toolsOn, Rules: loaded, IncludeForeign: include, CloudToolsOff: u.CloudToolsDisabled, PlanPhase: planPhase, ApprovedPlan: approvedPlan, Notes: a.notesFor(bg, u.ID, s.RepoName), Repo: s.RepoName, RepoDir: repoDir, RepoBranch: s.RepoBranch, RepoBase: s.RepoBase})
 
 	signMode := a.setting(bg, "signing_mode", a.Cfg.SigningMode)
 	var signer func(context.Context, string) (string, error)
@@ -282,6 +282,8 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	if bridge != nil {
 		ex.MCP = bridge
 	}
+	ex.Search = a.searchFunc(bg)
+	ex.Memory = sessionMemory{a: a, userID: u.ID, repo: s.RepoName, redact: redactNow}
 	if s.RepoName != "" {
 		// pull requests are opened by the server with the user's own connection, so the token is not
 		// needed in any command the model writes
@@ -373,11 +375,32 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		msgs = append(msgs, toProviderMessage(m))
 	}
 
+	vision := a.modelSeesImages(bg, pr, s.Model)
+	imagesFor := func(c context.Context, content string) []provider.Image {
+		if !vision {
+			return nil
+		}
+		return agent.LoadImages(c, exec, content)
+	}
+	// pictures in the last two messages that carry some stay visible to the model on later turns
+	for i, seen := len(msgs)-1, 0; i >= 0 && seen < 2; i-- {
+		if msgs[i].Role == "user" {
+			if _, items := agent.ParseAttachments(msgs[i].Content); len(items) > 0 {
+				seen++
+				msgs[i].Images = imagesFor(ctx, msgs[i].Content)
+			}
+		}
+	}
+
+	hooks := a.hooksFor(bg, u.ID, repoDir, fs, func(m string) {
+		run.Emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": m}})
+	})
+
 	ag := &agent.Agent{
-		Cfg: agent.Config{Model: s.Model, Window: w.Window(model), Autonomy: autonomy, System: system, ToolsEnabled: toolsOn, PlanPhase: planPhase, SkillsEnabled: loaded != nil && len(loaded.Skills) > 0,
+		Cfg: agent.Config{Hooks: hooks, Model: s.Model, Window: w.Window(model), Autonomy: autonomy, System: system, ToolsEnabled: toolsOn, PlanPhase: planPhase, SkillsEnabled: loaded != nil && len(loaded.Skills) > 0,
 			MaxTurns: w.MaxTurns, ToolOutputMax: w.ToolOutput, MaxDuration: 2 * time.Hour},
 		Deps: agent.Deps{
-			Chat: chat, Tools: ex, Policy: policy,
+			Chat: chat, Tools: ex, Policy: policy, Images: imagesFor,
 			ApprovalNote: a.approvalNote(bg, u.ID),
 			Approve:      func(c context.Context, r agent.ApprovalRequest) (bool, error) { return run.Approve(c, r.CallID) },
 			Answer:       func(c context.Context, _ string) (string, error) { return run.Ask(c) },
