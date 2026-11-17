@@ -142,6 +142,7 @@ jobs:
         with:
           context: images/sandbox
           push: false
+          load: true
           tags: syntaxis-sandbox:ci
       - name: Build the example environment images (no push on CI)
         run: |
