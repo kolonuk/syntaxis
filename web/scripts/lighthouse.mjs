@@ -9,20 +9,30 @@ import { join } from "node:path";
 const url = process.argv[2] ?? process.env.BASE_URL ?? "http://127.0.0.1:8080/";
 const min = { accessibility: 0.95, "best-practices": 0.9, seo: 0.8, performance: 0.8 };
 const out = join(mkdtempSync(join(tmpdir(), "lh-")), "report.json");
-execFileSync(
-  "npx",
-  [
-    "--yes",
-    "lighthouse@12",
-    url,
-    "--quiet",
-    "--output=json",
-    `--output-path=${out}`,
-    `--only-categories=${Object.keys(min).join(",")}`,
-    "--chrome-flags=--headless=new --no-sandbox",
-  ],
-  { stdio: "inherit" },
-);
+// Lighthouse occasionally fails to record the page load on a busy machine (NO_NAVSTART); that is
+// not a finding about the app, so it is tried again.
+for (let attempt = 1; ; attempt++) {
+  try {
+    execFileSync(
+      "npx",
+      [
+        "--yes",
+        "lighthouse@12",
+        url,
+        "--quiet",
+        "--output=json",
+        `--output-path=${out}`,
+        `--only-categories=${Object.keys(min).join(",")}`,
+        "--chrome-flags=--headless=new --no-sandbox",
+      ],
+      { stdio: "inherit" },
+    );
+    break;
+  } catch (e) {
+    if (attempt >= 3) throw e;
+    console.log(`Lighthouse did not complete (attempt ${attempt}); trying again`);
+  }
+}
 const report = JSON.parse(readFileSync(out, "utf8"));
 let bad = false;
 for (const [id, floor] of Object.entries(min)) {
