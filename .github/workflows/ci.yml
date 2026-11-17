@@ -144,12 +144,6 @@ jobs:
           push: false
           load: true
           tags: syntaxis-sandbox:ci
-      - name: Build the example environment images (no push on CI)
-        run: |
-          for d in images/templates/*/; do
-            t=$(basename "$d")
-            docker build -t "syntaxis-env-$t:ci" --build-arg BASE=syntaxis-sandbox:ci "$d"
-          done
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -157,6 +151,29 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+
+  environments:
+    name: Example environment images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk space (some of these images are several gigabytes)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          docker system df
+      - name: Build the sandbox image
+        run: docker build -q -t syntaxis-sandbox:ci images/sandbox
+      - name: Build each environment on it, run it as the sandbox user, and remove it
+        run: |
+          for d in images/templates/*/; do
+            t=$(basename "$d")
+            echo "::group::$t"
+            docker build -q -t "syntaxis-env-$t:ci" --build-arg BASE=syntaxis-sandbox:ci "$d"
+            [ "$(docker run --rm "syntaxis-env-$t:ci" id -u)" = 10001 ]
+            docker rmi "syntaxis-env-$t:ci" >/dev/null
+            docker builder prune -f >/dev/null
+            echo "::endgroup::"
+          done
 
   gvisor:
     name: gVisor integration

@@ -61,9 +61,15 @@ An environment is a sandbox image you have prepared and approved. The default on
 | `php` | PHP 8, Composer | `mcr.microsoft.com/devcontainers/php` |
 | `elixir` | Elixir, Erlang | |
 | `cpp` | clang, CMake, Ninja, gdb, valgrind | `mcr.microsoft.com/devcontainers/cpp` |
+| `typescript` | tsc, tsx, ts-node, ESLint, Prettier, Vitest, pnpm, Yarn | `mcr.microsoft.com/devcontainers/typescript-node` |
+| `kotlin` | Kotlin compiler, OpenJDK 17, Maven | |
+| `haskell` | GHC, Cabal, Stack | `mcr.microsoft.com/devcontainers/haskell` |
+| `zig` | Zig (checked against the project's published checksum) | |
+| `swift` | Swift toolchain (large) | `swift` |
+| `browser` | Headless Chromium with Playwright, for browser tests (large). Launch it with `--no-sandbox`: Chromium's own sandbox cannot start inside gVisor, which is the sandbox here | |
 | `data` | NumPy, pandas, SciPy, scikit-learn, Matplotlib, Jupyter | `mcr.microsoft.com/devcontainers/anaconda` |
 
-Copy one to make your own (a toolchain your team needs, with your internal CA certificates). Keep `USER 10001:10001` and make sure the tools write their caches under `/tmp`, as the examples do: the sandbox's root filesystem is read-only. Add it under **Environments** in the admin app with the images a repository's `devcontainer.json` may name to get it (tags are ignored).
+Some are large (Swift is about 6 GB, the browser image about 3 GB), so build only the ones you need. Copy one to make your own (a toolchain your team needs, with your internal CA certificates). Keep `USER 10001:10001` and make sure the tools write their caches under `/tmp`, as the examples do: the sandbox's root filesystem is read-only. Add it under **Environments** in the admin app with the images a repository's `devcontainer.json` may name to get it (tags are ignored).
 
 - A user can pick an environment for a session. It runs in that image, still under gVisor with the same limits.
 - When a session starts from a repository, its `devcontainer.json` (comments allowed) is read through the user's own connection. If its `image` matches an approved environment, the session uses it. Anything else is ignored and the session says why: a repository can never name an image of its own, and building from a Dockerfile is not supported. A repository can name an approved environment directly with `"customizations": {"syntaxis": {"template": "rust"}}`.
