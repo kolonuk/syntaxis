@@ -238,6 +238,13 @@ func (a *App) user(r *http.Request) *store.User {
 	return a.EffectiveUser(r.Context(), u)
 }
 
+// CPUExhaustedFor reports whether a user's daily compute allowance is used up, counting an
+// allowance that comes from their level or group (the sandbox monitor pauses them when it is).
+func (a *App) CPUExhaustedFor(ctx context.Context, userID int64) bool {
+	u, err := a.Store.GetUser(ctx, userID)
+	return err == nil && a.Quota.CPUExhausted(ctx, a.EffectiveUser(ctx, u))
+}
+
 // EffectiveUser returns the user with the settings of their level and group filled in
 // wherever they have none of their own (see package policy).
 func (a *App) EffectiveUser(ctx context.Context, u *store.User) *store.User {

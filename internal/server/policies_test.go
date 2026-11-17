@@ -112,3 +112,25 @@ func TestAdminModeLinkAndBackLink(t *testing.T) {
 		t.Fatalf("an admin-level user gets the link: %v", me)
 	}
 }
+
+// The sandbox monitor pauses a user whose compute allowance is used up. An allowance set on their
+// group (not on the user) must count.
+func TestComputeAllowanceFromAGroupIsEnforced(t *testing.T) {
+	e := newEnv(t)
+	adm := e.makeAdminSession()
+	e.userSession("a@example.com")
+	id := userID(t, e, "a@example.com")
+	code, m, raw := adm.do("POST", "/api/groups", map[string]any{"name": "small", "policy": map[string]any{"cpu_minutes": 1}})
+	if code != 200 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	adm.do("PATCH", "/api/users/"+itoa(id), map[string]any{"group_id": int64(m["id"].(float64))})
+	ctx := context.Background()
+	if e.app.CPUExhaustedFor(ctx, id) {
+		t.Fatal("exhausted before any use")
+	}
+	_ = e.app.Quota.RecordCPUTime(ctx, id, 61)
+	if !e.app.CPUExhaustedFor(ctx, id) {
+		t.Fatal("a group's one-minute allowance was not enforced after 61 seconds of CPU")
+	}
+}

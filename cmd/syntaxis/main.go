@@ -492,10 +492,7 @@ func cmdServe() error {
 		mon := sandbox.NewMonitor(rt, sandbox.NewWatchdog(sandbox.DefaultWatchdogConfig()), scfg.Limits.CPUs, log)
 		mon.OnCPU = func(user, secs int64) { _ = q.RecordCPUTime(ctx, user, secs) }
 		mon.OnEvent = app.SandboxEvent
-		mon.Exhausted = func(user int64) bool {
-			u, err := st.GetUser(ctx, user)
-			return err == nil && q.CPUExhausted(ctx, u)
-		}
+		mon.Exhausted = func(user int64) bool { return app.CPUExhaustedFor(ctx, user) }
 		mon.DiskBytes = func(c context.Context, id string) (int64, error) { return sandbox.WorkspaceBytes(c, rt, id) }
 		app.Monitor = mon
 		go mon.Run(ctx)
