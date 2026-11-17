@@ -1591,6 +1591,18 @@ function SettingsTab() {
         value={s.default_monthly_tokens ?? ""}
         onChange={(e) => setS({ ...s, default_monthly_tokens: e.target.value })}
       />
+      <Input
+        label="Web search server (SearXNG address)"
+        hint="For example https://search.example.com. Leave empty to turn web search off. The server needs the json format enabled (search.formats in its settings). A server on the local network also needs SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE."
+        value={s.search_url ?? ""}
+        onChange={(e) => setS({ ...s, search_url: e.target.value })}
+      />
+      <Input
+        label="Models that accept pictures"
+        hint="Model names, separated by commas. Ollama reports this itself; list models here for servers that do not (OpenAI-compatible ones). Other models read pictures as text with OCR."
+        value={s.vision_models ?? ""}
+        onChange={(e) => setS({ ...s, vision_models: e.target.value })}
+      />
       <div className="row">
         <Button
           variant="primary"

@@ -1115,3 +1115,200 @@ a.btn {
   max-height: 420px;
   border-radius: var(--r2);
 }
+
+/* task list, attachments, slash commands, file browser */
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.todos {
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  background: var(--surface);
+  padding: var(--s2) var(--s3);
+  margin-top: var(--s2);
+}
+.todos > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.todos-now {
+  font-weight: 400;
+}
+.todos-bar {
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  margin: var(--s2) 0;
+  overflow: hidden;
+}
+.todos-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--success);
+}
+.todos ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-sm);
+}
+.todo {
+  display: flex;
+  gap: var(--s2);
+  padding: 2px 0;
+}
+.todo.completed {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.todo.in_progress {
+  font-weight: 600;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin: var(--s1) 0;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px var(--s2);
+  max-width: 260px;
+}
+.chip .chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  padding: 0 2px;
+  font: inherit;
+}
+.slash-menu {
+  list-style: none;
+  margin: 0 0 var(--s1);
+  padding: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.slash-menu li button {
+  width: 100%;
+  display: flex;
+  gap: var(--s2);
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r1);
+  cursor: pointer;
+}
+.slash-menu li button[aria-selected="true"],
+.slash-menu li button:hover {
+  background: var(--surface-2);
+}
+.msg-actions {
+  display: flex;
+  gap: var(--s1);
+  margin-top: 2px;
+}
+.msg-actions .btn {
+  min-height: 28px;
+  padding: 0 var(--s2);
+  font-size: var(--fs-sm);
+}
+.composer-wrap {
+  border-top: 1px solid var(--border);
+}
+.composer-wrap .composer {
+  border-top: 0;
+}
+.files {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.crumbs {
+  font-size: var(--fs-sm);
+  word-break: break-all;
+}
+.files-actions {
+  flex-wrap: wrap;
+}
+.files-grid {
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: minmax(0, 1fr);
+}
+.files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.files-table th,
+.files-table td {
+  text-align: left;
+  padding: var(--s1) var(--s2);
+  border-bottom: 1px solid var(--border);
+}
+.files-table tr[aria-current="true"] {
+  background: var(--surface-2);
+}
+.file-name {
+  font-family: var(--mono);
+}
+.files-row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.files-row-actions .btn {
+  min-height: 28px;
+  padding: 0 var(--s2);
+}
+.file-view {
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.file-path {
+  font-family: var(--mono);
+  word-break: break-all;
+}
+.code-editor {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 4;
+}

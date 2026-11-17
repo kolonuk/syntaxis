@@ -66,3 +66,30 @@ export function errText(e: unknown): string {
   }
   return e instanceof Error ? e.message : "Something went wrong";
 }
+
+/** Uploads a file's bytes (not JSON) and returns the server's answer. */
+export async function upload<T = unknown>(path: string, file: Blob): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/octet-stream" };
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  const res = await fetchImpl("/api" + path, {
+    method: "POST",
+    headers,
+    credentials: "same-origin",
+    body: file,
+  });
+  const text = await res.text();
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const msg =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : `Upload failed (${res.status})`;
+    throw new ApiError(res.status, msg);
+  }
+  return data as T;
+}

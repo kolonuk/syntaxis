@@ -454,6 +454,10 @@ function Shell({
                 setCurrent("");
                 void refresh();
               }}
+              onOpen={(id) => {
+                void refresh();
+                setCurrent(id);
+              }}
               panelOpen={panelOpen}
               setPanelOpen={setPanelOpen}
             />

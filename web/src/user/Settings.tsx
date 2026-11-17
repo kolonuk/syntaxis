@@ -4,6 +4,7 @@ import { del, get, post, put, errText } from "../lib/api";
 import { compact } from "../lib/format";
 import { Connections } from "./Connections";
 import { McpTools } from "./McpTools";
+import { CommandsEditor, HooksEditor, Notes } from "./AgentSettings";
 import { SharedLinks } from "./Shared";
 import {
   Badge,
@@ -153,6 +154,9 @@ export function Settings({
           { id: "2fa", label: "Two-factor" },
           { id: "connections", label: "Connections" },
           { id: "tools", label: "Tools" },
+          { id: "notes", label: "Notes" },
+          { id: "commands", label: "Commands" },
+          { id: "hooks", label: "Hooks" },
           { id: "shared", label: "Shared links" },
           { id: "secrets", label: "Secrets" },
           { id: "usage", label: "Usage" },
@@ -204,6 +208,9 @@ export function Settings({
       )}
       {tab === "connections" && <Connections />}
       {tab === "tools" && <McpTools />}
+      {tab === "notes" && <Notes />}
+      {tab === "commands" && <CommandsEditor />}
+      {tab === "hooks" && <HooksEditor />}
       {tab === "shared" && <SharedLinks />}
       {tab === "secrets" && <Secrets />}
       {tab === "usage" && <UsagePanel />}

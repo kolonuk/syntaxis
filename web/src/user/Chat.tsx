@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { del, get, patch, post, put, errText } from "../lib/api";
+import { del, get, patch, post, put, upload, errText } from "../lib/api";
 import { streamEvents, type StreamEvent } from "../lib/sse";
 import { enqueue, flush } from "../lib/queue";
 import {
@@ -24,6 +24,18 @@ import { copyText } from "../lib/fences";
 import { commentsMessage, parseDiff } from "../lib/diff";
 import { ago } from "../lib/format";
 import { ShareDialog } from "./Shared";
+import { Files } from "./Files";
+import { TodoList } from "./Todos";
+import {
+  attachmentName,
+  fileSize,
+  MAX_ATTACHMENTS,
+  MAX_UPLOAD,
+  parseAttachments,
+  type Attachment,
+} from "../lib/attachments";
+import { latestTodos, todosFromArgs, type Todo } from "../lib/todos";
+import { matchCommands, type SlashCommand } from "../lib/commands";
 
 interface Msg {
   id: number;
@@ -68,13 +80,14 @@ export function buildItems(msgs: Msg[]) {
   for (const m of msgs)
     if (m.role === "tool" && m.tool_call_id) results.set(m.tool_call_id, m.content);
   const items: (
-    | { kind: "user" | "assistant"; text: string; key: number }
+    | { kind: "user" | "assistant"; text: string; key: number; calls?: boolean }
     | { kind: "step"; call: Call; output?: string; key: string }
   )[] = [];
   for (const m of msgs) {
     if (m.role === "user") items.push({ kind: "user", text: m.content, key: m.id });
     else if (m.role === "assistant") {
-      if (m.content.trim()) items.push({ kind: "assistant", text: m.content, key: m.id });
+      if (m.content.trim())
+        items.push({ kind: "assistant", text: m.content, key: m.id, calls: !!m.tool_calls });
       if (m.tool_calls) {
         try {
           for (const c of JSON.parse(m.tool_calls) as Call[])
@@ -104,6 +117,8 @@ export function describeCall(c: Call): string {
       return `git ${a.action}${typeof a.message === "string" ? ` — ${a.message}` : ""}`;
     if (typeof a.url === "string") return `fetch ${a.url}`;
     if (typeof a.pattern === "string") return `search ${a.pattern}`;
+    if (typeof a.query === "string") return `web search: ${a.query}`;
+    if (typeof a.note === "string") return `remember: ${a.note}`;
   } catch {
     /* fall through */
   }
@@ -120,6 +135,7 @@ export function Chat({
   userKey,
   onChanged,
   onDeleted,
+  onOpen,
   panelOpen,
   setPanelOpen,
 }: {
@@ -127,6 +143,8 @@ export function Chat({
   userKey: string;
   onChanged: () => void;
   onDeleted: () => void;
+  /** Called with the id of a session that was just created from this one (a branch). */
+  onOpen?: (id: string) => void;
   panelOpen: boolean;
   setPanelOpen: (v: boolean) => void;
 }) {
@@ -144,8 +162,17 @@ export function Chat({
   const [answer, setAnswer] = useState("");
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [panel, setPanel] = useState("output");
-  const [view, setView] = useState<"chat" | "terminal">("chat");
+  const [view, setView] = useState<"chat" | "files" | "terminal">("chat");
   const [termOpened, setTermOpened] = useState(false);
+  const [filesOpened, setFilesOpened] = useState(false);
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const [liveTodos, setLiveTodos] = useState<Todo[] | null>(null);
+  const [editing, setEditing] = useState<Msg | null>(null);
+  const [editText, setEditText] = useState("");
+  const picker = useRef<HTMLInputElement>(null);
   const [running, setRunning] = useState(session.state === "running");
   const [notice, setNotice] = useState("");
   const [autonomy, setAutonomy] = useState(session.autonomy);
@@ -213,6 +240,9 @@ export function Chat({
         case "notice":
           setNotice(String(d.message ?? ""));
           break;
+        case "todos":
+          setLiveTodos(todosFromArgs({ todos: d.todos }) ?? []);
+          break;
         case "compaction":
           setNotice("Older turns were summarised to free up context. Your full history is kept.");
           break;
@@ -240,6 +270,8 @@ export function Chat({
     setLive("");
     setApproval(null);
     setNotice("");
+    setLiveTodos(null);
+    setAttached([]);
     setAutonomy(session.autonomy);
     setTitle(session.title);
     void loadMessages();
@@ -249,6 +281,23 @@ export function Chat({
     attach();
     return () => abort.current?.abort();
   }, [session.id, session.autonomy, session.title, attach, loadMessages]);
+
+  // slash commands: refreshed whenever a new one is started, since a repository's can change
+  const loadCommands = useCallback(async () => {
+    try {
+      setCommands(await get<SlashCommand[]>(`/sessions/${session.id}/commands`));
+    } catch {
+      setCommands([]);
+    }
+  }, [session.id]);
+  useEffect(() => {
+    void loadCommands();
+  }, [loadCommands]);
+  const slash = useMemo(() => matchCommands(draft, commands), [draft, commands]);
+  useEffect(() => setCmdIndex(0), [draft]);
+  useEffect(() => {
+    if (draft === "/") void loadCommands();
+  }, [draft, loadCommands]);
 
   // Keep the log pinned to the bottom only while the reader is already there, and scroll
   // the log itself: scrollIntoView also moves the page, which made the chat jitter on phones.
@@ -278,10 +327,57 @@ export function Chat({
     return () => window.removeEventListener("online", send);
   }, [userKey, attach, toast]);
 
+  async function addFiles(files: FileList | File[] | null) {
+    const list = files ? Array.from(files) : [];
+    if (list.length === 0) return;
+    if (!navigator.onLine) {
+      toast("Attaching files needs a connection.", "error");
+      return;
+    }
+    setUploading(true);
+    try {
+      for (const f of list) {
+        if (attached.length >= MAX_ATTACHMENTS) {
+          toast(`Attach at most ${MAX_ATTACHMENTS} files to one message.`, "error");
+          break;
+        }
+        if (f.size > MAX_UPLOAD) {
+          toast(`${f.name} is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`, "error");
+          continue;
+        }
+        const name = f.name || `pasted-${Date.now()}.png`;
+        const r = await upload<{ path: string; size: number }>(
+          `/sessions/${session.id}/files/upload?dir=${encodeURIComponent("/workspace/.attachments")}&name=${encodeURIComponent(name)}`,
+          f,
+        );
+        const kind = /\.pdf$/i.test(name)
+          ? "pdf"
+          : /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(name)
+            ? "image"
+            : "text";
+        setAttached((a) =>
+          a.some((x) => x.path === r.path) ? a : [...a, { path: r.path, kind, size: r.size }],
+        );
+      }
+      onChanged();
+    } catch (x) {
+      toast(errText(x), "error");
+    } finally {
+      setUploading(false);
+      if (picker.current) picker.current.value = "";
+    }
+  }
+
   async function send() {
     const text = draft.trim();
-    if (!text) return;
+    if (!text && attached.length === 0) return;
+    if (attached.length > 0 && !navigator.onLine) {
+      toast("Attachments cannot be sent while you are offline.", "error");
+      return;
+    }
+    const sendFiles = attached;
     setDraft("");
+    setAttached([]);
     setMsgs((m) => [...m, { id: Date.now(), role: "user", content: text }]);
     if (!navigator.onLine) {
       enqueue(userKey, { sessionId: session.id, text });
@@ -289,11 +385,68 @@ export function Chat({
       return;
     }
     try {
-      await post(`/sessions/${session.id}/messages`, { text });
+      await post(`/sessions/${session.id}/messages`, {
+        text,
+        attachments: sendFiles.map((f) => f.path),
+      });
       setRunning(true);
       setPhase({ name: "preparing", detail: "", since: Date.now() });
       setLines([]);
       attach();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+
+  function started() {
+    setRunning(true);
+    setPhase({ name: "preparing", detail: "", since: Date.now() });
+    setLines([]);
+    setLiveTodos(null);
+    attach();
+  }
+
+  async function sendEdit() {
+    if (!editing) return;
+    try {
+      await post(`/sessions/${session.id}/edit`, { message_id: editing.id, text: editText });
+      setEditing(null);
+      await loadMessages();
+      started();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+
+  async function regenerate(assistantId: number) {
+    // the user message this reply answers
+    const idx = msgs.findIndex((m) => m.id === assistantId);
+    for (let i = idx - 1; i >= 0; i--) {
+      const m = msgs[i]!;
+      if (m.role === "user") {
+        try {
+          await post(`/sessions/${session.id}/edit`, {
+            message_id: m.id,
+            text: parseAttachments(m.content).text,
+          });
+          await loadMessages();
+          started();
+        } catch (x) {
+          toast(errText(x), "error");
+        }
+        return;
+      }
+    }
+  }
+
+  async function branch(messageId: number) {
+    try {
+      const s = await post<{ id: string }>(`/sessions/${session.id}/fork`, {
+        message_id: messageId,
+      });
+      toast("A new session was started from this reply.", "success");
+      onChanged();
+      onOpen?.(s.id);
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -358,6 +511,15 @@ export function Chat({
   }
 
   const items = useMemo(() => buildItems(msgs), [msgs]);
+  const todos = useMemo(() => liveTodos ?? latestTodos(msgs), [liveTodos, msgs]);
+  const lastAssistant = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      if (it.kind === "assistant" && !it.calls) return it.key;
+      if (it.kind === "user") return null;
+    }
+    return null;
+  }, [items]);
 
   return (
     <div className="layout" style={{ height: "100%" }}>
@@ -429,15 +591,17 @@ export function Chat({
         <Tabs
           tabs={[
             { id: "chat", label: "Chat" },
+            { id: "files", label: "Files" },
             { id: "terminal", label: "Terminal" },
           ]}
           value={view}
           onChange={(v) => {
-            setView(v as "chat" | "terminal");
+            setView(v as "chat" | "files" | "terminal");
             if (v === "terminal") setTermOpened(true);
+            if (v === "files") setFilesOpened(true);
           }}
         />
-        <div className="chat-body" hidden={view === "terminal"}>
+        <div className="chat-body" hidden={view !== "chat"}>
           <div
             className="chat-log"
             ref={log}
@@ -453,6 +617,7 @@ export function Chat({
               </p>
             )}
             {items.map((it, i) => {
+              if (it.kind === "step" && it.call.name === "todo_write") return null;
               if (it.kind === "step") {
                 const failed = !!it.output && /^exit code: [1-9]/.test(it.output);
                 return (
@@ -464,10 +629,46 @@ export function Chat({
               }
               const prev = items[i - 1];
               const showWho = !prev || prev.kind !== it.kind;
+              const parsed = it.kind === "user" ? parseAttachments(it.text) : null;
               return (
                 <div className={`msg ${it.kind}`} key={it.key}>
                   {showWho && <div className="who">{it.kind === "user" ? "You" : "Assistant"}</div>}
-                  <Body text={it.text} plain={it.kind === "user"} />
+                  <Body text={parsed ? parsed.text : it.text} plain={it.kind === "user"} />
+                  {parsed && parsed.items.length > 0 && (
+                    <div className="chips" aria-label="Attached files">
+                      {parsed.items.map((a) => (
+                        <span className="chip" key={a.path} title={a.path}>
+                          <span className="chip-name">{attachmentName(a.path)}</span>
+                          <span className="muted">{fileSize(a.size)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {!running && it.kind === "user" && it.key < 1e12 && (
+                    <div className="msg-actions">
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setEditing({ id: it.key, role: "user", content: it.text });
+                          setEditText(parseAttachments(it.text).text);
+                        }}
+                      >
+                        Edit and resend
+                      </Button>
+                    </div>
+                  )}
+                  {!running && it.kind === "assistant" && !it.calls && (
+                    <div className="msg-actions">
+                      {it.key === lastAssistant && (
+                        <Button variant="ghost" onClick={() => void regenerate(it.key)}>
+                          Regenerate
+                        </Button>
+                      )}
+                      <Button variant="ghost" onClick={() => void branch(it.key)}>
+                        Branch from here
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -507,29 +708,117 @@ export function Chat({
               </div>
             </Card>
           )}
-          <form
-            className="composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
-            <div className="grow">
-              <TextArea
-                label="Message"
-                value={draft}
-                placeholder="Describe a task, e.g. “add pagination to the API and run the tests”"
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
-                }}
+          <TodoList todos={todos} />
+          <div className="composer-wrap">
+            {attached.length > 0 && (
+              <div className="chips" aria-label="Files to attach">
+                {attached.map((a) => (
+                  <span className="chip" key={a.path} title={a.path}>
+                    <span className="chip-name">{attachmentName(a.path)}</span>
+                    <span className="muted">{fileSize(a.size)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${attachmentName(a.path)}`}
+                      onClick={() => setAttached((x) => x.filter((y) => y.path !== a.path))}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {slash.length > 0 && (
+              <ul className="slash-menu" role="listbox" aria-label="Commands">
+                {slash.map((c, i) => (
+                  <li key={c.name} role="presentation">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={i === cmdIndex}
+                      onClick={() => setDraft(`/${c.name} `)}
+                    >
+                      <strong>/{c.name}</strong>
+                      <span className="muted">{c.description}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="composer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                if (e.dataTransfer.files.length > 0) {
+                  e.preventDefault();
+                  void addFiles(e.dataTransfer.files);
+                }
+              }}
+            >
+              <input
+                ref={picker}
+                type="file"
+                multiple
+                hidden
+                aria-label="Choose files to attach"
+                onChange={(e) => void addFiles(e.target.files)}
               />
-            </div>
-            <Button variant="primary" type="submit" disabled={running}>
-              Send
-            </Button>
-          </form>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Attach files"
+                title="Attach files, pictures or PDFs"
+                loading={uploading}
+                disabled={running}
+                onClick={() => picker.current?.click()}
+              >
+                Attach
+              </Button>
+              <div className="grow">
+                <TextArea
+                  label="Message"
+                  value={draft}
+                  placeholder="Describe a task, or type / for commands"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData.files);
+                    if (files.length > 0) {
+                      e.preventDefault();
+                      void addFiles(files);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (slash.length > 0) {
+                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        e.preventDefault();
+                        const n = slash.length;
+                        setCmdIndex((i) => (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+                        return;
+                      }
+                      if (e.key === "Tab" || (e.key === "Enter" && !e.metaKey && !e.ctrlKey)) {
+                        e.preventDefault();
+                        setDraft(`/${slash[cmdIndex]!.name} `);
+                        return;
+                      }
+                    }
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+                  }}
+                />
+              </div>
+              <Button variant="primary" type="submit" disabled={running || uploading}>
+                Send
+              </Button>
+            </form>
+          </div>
         </div>
+        {filesOpened && (
+          <div hidden={view !== "files"} className="chat-body">
+            <Files sessionId={session.id} running={running} />
+          </div>
+        )}
         {termOpened && (
           <Suspense fallback={<p className="muted">Loading the terminal…</p>}>
             <TerminalView sessionId={session.id} visible={view === "terminal"} blocked={running} />
@@ -618,6 +907,32 @@ export function Chat({
           </div>
         )}
       </aside>
+      {editing && (
+        <Modal
+          title="Edit and resend"
+          onClose={() => setEditing(null)}
+          actions={
+            <>
+              <Button onClick={() => setEditing(null)}>Cancel</Button>
+              <Button variant="primary" onClick={() => void sendEdit()} disabled={!editText.trim()}>
+                Resend
+              </Button>
+            </>
+          }
+        >
+          <TextArea
+            label="Your message"
+            rows={6}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+          />
+          <p className="muted">
+            This message and everything after it are set aside (they stay in the exported history),
+            and the agent starts again from here. Files the agent already changed stay as they are;
+            use the Checkpoints tab to put them back.
+          </p>
+        </Modal>
+      )}
       {approval && (
         <Modal
           title="Approval needed"
