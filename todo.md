@@ -53,3 +53,14 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 - [ ] **Agent-level evaluations (Medium).** Extend the model benchmark to task suites run against real repositories, to choose models for agent work.
 - [ ] **Team-shared project library (Medium).** Skills, rules, commands and memory shared across the trusted users, and hand-off of a session to another user.
 - [ ] **Voice input (Easy, low value).** Browser speech recognition in the message box.
+
+### Tier 4: reach and platforms
+
+- [ ] **Sandbox web browser for developing web apps (Medium to Hard).** View a dev server running in the sandbox and see the agent's changes live: a preview tab in the app (the authenticated preview proxy exists) with reload on change, and optionally a headless browser in the sandbox that takes screenshots for the user (and, with image input, for a vision model) and shows console errors.
+- [ ] **Choice of sandbox runtime (Medium).** gVisor is the only runtime today. Make the runtime a setting (gVisor, Kata Containers, Firecracker, plain runc with a clear warning) with a health check per runtime and tests for each against real hosts.
+- [ ] **An alternative to nftables (Medium).** The egress firewall needs nftables. Support iptables, and firewalld or a Docker-network-only mode, behind one interface, and say in the health page which is in use.
+- [ ] **macOS and Windows support (Hard).** Today Linux only, because gVisor needs it. Options: run the whole stack in a Linux VM (Docker Desktop, WSL2, Colima) with an installer for each, then test the sandbox, firewall and update path there. Depends on the runtime choice and the firewall alternative above.
+- [ ] **Chat integration (Medium).** Start and follow sessions from Slack, Microsoft Teams, Discord or Matrix: a message or `@syntaxis` mention starts a session, replies and approval requests come back in the thread, using each person's own Syntaxis account.
+- [ ] **Generic guest invite (Medium).** One invite link, not tied to an email address, that lets anyone who has it create a limited account: expiry, use count, a default level and group with tight quotas, optional admin approval, and revocation. Opt-in, off by default (there are no sign-ups today).
+- [ ] **Tailscale and Cloudflare Tunnel inside the app (Medium to Hard).** Share the instance without opening ports or running a reverse proxy: set up and show the status of a Tailscale node (Serve or Funnel) or a Cloudflare Tunnel from the admin app, with the secure-cookie, base URL, trusted-proxy and `SYNTAXIS_PROXY_AUTH` settings adjusted to match, and a health check for each. Must not weaken the rule that the admin app is never on the public address.
+
