@@ -343,6 +343,14 @@ func (a *App) startMCP(ctx context.Context, userID int64, sessionID string, emit
 	on := a.userMCP(ctx, userID) // a server runs only for users who have switched it on
 	userEnv, _, _ := a.Secrets.Snapshot(ctx, userID)
 	b := mcp.NewBridge(a.Sandbox.RT, a.Sandbox.Config())
+	// the servers run for this user: their egress mode applies to them as to their sandboxes
+	mode := a.Cfg.EgressMode
+	if raw, err := a.Store.GetUser(ctx, userID); err == nil {
+		if eff := a.EffectiveUser(ctx, raw); eff.EgressMode != "" {
+			mode = eff.EgressMode
+		}
+	}
+	b.Owner = mcp.Owner{UserID: userID, NoNetwork: mode == "none"}
 	for _, ap := range approved {
 		if !ap.Enabled || off[ap.Name] || !on[ap.Name] {
 			continue

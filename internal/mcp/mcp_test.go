@@ -148,7 +148,7 @@ func TestApprovalRules(t *testing.T) {
 func TestContainerSpecIsolation(t *testing.T) {
 	e := entries(t)[0]
 	ap := Approval{Name: e.Name, Package: e.Packages[0], EnvSecrets: map[string]string{"BUCKET": "MCP_BUCKET", "API_KEY": "MCP_KEY"}}
-	spec, err := ContainerSpec(sandbox.DefaultConfig(), ap, map[string]string{"MCP_BUCKET": "b1", "MCP_KEY": "k1", "UNRELATED_SECRET": "must-not-appear"})
+	spec, err := ContainerSpec(sandbox.DefaultConfig(), ap, map[string]string{"MCP_BUCKET": "b1", "MCP_KEY": "k1", "UNRELATED_SECRET": "must-not-appear"}, Owner{UserID: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,8 +162,16 @@ func TestContainerSpecIsolation(t *testing.T) {
 	if !strings.Contains(env, "BUCKET=b1") || !strings.Contains(env, "API_KEY=k1") || strings.Contains(env, "must-not-appear") || strings.Contains(env, "UNRELATED") {
 		t.Fatalf("only mapped secrets may be passed: %s", env)
 	}
+	// the server runs as its user: their id is on the container (so the resolver and the host
+	// firewall apply their egress mode), and a user without network gets a server without one
+	if spec.Labels[sandbox.LabelUser] != "7" || spec.NetworkDisabled {
+		t.Fatalf("an MCP server must carry its user and their network setting: %v %v", spec.Labels, spec.NetworkDisabled)
+	}
+	if off, err := ContainerSpec(sandbox.DefaultConfig(), ap, map[string]string{"MCP_BUCKET": "b1", "MCP_KEY": "k1"}, Owner{UserID: 7, NoNetwork: true}); err != nil || !off.NetworkDisabled {
+		t.Fatalf("a user with egress none must get an MCP server with no network: %v", err)
+	}
 	// a secret that does not exist fails closed
-	if _, err := ContainerSpec(sandbox.DefaultConfig(), ap, nil); err == nil {
+	if _, err := ContainerSpec(sandbox.DefaultConfig(), ap, nil, Owner{UserID: 7}); err == nil {
 		t.Fatal("missing secret accepted")
 	}
 }
@@ -176,7 +184,7 @@ func TestContainerSpecRejectsInjectionAndUnpinned(t *testing.T) {
 		"unpinned":       {RegistryType: "npm", Identifier: "x", Version: "latest"},
 		"bad type":       {RegistryType: "nuget", Identifier: "x", Version: "1.0.0"},
 	} {
-		if _, err := ContainerSpec(cfg, Approval{Name: "n", Package: p}, nil); err == nil {
+		if _, err := ContainerSpec(cfg, Approval{Name: "n", Package: p}, nil, Owner{UserID: 7}); err == nil {
 			t.Errorf("%s accepted", name)
 		}
 	}

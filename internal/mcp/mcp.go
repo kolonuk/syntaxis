@@ -359,10 +359,18 @@ func (a *Approvals) Revoke(ctx context.Context, admin, name string) error {
 
 var safeIdent = regexp.MustCompile(`^[@A-Za-z0-9][A-Za-z0-9@/._:\-]*$`)
 
+// Owner is the user an MCP server runs for. Its container carries their user id, so the
+// resolver and the host firewall apply that user's egress mode to it as to their sandboxes;
+// NoNetwork is set when that mode is "none".
+type Owner struct {
+	UserID    int64
+	NoNetwork bool
+}
+
 // ContainerSpec builds the hardened spec to run an approved server: its own
 // gVisor container, no workspace mount, no host mounts, only the secrets mapped
-// to it, the sandbox network (egress policy applies), pinned version.
-func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]string) (sandbox.Spec, error) {
+// to it, the sandbox network under its owner's egress policy, pinned version.
+func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]string, owner Owner) (sandbox.Spec, error) {
 	p := ap.Package
 	if !safeIdent.MatchString(p.Identifier) || !exactVersion.MatchString(p.Version) && !strings.Contains(p.Identifier, "@sha256:") {
 		return sandbox.Spec{}, fmt.Errorf("%w: unsafe or unpinned package", ErrNotApprovable)
@@ -387,7 +395,7 @@ func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]stri
 		}
 		env[k] = v
 	}
-	s, err := sandbox.BuildSpec(cfg, 0, "mcp-"+sanitize(ap.Name), env, false)
+	s, err := sandbox.BuildSpec(cfg, owner.UserID, "mcp-"+sanitize(ap.Name), env, owner.NoNetwork)
 	if err != nil {
 		return s, err
 	}
@@ -402,7 +410,7 @@ func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]stri
 	s.Mounts = keep
 	s.Name = "syntaxis-mcp-" + sanitize(ap.Name)
 	s.Labels["io.syntaxis.mcp"] = ap.Name
-	return s, sandbox.Validate(s, 0)
+	return s, sandbox.Validate(s, owner.UserID)
 }
 
 func sanitize(s string) string {

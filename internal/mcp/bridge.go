@@ -23,6 +23,8 @@ type Bridge struct {
 	RT  sandbox.Runtime
 	Cfg sandbox.Config
 	Log func(msg string)
+	// Owner is the user the servers run for (their egress mode applies to the containers).
+	Owner Owner
 
 	mu      sync.Mutex
 	servers map[string]*running
@@ -59,7 +61,7 @@ func IsMCPTool(name string) bool { return strings.HasPrefix(name, "mcp__") }
 
 // Start launches an approved server and registers its tools.
 func (b *Bridge) Start(ctx context.Context, ap Approval, secretValues map[string]string) error {
-	spec, err := ContainerSpec(b.Cfg, ap, secretValues)
+	spec, err := ContainerSpec(b.Cfg, ap, secretValues, b.Owner)
 	if err != nil {
 		return err
 	}
