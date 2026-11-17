@@ -38,6 +38,10 @@ Tests that start sandboxes use user ids far above any real user's and clean up a
 
 The web checks: `npm run e2e` (Playwright flows and axe accessibility) and `npm run lighthouse` need a running instance (CI runs them against the one the installer creates; see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
 
+## Skills for contributors
+
+`.claude/skills/` holds short how-to guides for the recurring jobs: writing real-service tests, adding a connection, changing the database, shipping a feature, checking the web app and fixing CI. They are plain Markdown and worth reading whatever tool you use.
+
 ## Adding a provider adapter / agent adapter
 
 Implement `provider.Provider` (read-only toward the server) or `agent.AgentAdapter`, test it against a real server (skipping with `NOT TESTED` where none is available), and document trade-offs in `docs/`.

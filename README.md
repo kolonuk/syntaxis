@@ -29,8 +29,14 @@ It is not a hosted service, and a gVisor container is not a virtual machine. The
 
 - A phone-friendly chat app with live command output, approvals and a context meter
 - An agent that edits files, runs commands, uses git and can load project-specific skills
-- Approval gates for risky actions, with three levels of autonomy
+- Sessions that start from your own GitHub, GitLab or Gitea repository, work on their own branch and open pull requests
+- Approval gates for risky actions, with three levels of autonomy, and a plan-first mode where nothing changes until you approve
 - Checkpoints you can roll back, without touching your own git history
+- Several attempts at one task side by side, with a comparison to keep the best
+- Automations that start a session on a schedule, a webhook or when something new appears (a release, a feed, a package)
+- Connections to GitHub, GitLab, Gitea, Cloudflare, AWS, Azure, Google Cloud and IFTTT, each user's own
+- Disposable, read-only links to share a session, which you can name and revoke
+- Sandbox environments (for example Rust or Java) that admins approve and that a repository's `devcontainer.json` can pick
 - A secrets vault, secret scanning and optional signed commits
 - Network controls that keep sandboxes away from your LAN and your LLM server
 - MCP server support, run in their own sandboxes

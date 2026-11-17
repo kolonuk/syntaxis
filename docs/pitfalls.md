@@ -14,11 +14,11 @@ A GPU serves only so many requests at once (Ollama's `OLLAMA_NUM_PARALLEL`, llam
 
 ## Weak tool calling
 
-Some local models call tools badly. Syntaxis recovers what it can and stops loops, but expect to supervise a new model: use the `ask` autonomy level first, and try the admin app's benchmark (Providers & models) to compare models. Syntaxis never loads or swaps a model by itself, so avoid configuring your LLM server to unload models between requests.
+Some local models call tools badly. Syntaxis recovers what it can and stops loops, but expect to supervise a new model: use the `ask` autonomy level first, and try the admin app's benchmark (Providers & models) to compare models. Syntaxis never loads or swaps a model by itself, so avoid configuring your LLM server to unload models between requests. The admin app's **Probe** button (Providers & models) tests a model for real: it asks for a tool call and checks the reply streams, and the result decides whether agent mode is offered.
 
 ## Reverse proxy and HTTPS
 
-The installer's `--https <domain>` option sets up [Caddy](https://caddyserver.com/) with automatic certificates. If you use your own proxy: turn off response buffering (replies would arrive in one lump), allow long timeouts (agent runs are long), pass the real client address only from your proxy (`SYNTAXIS_PROXY_TRUSTED`), and do not loosen the Content-Security-Policy. Installing the app on a phone and offline support need HTTPS.
+The installer's `--https <domain>` option sets up [Caddy](https://caddyserver.com/) with automatic certificates. If you use your own proxy: turn off response buffering and compression for the LLM route (replies would arrive in one lump; **Probe** in the admin app shows when that happens), allow long timeouts (agent runs are long), pass the real client address only from your proxy (`SYNTAXIS_PROXY_TRUSTED`), and do not loosen the Content-Security-Policy. Installing the app on a phone and offline support need HTTPS.
 
 ## Email
 

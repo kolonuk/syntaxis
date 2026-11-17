@@ -13,6 +13,8 @@ Use accounts and projects that belong to you, with a budget alert. The model see
 
 In **New session**, pick a repository from a connected git service, or create a new one. Syntaxis clones it into the sandbox on its own working branch, so your branches are untouched. The agent commits there, pushes, and opens a pull request (merge request on GitLab) with your own connection; the token is never in a command the model writes. Commits use your account name, not your sign-in email.
 
+**Environments.** If an admin has approved sandbox environments (for example one with Rust or Java), pick one in **New session**. Otherwise Syntaxis reads the repository's `devcontainer.json`: if the image it names matches an approved environment the session uses it, and anything else falls back to the default environment with a note saying why. Its setup command (for example `npm install`) runs once after the clone, unless the session is set to ask before running anything, in which case you are shown the command. Features, ports and building from a Dockerfile are not supported.
+
 ## Automations
 
 An automation starts a session by itself, as its owner and within their limits. Set them up under **Automations**.

@@ -12,6 +12,10 @@ Local models are not always good at calling tools. Syntaxis recovers calls writt
 
 Each session has an autonomy level: **ask** (every action waits for you), **workspace** (the default: routine work runs, risky actions wait) or **full** (everything runs within limits, risky actions are still logged). Risky means things like force pushes, deploys, cloud changes, `sudo`, deleting outside the workspace and opening pull requests. The approval request says which of the user's connections the command would use. Commands that target the local network are blocked outright at every level.
 
+## Sessions
+
+Sessions are named from the first exchange (rename them any time). Where an admin has set a helper model it does this and other small jobs; see [configuration](configuration.md#providers-and-models). A workspace that is not used for a while is deleted after a warning by email (the admin sets how long, 30 days by default).
+
 ## Plan first and reviewing changes
 
 With **Plan first** the agent can only read until you approve its plan. It explores, proposes a numbered plan, and stops; you edit and approve it, or ask for changes. The server enforces this: the planning step has no way to change anything. The **Changes** tab shows what the agent changed, file by file, and a comment on a file can be sent back to the agent.
