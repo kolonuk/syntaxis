@@ -5,6 +5,7 @@ package provider
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -120,6 +121,9 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		om := map[string]any{"role": m.Role, "content": m.Content}
 		if m.Role == "tool" {
 			om["tool_call_id"] = m.ToolCallID
+		}
+		if len(m.Images) > 0 {
+			om["content"] = openAIParts(m)
 		}
 		if len(m.ToolCalls) > 0 {
 			var tcs []map[string]any
@@ -263,4 +267,13 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 	res.Content = content.String()
 	res.Duration = time.Since(start)
 	return res, nil
+}
+
+// openAIParts is a message's text followed by its pictures, as content parts.
+func openAIParts(m Message) []map[string]any {
+	parts := []map[string]any{{"type": "text", "text": m.Content}}
+	for _, im := range m.Images {
+		parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + im.MIME + ";base64," + base64.StdEncoding.EncodeToString(im.Data)}})
+	}
+	return parts
 }

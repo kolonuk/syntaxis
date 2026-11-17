@@ -5,6 +5,7 @@ package provider
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -101,6 +102,13 @@ func (o *Ollama) ModelDetail(ctx context.Context, name string) (*ModelDetail, er
 			}
 		}
 		d.SupportsTools = &has
+		vision := false
+		for _, c := range out.Capabilities {
+			if c == "vision" {
+				vision = true
+			}
+		}
+		d.SupportsVision = &vision
 	}
 	return d, nil
 }
@@ -153,6 +161,13 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 		om := map[string]any{"role": m.Role, "content": m.Content}
 		if m.Role == "tool" {
 			om["tool_name"] = m.ToolCallID
+		}
+		if len(m.Images) > 0 {
+			imgs := make([]string, 0, len(m.Images))
+			for _, im := range m.Images {
+				imgs = append(imgs, base64.StdEncoding.EncodeToString(im.Data))
+			}
+			om["images"] = imgs
 		}
 		if len(m.ToolCalls) > 0 {
 			var tcs []map[string]any

@@ -39,13 +39,14 @@ type ModelInfo struct {
 // ModelDetail holds what the server will tell us about a model. Unknown
 // numeric values are 0; SupportsTools is nil when unknown.
 type ModelDetail struct {
-	Name          string
-	ContextAdvert int    // model's advertised maximum
-	ContextLoaded int    // effective window the server actually runs with (0 unknown)
-	ContextSource string // where ContextLoaded came from
-	SupportsTools *bool
-	ParameterSize string
-	Quantisation  string
+	Name           string
+	ContextAdvert  int    // model's advertised maximum
+	ContextLoaded  int    // effective window the server actually runs with (0 unknown)
+	ContextSource  string // where ContextLoaded came from
+	SupportsTools  *bool
+	SupportsVision *bool // nil when the server does not say
+	ParameterSize  string
+	Quantisation   string
 }
 
 // LoadedModel is a model currently resident on the server (Ollama /api/ps).
@@ -71,12 +72,19 @@ type ToolCall struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// Image is a picture sent to a vision model with a message.
+type Image struct {
+	MIME string `json:"mime"`
+	Data []byte `json:"data"`
+}
+
 // Message is a chat message.
 type Message struct {
 	Role       string     `json:"role"` // system|user|assistant|tool
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Images     []Image    `json:"images,omitempty"` // user messages only
 }
 
 // ChatRequest is a model call.

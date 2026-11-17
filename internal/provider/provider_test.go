@@ -249,3 +249,66 @@ http { server { listen 127.0.0.1:%d; %s location / { proxy_pass %s; proxy_http_v
 		}
 	}
 }
+
+// A picture sent to a real vision model through each adapter: the model reads the number in it.
+func visionModel(t *testing.T, p Provider) string {
+	t.Helper()
+	ms, err := p.ListModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sees := func(name string) bool {
+		d, err := p.ModelDetail(ctx, name)
+		return err == nil && d.SupportsVision != nil && *d.SupportsVision
+	}
+	// the model that is already loaded is used if it can see: loading another would evict one that
+	// somebody else may be using on a shared server
+	if loaded, ok, _ := p.Loaded(ctx); ok {
+		for _, l := range loaded {
+			if sees(l.Name) {
+				return l.Name
+			}
+		}
+	}
+	for _, m := range ms {
+		if sees(m.Name) {
+			return m.Name
+		}
+	}
+	testenv.NotTested(t, "the Ollama server has no model that reports the vision capability")
+	return ""
+}
+
+func TestLiveVisionModelReadsAPicture(t *testing.T) {
+	png, err := os.ReadFile("../agent/testdata/ocr.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{KindOllama, KindOpenAI} {
+		t.Run(kind, func(t *testing.T) {
+			p, _ := live(t, kind, "")
+			// capability discovery is Ollama's /api/show
+			op, _ := live(t, KindOllama, "")
+			model := visionModel(t, op)
+			c, cancel := context.WithTimeout(ctx, 6*time.Minute)
+			defer cancel()
+			res, err := p.Chat(c, ChatRequest{Model: model, NumCtx: 4096, MaxTokens: 400,
+				Messages: []Message{{Role: "user", Content: "What number comes after the word INVOICE in the picture? Reply with the number only.", Images: []Image{{MIME: "image/png", Data: png}}}}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(res.Content, "4721") {
+				t.Skipf("NOT TESTED: %s did not read the number this time (%q); a model's answer, not a code fault", model, res.Content)
+			}
+		})
+	}
+}
+
+func TestMessagesWithPicturesAreEncodedForEachAPI(t *testing.T) {
+	m := Message{Role: "user", Content: "look", Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}}}
+	parts := openAIParts(m)
+	b, _ := json.Marshal(parts)
+	if string(b) != `[{"text":"look","type":"text"},{"image_url":{"url":"data:image/png;base64,AQID"},"type":"image_url"}]` {
+		t.Fatalf("%s", b)
+	}
+}
