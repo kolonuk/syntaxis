@@ -10,11 +10,11 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
 
-## 5. Agent and workflow
+## 2. Agent and workflow
 
 - [ ] More helper-model jobs. The helper (set per provider in the admin app) does session titles, summaries of long watch events and compaction of long conversations. Still on the session's own model: commit and pull-request messages and plan drafts. Compaction on the helper has no test because it needs a conversation longer than a model's window.
 
-## 2. Not yet verified with the real thing
+## 3. Not yet verified with the real thing
 
 These work as far as a test can show, but the test needs something this project does not have. Each skips as `NOT TESTED` and is listed in the CI summary.
 
@@ -25,7 +25,7 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] The installer on a full virtual machine per distribution (CI checks package installation and the fresh install on one image; this host has no hardware virtualisation).
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 
-## 3. Features
+## 4. Features
 
 - [ ] Remote (streamable HTTP) MCP servers. Only stdio servers run in a sandbox today; GitLab's and Cloudflare's official servers are remote only.
 

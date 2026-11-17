@@ -57,6 +57,12 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Simpler getting started guide and README.
 
 ### Fixed
+- **Security:** a user could aim the server at internal addresses through the address of a self-hosted GitLab or Gitea (the server's own admin app on loopback, the Docker proxy, the LLM server, the LAN), and read part of the reply in the error. Connections now go through the same address-checking client as watches, addresses with credentials, queries or fragments are refused, and LAN forges need `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`.
+- **Security:** MCP servers, which now run with a user's own credentials, ran under the instance-wide egress mode instead of that user's; a user limited to `allowlist` or `none` could reach the internet through one. They now carry the user's id and egress mode.
+- **Security:** the firewall sync service passed its token on the `curl` command line, where any local user could read it; it now uses a header file only root can read. The installer no longer writes a predictable file in `/tmp` as root.
+- A compute allowance set on a level or group (not on the user) was not enforced by the sandbox monitor.
+- Webhook and watch text can no longer close the block that marks it as outside data.
+- Removing a container that is already being removed waits for it instead of failing.
 - The Docker proxy lists only Syntaxis containers, so a compromised server cannot see what else runs on the host.
 - A sandbox that was paused for sustained load and then resumed was judged on its old load; it now gets a fresh start, and is stopped if it overloads again.
 - Starting a session or terminal is refused while the daily compute allowance is used up.

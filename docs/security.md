@@ -23,6 +23,10 @@ It is **not** built for hostile users or the open internet. [gVisor](https://gvi
 
 Sandboxes can reach the internet but never your network: private ranges, the Docker host, cloud metadata, other sandboxes, your LLM server and outbound email are blocked in every mode. Egress can be `open`, `allowlist` or `none`, for the whole instance or per user or group. It is enforced by firewall rules on the Docker host (nftables, kept applied by the installer's services) plus a DNS resolver that applies domain rules and logs every lookup. Every new connection from a sandbox is logged too. The generated rules are written for [nftables](https://wiki.nftables.org/) (`syntaxis egress-rules` prints them).
 
+A user's own (or their group's) egress mode is enforced in the host firewall by the firewall sync service the installer sets up. If that service is configured but not running, an `allowlist` sandbox starts with no network rather than open; if it is not configured at all, a per-user mode is applied by the DNS resolver only. MCP servers run under the egress mode of the user they run for.
+
+When the server itself calls an address a user typed (a self-hosted GitLab or Gitea, a watched feed), it reaches public addresses only: not its own loopback, the Docker networks, the LAN or cloud metadata, including through redirects. An admin can allow a LAN range for a forge with `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`.
+
 Limits: an allowed site that proxies traffic, or DNS over HTTPS, gets around domain rules. `open` mode does not stop a user or a manipulated agent sending workspace files to the internet. For sensitive work use `allowlist` or `none`.
 
 ## The Docker socket
