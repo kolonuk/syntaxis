@@ -71,6 +71,12 @@ var ErrKilled = errors.New("sandbox: sandboxes are disabled by an administrator"
 
 // Create provisions and starts the sandbox for a session. It returns the container id.
 func (m *Manager) Create(ctx context.Context, userID int64, sessionID string, env map[string]string, networkDisabled bool) (string, error) {
+	return m.CreateWithImage(ctx, "", userID, sessionID, env, networkDisabled)
+}
+
+// CreateWithImage is Create with an image other than the default. The caller must have checked that
+// the image is one the admin approved: it is not validated here.
+func (m *Manager) CreateWithImage(ctx context.Context, image string, userID int64, sessionID string, env map[string]string, networkDisabled bool) (string, error) {
 	m.mu.Lock()
 	killed := m.killed || m.killedUsers[userID]
 	m.mu.Unlock()
@@ -84,10 +90,13 @@ func (m *Manager) Create(ctx context.Context, userID int64, sessionID string, en
 	if !ok {
 		return "", ErrNoRuntime
 	}
-	if img, err := m.RT.ImagePresent(ctx, m.Cfg.Image); err != nil {
+	if image == "" {
+		image = m.Cfg.Image
+	}
+	if img, err := m.RT.ImagePresent(ctx, image); err != nil {
 		return "", err
 	} else if !img {
-		return "", fmt.Errorf("sandbox image %q is not present on the Docker host", m.Cfg.Image)
+		return "", fmt.Errorf("sandbox image %q is not present on the Docker host", image)
 	}
 	if err := m.RT.EnsureNetwork(ctx, m.Cfg.Network); err != nil {
 		return "", fmt.Errorf("ensure network: %w", err)
@@ -96,6 +105,7 @@ func (m *Manager) Create(ctx context.Context, userID int64, sessionID string, en
 		return "", fmt.Errorf("ensure workspace: %w", err)
 	}
 	cfg := m.Config()
+	cfg.Image = image
 	if err := m.ensureDNS(ctx, cfg.DNS); err != nil {
 		return "", fmt.Errorf("configure sandbox DNS: %w", err)
 	}

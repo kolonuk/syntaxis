@@ -45,6 +45,15 @@ Add one or more providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with a
 
 **Probe** (per model) checks for real instead of trusting what the server claims: it asks the model to call a trivial tool, and asks for a long reply to see whether it streams or arrives in one block (a proxy or compression in front of the server holding it back). It may load the model, so it only runs when you press it. The result decides whether agent mode is offered for that model, and a buffered stream shows up as a health warning.
 
+## Environments
+
+An environment is a sandbox image you have prepared and approved, for example one with Rust or Java (examples are in `images/templates`; build one on the Docker host with the command in its Dockerfile). Add it under **Environments** in the admin app with the images a repository's `devcontainer.json` may name to get it (tags are ignored).
+
+- A user can pick an environment for a session. It runs in that image, still under gVisor with the same limits.
+- When a session starts from a repository, its `devcontainer.json` (comments allowed) is read through the user's own connection. If its `image` matches an approved environment, the session uses it. Anything else is ignored and the session says why: a repository can never name an image of its own, and building from a Dockerfile is not supported. A repository can name an approved environment directly with `"customizations": {"syntaxis": {"template": "rust"}}`.
+- After the clone, `containerEnv` (plain variables only; it cannot change `PATH`, `HOME`, `GIT_*` and the like, and never overrides your secrets) and `postCreateCommand` are used. The setup command runs once, unless the session is set to ask before running anything: then you are shown the command instead.
+- Features, forwarded ports, mounts, users and extensions in the file are ignored.
+
 ## CLI
 
 `syntaxis serve | admin create | keygen | doctor | backup <dest> | rotate-key <old> <new> | egress-rules <subnet> … | version`

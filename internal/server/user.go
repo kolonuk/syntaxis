@@ -79,6 +79,7 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/connections/{kind}/test", a.handleConnectionTest)
 			r.Get("/connections/{kind}/repos", a.handleConnectionRepos)
 			r.Post("/connections/{kind}/repos", a.handleConnectionRepoCreate)
+			r.Get("/environments", a.handleEnvironments)
 			r.Get("/parallel/capacity", a.handleParallelCapacity)
 			r.Post("/parallel", a.handleParallelCreate)
 			r.Get("/parallel/{batch}", a.handleParallelGet)
@@ -392,7 +393,7 @@ func sessionJSON(s store.ChatSession, run *Run) map[string]any {
 	return map[string]any{"id": s.ID, "title": s.Title, "model": s.Model, "autonomy": s.Autonomy, "state": state,
 		"created_at": s.CreatedAt, "updated_at": s.UpdatedAt, "tokens_in": s.TokensIn, "tokens_out": s.TokensOut,
 		"batch": s.BatchID, "repo": s.RepoName, "repo_kind": s.RepoKind, "repo_branch": s.RepoBranch,
-		"plan_mode": s.PlanMode, "plan_state": s.PlanState, "plan_text": s.PlanText}
+		"environment": map[string]string{"image": s.Image, "note": s.EnvNote}, "plan_mode": s.PlanMode, "plan_state": s.PlanState, "plan_text": s.PlanText}
 }
 
 // RepoSpec says which repository a session should start from.
@@ -412,6 +413,8 @@ type SessionParams struct {
 	Repo     *RepoSpec `json:"repo"`
 	// Plan makes the agent propose a plan first and change nothing until the user approves it.
 	Plan bool `json:"plan"`
+	// Template names an approved environment (sandbox image) to run in.
+	Template string `json:"template"`
 	// batchID is set when the session is one of several attempts started together.
 	batchID string
 }
@@ -462,6 +465,15 @@ func (a *App) newSession(ctx context.Context, u *store.User, b SessionParams) (s
 		s.RepoBranch = workBranch(s.ID)
 		if strings.TrimSpace(b.Title) == "" {
 			s.Title = rp.FullName
+		}
+		if g, ok := a.Connections.Git(b.Repo.Kind); ok {
+			if err := a.chooseEnvironment(ctx, &s, a.credsFor(ctx, u.ID, g.Kind()), g, b.Template); err != nil {
+				return store.ChatSession{}, &statusError{http.StatusBadRequest, err.Error()}
+			}
+		}
+	} else if b.Template != "" {
+		if err := a.chooseEnvironment(ctx, &s, nil, nil, b.Template); err != nil {
+			return store.ChatSession{}, &statusError{http.StatusBadRequest, err.Error()}
 		}
 	}
 	if err := a.Store.CreateChatSession(ctx, s); err != nil {

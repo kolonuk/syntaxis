@@ -195,6 +195,14 @@ type Provider struct {
 	Enabled     bool
 }
 
+// ImageTemplate is an environment an admin has approved.
+type ImageTemplate struct {
+	Name        string
+	Image       string
+	Matches     []string
+	Description string
+}
+
 // Probe is the result of a live check of a model server.
 type Probe struct {
 	ProviderID int64
@@ -244,6 +252,8 @@ type ChatSession struct {
 	PlanText  string
 	// BatchID groups attempts at the same task that were started together to be compared.
 	BatchID string
+	// Image is the sandbox image this session runs in ("" = the default); EnvNote says why.
+	Image, EnvNote string
 }
 
 // Message is a stored conversation message.
@@ -385,6 +395,9 @@ type Store interface {
 	// providers + models
 	UpsertProvider(ctx context.Context, p Provider) (int64, error)
 	SetProbe(ctx context.Context, p Probe) error
+	ListImageTemplates(ctx context.Context) ([]ImageTemplate, error)
+	UpsertImageTemplate(ctx context.Context, t ImageTemplate) error
+	DeleteImageTemplate(ctx context.Context, name string) error
 	ListProbes(ctx context.Context) ([]Probe, error)
 	ListProviders(ctx context.Context) ([]Provider, error)
 	GetProvider(ctx context.Context, id int64) (*Provider, error)

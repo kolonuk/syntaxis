@@ -104,6 +104,20 @@ func (g *GitLab) CreateRepo(ctx context.Context, c Creds, n NewRepo) (Repo, erro
 	return p.repo(), nil
 }
 
+// ReadFile implements GitProvider.
+func (g *GitLab) ReadFile(ctx context.Context, c Creds, repo, ref, path string) ([]byte, error) {
+	if err := checkHost(c); err != nil {
+		return nil, err
+	}
+	if !validFullName(repo) || !safeRepoPath(path) || !safeRef(ref) {
+		return nil, fmt.Errorf("bad project, path or branch")
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+	return callRaw(ctx, g.HC, glBase(c)+"/api/v4/projects/"+escapePath(repo)+"/repository/files/"+escapePath(path)+"/raw?ref="+ref, glHdr(c))
+}
+
 // OpenPR implements GitProvider (a merge request).
 func (g *GitLab) OpenPR(ctx context.Context, c Creds, pr PullRequest) (string, error) {
 	if err := checkHost(c); err != nil {

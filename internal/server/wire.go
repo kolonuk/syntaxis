@@ -179,12 +179,21 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		repoDir = sandbox.WorkspacePath + "/" + sessionRepoDir(s)
 		gitEnv = a.gitIdentity(bg, u, s.RepoKind)
 	}
+	var devEnv map[string]string // non-secret variables from the repository's devcontainer.json
 	exec := func(c context.Context, e sandbox.ExecSpec) (sandbox.ExecResult, error) {
 		if env, r, err := a.Secrets.Snapshot(bg, u.ID); err == nil {
 			redMu.Lock()
 			red = r
 			redMu.Unlock()
 			e.Env = mergeEnv(e.Env, env)
+			// the repository's own variables never override the user's secrets or connections
+			rest := map[string]string{}
+			for k, v := range devEnv {
+				if _, taken := env[k]; !taken {
+					rest[k] = v
+				}
+			}
+			e.Env = mergeEnv(e.Env, rest)
 		}
 		if repoDir != "" {
 			e.Env = mergeEnv(e.Env, envMap(gitEnv))
@@ -205,6 +214,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			fail("Could not get the repository ready: " + a.redactFor(bg, u.ID, msg))
 			return
 		}
+		a.applyDevcontainer(ctx, run, s, exec, repoDir, &devEnv)
 	}
 	// helpers over exec
 	runner := func(c context.Context, argv []string, env []string) (string, error) {
@@ -501,7 +511,7 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 		noNetwork = true
 		a.Log.Warn("firewall sync is not running; starting an allowlist sandbox without a network", "session", s.ID)
 	}
-	id, err := a.Sandbox.Create(ctx, u.ID, s.ID, nil, noNetwork)
+	id, err := a.Sandbox.CreateWithImage(ctx, s.Image, u.ID, s.ID, nil, noNetwork)
 	if err != nil {
 		return "", err
 	}

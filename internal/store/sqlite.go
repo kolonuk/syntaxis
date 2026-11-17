@@ -509,6 +509,44 @@ func (s *SQLite) GetProvider(ctx context.Context, id int64) (*Provider, error) {
 	return scanProvider(s.db.QueryRowContext(ctx, `SELECT id,name,kind,base_url,api_key_enc,concurrency,enabled FROM providers WHERE id=?`, id))
 }
 
+// ListImageTemplates returns the approved environments.
+func (s *SQLite) ListImageTemplates(ctx context.Context) ([]ImageTemplate, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name,image,matches,description FROM image_templates ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ImageTemplate
+	for rows.Next() {
+		var t ImageTemplate
+		var m string
+		if err := rows.Scan(&t.Name, &t.Image, &m, &t.Description); err != nil {
+			return nil, err
+		}
+		for _, x := range strings.Split(m, "\n") {
+			if x = strings.TrimSpace(x); x != "" {
+				t.Matches = append(t.Matches, x)
+			}
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// UpsertImageTemplate adds or replaces an approved environment.
+func (s *SQLite) UpsertImageTemplate(ctx context.Context, t ImageTemplate) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO image_templates (name,image,matches,description) VALUES (?,?,?,?)
+ON CONFLICT(name) DO UPDATE SET image=excluded.image,matches=excluded.matches,description=excluded.description`,
+		t.Name, t.Image, strings.Join(t.Matches, "\n"), t.Description)
+	return mapErr(err)
+}
+
+// DeleteImageTemplate removes an approved environment.
+func (s *SQLite) DeleteImageTemplate(ctx context.Context, name string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM image_templates WHERE name=?`, name)
+	return affected(res, err)
+}
+
 // SetProbe records a probe result, replacing the previous one of the same kind.
 func (s *SQLite) SetProbe(ctx context.Context, p Probe) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO probes (provider_id,model,kind,result,detail,at) VALUES (?,?,?,?,?,?)
@@ -614,18 +652,18 @@ func (s *SQLite) GetModel(ctx context.Context, id int64) (*Model, error) {
 
 // CreateChatSession inserts a session.
 func (s *SQLite) CreateChatSession(ctx context.Context, c ChatSession) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_sessions (id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,repo_kind,repo_name,repo_url,repo_branch,repo_base,plan_mode,plan_state,plan_text,batch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.UserID, c.Title, c.ProviderID, c.Model, c.Autonomy, c.State, c.SandboxID, ts(c.CreatedAt), ts(c.UpdatedAt), c.RepoKind, c.RepoName, c.RepoURL, c.RepoBranch, c.RepoBase, b2i(c.PlanMode), c.PlanState, c.PlanText, c.BatchID)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_sessions (id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,repo_kind,repo_name,repo_url,repo_branch,repo_base,plan_mode,plan_state,plan_text,batch_id,image,env_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.UserID, c.Title, c.ProviderID, c.Model, c.Autonomy, c.State, c.SandboxID, ts(c.CreatedAt), ts(c.UpdatedAt), c.RepoKind, c.RepoName, c.RepoURL, c.RepoBranch, c.RepoBase, b2i(c.PlanMode), c.PlanState, c.PlanText, c.BatchID, c.Image, c.EnvNote)
 	return mapErr(err)
 }
 
-const sessCols = `id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,tokens_in,tokens_out,repo_kind,repo_name,repo_url,repo_branch,repo_base,plan_mode,plan_state,plan_text,batch_id`
+const sessCols = `id,user_id,title,provider_id,model,autonomy,state,sandbox_id,created_at,updated_at,tokens_in,tokens_out,repo_kind,repo_name,repo_url,repo_branch,repo_base,plan_mode,plan_state,plan_text,batch_id,image,env_note`
 
 func scanSession(row interface{ Scan(...any) error }) (*ChatSession, error) {
 	var c ChatSession
 	var cr, up int64
 	var pm int
-	if err := row.Scan(&c.ID, &c.UserID, &c.Title, &c.ProviderID, &c.Model, &c.Autonomy, &c.State, &c.SandboxID, &cr, &up, &c.TokensIn, &c.TokensOut, &c.RepoKind, &c.RepoName, &c.RepoURL, &c.RepoBranch, &c.RepoBase, &pm, &c.PlanState, &c.PlanText, &c.BatchID); err != nil {
+	if err := row.Scan(&c.ID, &c.UserID, &c.Title, &c.ProviderID, &c.Model, &c.Autonomy, &c.State, &c.SandboxID, &cr, &up, &c.TokensIn, &c.TokensOut, &c.RepoKind, &c.RepoName, &c.RepoURL, &c.RepoBranch, &c.RepoBase, &pm, &c.PlanState, &c.PlanText, &c.BatchID, &c.Image, &c.EnvNote); err != nil {
 		return nil, mapErr(err)
 	}
 	c.CreatedAt, c.UpdatedAt = fromTS(cr), fromTS(up)

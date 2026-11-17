@@ -30,6 +30,7 @@ import { Settings, UsagePanel } from "./Settings";
 import { useMe, useRoute } from "./hooks";
 
 interface Session {
+  environment?: { image: string; note: string };
   plan_mode?: boolean;
   plan_state?: string;
   plan_text?: string;
@@ -66,6 +67,13 @@ function NewSession({
   const [title, setTitle] = useState("");
   const [repo, setRepo] = useState<RepoChoice | null>(null);
   const [plan, setPlan] = useState(false);
+  const [template, setTemplate] = useState("");
+  const [envs, setEnvs] = useState<{ name: string; description: string }[]>([]);
+  useEffect(() => {
+    void get<{ name: string; description: string }[]>("/environments")
+      .then(setEnvs)
+      .catch(() => setEnvs([]));
+  }, []);
   const [attempts, setAttempts] = useState(1);
   const [task, setTask] = useState("");
   const [cap, setCap] = useState<Capacity | null>(null);
@@ -96,13 +104,14 @@ function NewSession({
           title,
           repo,
           plan,
+          template,
           count: attempts,
           prompt: task,
         });
         onBatch(r.batch);
         return;
       }
-      onCreated(await post<Session>("/sessions", { model, autonomy, title, repo, plan }));
+      onCreated(await post<Session>("/sessions", { model, autonomy, title, repo, plan, template }));
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -166,6 +175,23 @@ function NewSession({
             }))}
           />
           <RepoPicker onChange={setRepo} />
+          {envs.length > 0 && (
+            <Select
+              label="Environment"
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+              options={[
+                {
+                  value: "",
+                  label: "Default (or what the repository's devcontainer.json asks for)",
+                },
+                ...envs.map((x) => ({
+                  value: x.name,
+                  label: x.name + (x.description ? " — " + x.description : ""),
+                })),
+              ]}
+            />
+          )}
           {cap && cap.max > 1 && (
             <>
               <Input

@@ -101,6 +101,20 @@ func (g *GitHub) OpenPR(ctx context.Context, c Creds, pr PullRequest) (string, e
 	return out.HTMLURL, nil
 }
 
+// ReadFile implements GitProvider.
+func (g *GitHub) ReadFile(ctx context.Context, c Creds, repo, ref, path string) ([]byte, error) {
+	if !validFullName(repo) || !safeRepoPath(path) || !safeRef(ref) {
+		return nil, fmt.Errorf("bad repository, path or branch")
+	}
+	h := g.hdr(c)
+	h["Accept"] = "application/vnd.github.raw+json"
+	u := g.base() + "/repos/" + repo + "/contents/" + path
+	if ref != "" {
+		u += "?ref=" + ref
+	}
+	return callRaw(ctx, g.HC, u, h)
+}
+
 func filterRepos[T any](in []T, query string, conv func(T) Repo) []Repo {
 	q := strings.ToLower(strings.TrimSpace(query))
 	var out []Repo

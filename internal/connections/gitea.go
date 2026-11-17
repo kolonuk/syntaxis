@@ -88,6 +88,21 @@ func (g *Gitea) CreateRepo(ctx context.Context, c Creds, n NewRepo) (Repo, error
 	return r.repo(), nil
 }
 
+// ReadFile implements GitProvider.
+func (g *Gitea) ReadFile(ctx context.Context, c Creds, repo, ref, path string) ([]byte, error) {
+	if err := gtCheck(c); err != nil {
+		return nil, err
+	}
+	if !validFullName(repo) || !safeRepoPath(path) || !safeRef(ref) {
+		return nil, fmt.Errorf("bad repository, path or branch")
+	}
+	u := gtBase(c) + "/api/v1/repos/" + repo + "/raw/" + path
+	if ref != "" {
+		u += "?ref=" + ref
+	}
+	return callRaw(ctx, g.HC, u, gtHdr(c))
+}
+
 // OpenPR implements GitProvider.
 func (g *Gitea) OpenPR(ctx context.Context, c Creds, pr PullRequest) (string, error) {
 	if err := gtCheck(c); err != nil {

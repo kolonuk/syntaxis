@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -132,3 +133,5 @@ func (l *live) sandboxRun(id, script string) string {
 func execSpec(script string) sandbox.ExecSpec {
 	return sandbox.ExecSpec{Cmd: []string{"sh", "-c", script}, Timeout: 30 * time.Second}
 }
+
+func writeFile(path, text string) error { return os.WriteFile(path, []byte(text), 0o600) }

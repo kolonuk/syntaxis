@@ -60,6 +60,13 @@ func TestGitHubWithARealToken(t *testing.T) {
 	if err != nil || len(rs) == 0 || !strings.HasPrefix(rs[0].CloneURL, "https://github.com/") {
 		t.Fatalf("%+v %v", rs, err)
 	}
+	// a real devcontainer.json from a public repository, and a real missing file
+	if b, err := g.ReadFile(ctx, c, "microsoft/vscode-remote-try-node", "", ".devcontainer/devcontainer.json"); err != nil || !strings.Contains(string(b), "postCreateCommand") {
+		t.Fatalf("%v %.80s", err, b)
+	}
+	if _, err := g.ReadFile(ctx, c, "octocat/Hello-World", "", ".devcontainer/devcontainer.json"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("%v", err)
+	}
 	// creating repositories and opening pull requests change a real account, so they are not run
 	t.Log("NOT TESTED: creating a GitHub repository and opening a pull request (they would change the real account)")
 }
@@ -181,6 +188,19 @@ func TestGiteaAgainstARealServer(t *testing.T) {
 	}
 	if code, b := gs.Do(t, "POST", "/api/v1/repos/tester/app/contents/b.txt", map[string]any{"content": content, "message": "second", "branch": "main", "new_branch": "syntaxis/x"}); code != 201 {
 		t.Fatalf("branch: %d %s", code, b)
+	}
+	// reading a file from the repository, on the default branch and on another
+	if b, err := g.ReadFile(ctx, c, "tester/app", "", "a.txt"); err != nil || string(b) != "one\n" {
+		t.Fatalf("%q %v", b, err)
+	}
+	if b, err := g.ReadFile(ctx, c, "tester/app", "syntaxis/x", "b.txt"); err != nil || string(b) != "one\n" {
+		t.Fatalf("%q %v", b, err)
+	}
+	if _, err := g.ReadFile(ctx, c, "tester/app", "", "nope.txt"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("a missing file: %v", err)
+	}
+	if _, err := g.ReadFile(ctx, c, "tester/app", "", "../etc/passwd"); err == nil {
+		t.Fatal("a path outside the repository was accepted")
 	}
 	u, err := g.OpenPR(ctx, c, PullRequest{Repo: "tester/app", Title: "Add b", Body: "from the agent", Head: "syntaxis/x", Base: "main"})
 	if err != nil || !strings.Contains(u, "/tester/app/pulls/") {

@@ -12,6 +12,7 @@ import {
   Select,
   Skeleton,
   Tabs,
+  TextArea,
   ToastProvider,
   Toggle,
   VersionLabel,
@@ -658,6 +659,88 @@ function ProvidersTab() {
         </Modal>
       )}
     </div>
+  );
+}
+
+interface EnvTpl {
+  name: string;
+  image: string;
+  matches: string[];
+  description: string;
+  present: boolean;
+}
+
+function EnvironmentsTab() {
+  const toast = useToast();
+  const list = useLoad<EnvTpl[]>("/image-templates");
+  const [f, setF] = useState({ name: "", image: "", matches: "", description: "" });
+  async function save() {
+    try {
+      const r = await put<{ present: boolean }>(`/image-templates/${f.name}`, {
+        image: f.image,
+        matches: f.matches.split("\n").map((x) => x.trim()),
+        description: f.description,
+      });
+      toast(
+        r.present
+          ? "Saved."
+          : "Saved, but that image is not on the Docker host yet. Build or pull it there.",
+        r.present ? "success" : "info",
+      );
+      setF({ name: "", image: "", matches: "", description: "" });
+      list.reload();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+  return (
+    <>
+      <p className="muted">
+        Environments are sandbox images you have prepared (for example with Rust or Java; examples
+        are in images/templates). Users can pick one for a session, and a repository&apos;s
+        devcontainer.json is matched to one by the images listed here. A repository can never choose
+        an image of its own.
+      </p>
+      {(list.data ?? []).map((t) => (
+        <Card key={t.name} title={t.name}>
+          <p>
+            <code>{t.image}</code> {!t.present && <strong>· not on the Docker host</strong>}
+          </p>
+          {t.description && <p className="muted">{t.description}</p>}
+          {t.matches.length > 0 && <p className="muted">Matches: {t.matches.join(", ")}</p>}
+          <Button
+            variant="danger"
+            onClick={async () => {
+              await del(`/image-templates/${t.name}`);
+              list.reload();
+            }}
+          >
+            Remove
+          </Button>
+        </Card>
+      ))}
+      <Card title="Add or replace an environment">
+        <Input label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <Input
+          label="Image on the Docker host"
+          value={f.image}
+          onChange={(e) => setF({ ...f, image: e.target.value })}
+        />
+        <Input
+          label="Description (shown to users)"
+          value={f.description}
+          onChange={(e) => setF({ ...f, description: e.target.value })}
+        />
+        <TextArea
+          label="devcontainer.json images that map to it (one per line, tags ignored)"
+          value={f.matches}
+          onChange={(e) => setF({ ...f, matches: e.target.value })}
+        />
+        <Button variant="primary" onClick={save} disabled={!f.name || !f.image}>
+          Save
+        </Button>
+      </Card>
+    </>
   );
 }
 
@@ -1421,6 +1504,7 @@ function Console({
             { id: "users", label: "Users" },
             { id: "groups", label: "Levels & groups" },
             { id: "providers", label: "Providers & models" },
+            { id: "envs", label: "Environments" },
             { id: "bench", label: "Benchmarks" },
             { id: "mcp", label: "MCP servers" },
             { id: "sessions", label: "Sessions" },
@@ -1434,6 +1518,7 @@ function Console({
         {tab === "users" && <UsersTab />}
         {tab === "groups" && <GroupsTab />}
         {tab === "providers" && <ProvidersTab />}
+        {tab === "envs" && <EnvironmentsTab />}
         {tab === "bench" && <BenchmarksTab />}
         {tab === "mcp" && <McpTab />}
         {tab === "sessions" && <SessionsTab />}

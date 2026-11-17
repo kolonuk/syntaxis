@@ -38,6 +38,7 @@ export interface Session {
   plan_text?: string;
   repo?: string;
   repo_branch?: string;
+  environment?: { image: string; note: string };
   id: string;
   title: string;
   model: string;
@@ -372,6 +373,11 @@ export function Chat({
               <Badge>
                 {session.repo} · {session.repo_branch}
               </Badge>
+            )}
+            {session.environment?.note && (
+              <span className="muted" title={session.environment.image || "default image"}>
+                {session.environment.note}
+              </span>
             )}
           </div>
           <div className="chat-actions">

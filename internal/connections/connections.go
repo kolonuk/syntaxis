@@ -90,6 +90,68 @@ type GitProvider interface {
 	CreateRepo(ctx context.Context, c Creds, n NewRepo) (Repo, error)
 	// OpenPR opens a pull request (merge request) and returns its address.
 	OpenPR(ctx context.Context, c Creds, pr PullRequest) (string, error)
+	// ReadFile returns a file from the repository at a branch or tag ("" = the default branch), or
+	// ErrFileNotFound. It is for small configuration files, not for cloning.
+	ReadFile(ctx context.Context, c Creds, repo, ref, path string) ([]byte, error)
+}
+
+// ErrFileNotFound means the repository has no such file.
+var ErrFileNotFound = errors.New("the repository has no such file")
+
+// maxFile is the largest file ReadFile returns.
+const maxFile = 256 << 10
+
+// callRaw fetches a file's bytes. A 404 is ErrFileNotFound.
+func callRaw(ctx context.Context, hc *http.Client, url string, header map[string]string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("could not reach the service: %w", errors.Unwrap(err))
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxFile+1))
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, ErrFileNotFound
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return nil, fmt.Errorf("%w (HTTP %d)", ErrBadCredentials, resp.StatusCode)
+	case resp.StatusCode/100 != 2:
+		return nil, fmt.Errorf("the service answered HTTP %d: %s", resp.StatusCode, snippet(b))
+	case len(b) > maxFile:
+		return nil, errors.New("the file is too large")
+	}
+	return b, nil
+}
+
+// safeRepoPath accepts a relative path made of safe characters, so it can go into a URL.
+func safeRepoPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "..") {
+		return false
+	}
+	for _, r := range p {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./", r)) {
+			return false
+		}
+	}
+	return true
+}
+
+func safeRef(r string) bool {
+	if r == "" {
+		return true
+	}
+	for _, c := range r {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-_./", c)) {
+			return false
+		}
+	}
+	return !strings.Contains(r, "..")
 }
 
 // ErrBadCredentials means the service refused the credentials.
