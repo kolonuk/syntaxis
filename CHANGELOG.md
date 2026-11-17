@@ -5,6 +5,14 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- **Editing:** `apply_patch` makes several edits to one file, or applies a unified diff, all or nothing (line numbers in `@@` lines are ignored; hunks are found by content). `patch_file` and `apply_patch` now tolerate differences in indentation and spacing and re-indent the replacement to the file, never guess when a match is ambiguous, and show the closest text in the file when nothing matches.
+- **Task list:** a `todo_write` tool and a progress list above the message box, restored after a reload.
+- **Files tab:** browse the session's workspace, view and edit text files, download, upload, create folders and delete, through the session's sandbox and confined to `/workspace`; changes are refused while the agent is working.
+- **Attachments:** attach files, pictures and PDFs to a message (paperclip, drag and drop, paste). Pictures are sent to models that can see them (Ollama reports this itself; the admin app lists others), and `read_file` reads PDFs (text layer, or OCR for scans) and pictures (OCR) inside the sandbox. The default sandbox image now contains poppler-utils and Tesseract (English).
+- **Notes:** the agent can save short notes that it sees in every later session (`remember`, `forget`), per user and per repository; each is approved by the user first, scanned for secrets and listed in **Settings → Notes**.
+- **Web search:** a `web_search` tool through a SearXNG address set in the admin app; queries with secrets are refused and results are untrusted.
+- **Slash commands and hooks:** saved prompts (`/review`, `/test`, `/explain`, your own in Settings, a repository's in `.syntaxis/commands/`) and commands that run before or after tool calls (Settings, or `.syntaxis/hooks.json`). A hook that would need approval, or that the policy blocks, is never run.
+- **Edit and resend, regenerate, branch:** change one of your messages and run again from there, regenerate the last reply, or start a new session from a reply (on a repository it gets its own working branch).
 - One-command installer (`scripts/install.sh`): checks prerequisites, installs gVisor if missing, writes `.env` with a fresh master key, builds or pulls version-pinned images, starts the stack, installs systemd units that keep the egress firewall applied (boot, Docker start, `.env` changes, every 15 minutes) and prints a single-use admin setup link. Optional `--https <domain>` adds a Caddy front end with automatic certificates; `--auto-update` adds a weekly update timer.
 - `scripts/update.sh`: database backup, update, health check against the expected version, and automatic rollback of image, database and checkout on failure.
 - CI installs from scratch on a clean machine with real gVisor and checks the firewall, the Docker proxy and idempotent re-runs.

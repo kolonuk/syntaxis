@@ -25,6 +25,9 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] The installer on a full virtual machine per distribution (CI checks package installation and the fresh install on one image; this host has no hardware virtualisation).
 - [ ] A real update through the admin app on a disposable Docker host: a published release (none exists yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
+- [ ] Web search against a real SearXNG server (the parser is tested; the live test needs `SYNTAXIS_TEST_SEARXNG_URL`).
+- [ ] Pictures sent to a vision model through the llama.cpp and LiteLLM adapters (checked with Ollama's native and OpenAI-compatible APIs only), and OCR of languages other than English.
+- [ ] The new web screens (Files tab, attachments, slash commands, task list, Notes, Commands and Hooks settings) in the Playwright flows against a running instance: they pass type checks, lint, unit tests and the bundle budget, and the server behind each one is tested against a real sandbox, but no browser flow covers them yet.
 
 ## 4. Features
 
@@ -34,29 +37,19 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 
 - [ ] **Issues and pull-request comments start sessions (Medium).** The Jules core loop. Add automation event kinds for an issue labelled, a pull-request review comment and an `@syntaxis` mention, and let a session continue on an existing pull-request branch. Webhook automations and GitHub connections already exist.
 - [ ] **CI feedback loop (Medium).** After a push the agent reads check runs and failure logs through the user's connection (`ci_status` and `ci_logs` tools), then fixes and pushes again. Needed because Syntaxis's own integration tests need real Docker and gVisor, which a sandbox cannot nest: unit tests run in the sandbox, integration tests in CI.
-- [ ] **Multi-edit and unified-diff apply tool, with fuzzy matching (Easy).** `patch_file` takes one exact, unique replacement, which weak local models often get wrong on whitespace. Add `apply_patch` (multi-hunk), whitespace-tolerant matching and an error that shows the nearest match. Large gain for local models.
-- [ ] **Task list tool shown in the UI (Easy).** A `todo_write` tool and a progress list in the chat. Keeps small models on track over long runs.
 - [ ] **Self-management setup (Easy to configure, Medium to verify).** A "Syntaxis development" environment image, and a rule that the agent may open pull requests to the repository but never trigger the host update itself. Depends on the verified update roll-back in section 3.
 
 ### Tier 2: everyday gaps against Claude Code
 
-- [ ] **File browser and editor in the web UI (Medium).** Tree, view, edit, download and upload, using a code editor component and file endpoints that run through the sandbox. Today there is only Output, Context, Changes, Checkpoints, Resources, Tools and the terminal.
-- [ ] **Attachments and image input (Medium).** Upload files and screenshots into the workspace, and send images to vision-capable models. Needs content parts in the provider adapters and in message storage.
-- [ ] **Web search tool (Easy to Medium).** Only `fetch_url` exists. Use a self-hosted SearXNG or a search API, reachable through the egress allowlist.
-- [ ] **Edit, resend, regenerate and branch a conversation (Easy to Medium).** Checkpoint restore with conversation rewind exists; this adds the fork and the UI.
-- [ ] **Repo map and code intelligence (Medium; language server Hard).** A tree-sitter or ctags outline tool and an automatic repo map in the prompt, for small-context models. Language servers (`gopls` is already in the Go image) are a later step.
-- [ ] **Persistent memory (Easy).** Per-user and per-repository notes the agent reads and writes across sessions, with writes needing approval.
-- [ ] **Hooks and custom slash commands (Easy to Medium).** Commands that run before or after a tool call, and saved prompt templates (for example `/review`, `/test`). Builds on skills.
+- [ ] **Syntax highlighting in the file editor (Easy to Medium).** The Files tab edits in a plain text box. A code editor component (CodeMirror) loaded only when a file is opened would add highlighting, indentation and search within the bundle budget.
+- [ ] **Admin switches for repository content (Easy).** `repo_skills` and `repo_hooks` (a repository's skills, slash commands and hooks) have no field in the admin app yet.
+- [ ] **Branching with uncommitted work (Easy to Medium).** A branched session on a repository starts at the old branch's last commit; changes not yet committed stay with the old session.
+- [ ] **Better attachments (Medium).** Attachments are uploaded one file at a time and lost from the model's view after two messages; add upload progress, previews of pictures in the chat, a way to attach a file already in the workspace, and an OCR language setting.
 
 ### Tier 3: polish and scale
 
-- [ ] **Remote (streamable HTTP) MCP servers (Medium).** Only stdio servers run in a sandbox today; GitLab's and Cloudflare's official servers are remote only.
-- [ ] **Subagents and delegation (Medium).** An explore or review agent with its own context so the main context stays small. The agent loop and the parallel runner already exist.
-- [ ] **Background processes (Easy to Medium).** Dev servers and watchers that outlive one command, with log tailing. `run_shell` is capped at 1800 seconds today; the preview proxy exists.
 - [ ] **Per-role model routing (Medium).** A planner model and a coder model, and fallback when a model is unavailable. Check what `internal/routing` already covers first.
 - [ ] **Push notifications (Medium).** Web Push for "finished" and "needs approval", since the chat app is already a PWA.
 - [ ] **Agent-level evaluations (Medium).** Extend the model benchmark to task suites run against real repositories, to choose models for agent work.
-- [ ] **Browser tool for checking a UI (Hard).** Playwright screenshots fed to a vision model. Depends on image input.
-- [ ] **Team-shared project library (Medium).** Skills, rules and memory shared across the trusted users, and hand-off of a session to another user.
+- [ ] **Team-shared project library (Medium).** Skills, rules, commands and memory shared across the trusted users, and hand-off of a session to another user.
 - [ ] **Voice input (Easy, low value).** Browser speech recognition in the message box.
-

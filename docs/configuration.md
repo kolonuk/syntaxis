@@ -47,6 +47,12 @@ Add one or more providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with a
 
 **Probe** (per model) checks for real instead of trusting what the server claims: it asks the model to call a trivial tool, and asks for a long reply to see whether it streams or arrives in one block (a proxy or compression in front of the server holding it back). It may load the model, so it only runs when you press it. The result decides whether agent mode is offered for that model, and a buffered stream shows up as a health warning.
 
+## Web search, pictures and repository content
+
+Admin settings (**Settings** in the admin app): **Web search server** is the address of a SearXNG instance (its `json` format must be enabled, `search.formats` in its settings; a server on the LAN also needs `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`); **Models that accept pictures** lists model names for servers that do not report vision themselves. Two more settings have no field in the app yet and are changed with the settings API: `repo_skills` (a repository's skills and slash commands, default on) and `repo_hooks` (a repository's `.syntaxis/hooks.json`, default on).
+
+Reading PDFs and scans needs `poppler-utils` and `tesseract-ocr` in the sandbox image; the default image has them (rebuild it with `docker build -t syntaxis-sandbox:latest images/sandbox` after an update). A custom image without them still works, but the agent cannot read a PDF or a picture as text there.
+
 ## Environments
 
 An environment is a sandbox image you have prepared and approved. The default one already has Python, Node, Go and a C toolchain. **Environments** in the admin app lists the examples below, and nothing is built until you choose it: press **Build**, read the warning (it takes a few minutes or more, uses disk on the Docker host and downloads packages), and confirm. The build runs on the Docker host through the update service, one at a time, and the finished image is approved automatically. You can also build on the host yourself with `sh scripts/build-templates.sh rust java` (or no names for all), which makes `syntaxis-env-<name>:1`.

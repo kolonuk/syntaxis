@@ -30,7 +30,8 @@ Nothing is faked: no pretend GitHub, model server, mail server or container engi
 
 When something real is not available, the test **skips with `NOT TESTED: <reason>`** instead of passing on a stand-in. `scripts/not-tested.sh results.json` lists those from a `go test -json` run, and CI prints the list on each run.
 
-- Needs Docker and gVisor (`runsc`) and the sandbox image (`docker build -t syntaxis-sandbox:latest images/sandbox`): skips without them.
+- Needs Docker and gVisor (`runsc`) and the sandbox image (`docker build -t syntaxis-sandbox:latest images/sandbox`): skips without them. The OCR tests also need an image that has poppler and Tesseract (the current Dockerfile does); to test a freshly built image without replacing the one a running instance uses, build it under another tag and set `SYNTAXIS_TEST_SANDBOX_IMAGE`.
+- Web search: set `SYNTAXIS_TEST_SEARXNG_URL` to a SearXNG server with the json format enabled, or the live test skips.
 - Needs an account: set `SYNTAXIS_TEST_GITHUB_TOKEN`, `SYNTAXIS_TEST_GITLAB_TOKEN`, `SYNTAXIS_TEST_CLOUDFLARE_TOKEN`, `SYNTAXIS_TEST_IFTTT_KEY`, `SYNTAXIS_TEST_AWS_ACCESS_KEY_ID` with `..._SECRET_ACCESS_KEY`, the `SYNTAXIS_TEST_AZURE_*` set, or the `SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON` with `SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT`.
 - Needs a model: set `SYNTAXIS_LIVE=1` and point `SYNTAXIS_TEST_ENV` at a file with `OLLAMA_URL`, `OLLAMA_KIND` and `MODEL_TINY`, `MODEL_SMALL`, `MODEL_MAIN` (default `~/.config/syntaxis-test/env`, outside the repository). A real model decides for itself, so those tests ask for simple checkable results and assert on what really happened in the sandbox.
 

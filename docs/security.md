@@ -39,6 +39,13 @@ The Syntaxis container never touches the Docker socket. A small proxy (`syntaxis
 
 The optional terminal is a shell in the same sandbox the agent uses, with the same limits and network rules. Only the owner can open it, it closes after 15 minutes idle, and admins can turn it off per user, level or group. The command blocklist applies to the agent only, so for a shell the egress mode is the control.
 
+## Files, attachments, notes and hooks
+
+- **Files and attachments** go through the session's own sandbox and are confined to `/workspace`; a path outside it is refused for every operation. Uploads are limited to 20 MB, only the owner can see or change them, and PDFs and pictures are parsed inside the sandbox (never on the host). What a document says is marked as untrusted data. The list of attached files in a message only counts at the very end of the message and only for the attachment folder, so text in a message or a tool's output cannot make the agent or the server open other files.
+- **Notes** outlive a session, so a model steered by a web page could try to plant instructions for the next one. Each note is shown for approval (except in fully autonomous sessions, where it is audited), is scanned for secrets, is capped in size and number, and reaches the model as information inside a block that cannot be closed from inside a note.
+- **Hooks** from a repository run commands without asking, so a hook that the approval policy would block or ask about is never run, hooks do not run while the agent is only planning, and every hook run is audited. An admin can switch repository hooks off (`repo_hooks`).
+- **Web search** queries are scanned for secrets before they leave, the server makes the request with the address-checking client, and results are untrusted.
+
 ## Prompt injection
 
 Text the model reads can try to steer it ([prompt injection](https://en.wikipedia.org/wiki/Prompt_injection)). Syntaxis labels such content as untrusted and keeps its rules in code, which limits the damage but does not remove the risk: a manipulated model can still do harmful things it is allowed to do. Use `ask` autonomy and a restricted egress mode on untrusted repositories.

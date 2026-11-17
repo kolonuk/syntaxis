@@ -32,6 +32,8 @@ It is not a hosted service, and a gVisor container is not a virtual machine. The
 - Sessions that start from your own GitHub, GitLab or Gitea repository, work on their own branch and open pull requests
 - Approval gates for risky actions, with three levels of autonomy, and a plan-first mode where nothing changes until you approve
 - Checkpoints you can roll back, without touching your own git history
+- Attach files, pictures and PDFs (scans are read with OCR), browse and edit the workspace in a Files tab, and follow the agent's task list as it works
+- Slash commands, hooks, notes the agent keeps between sessions, optional web search, and edit, regenerate or branch a conversation
 - Several attempts at one task side by side, with a comparison to keep the best
 - Automations that start a session on a schedule, a webhook or when something new appears (a release, a feed, a package)
 - Connections to GitHub, GitLab, Gitea, Cloudflare, AWS, Azure, Google Cloud and IFTTT, each user's own

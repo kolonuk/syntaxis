@@ -4,7 +4,17 @@ The agent is a loop the Syntaxis server runs to turn a model into an engineer wo
 
 ## Tools
 
-Run a shell command, read, write and patch files, list and search files, git (including opening a pull request), fetch a URL, ask the user a question, and load a skill. Tools from approved [MCP servers](integrations.md#mcp-servers) are added. File paths are confined to the workspace.
+Run a shell command, read, write and patch files, list and search files, git (including opening a pull request), fetch a URL, search the web (when set up), keep a task list, save notes, ask the user a question, and load a skill. Tools from approved [MCP servers](integrations.md#mcp-servers) are added. File paths are confined to the workspace.
+
+**Editing.** `patch_file` replaces one block of text, and `apply_patch` makes several edits to one file, or applies a unified diff, all or nothing. Weak models often copy a block with the wrong indentation, tabs for spaces or stray trailing spaces, so when the exact text is not found, a whole-line match that ignores differences in spacing is tried and the replacement is re-indented to the file; the result says when that happened. A block that matches in more than one place is never guessed at, and when nothing matches the error shows the closest text in the file with its line numbers. In a diff, the line numbers of the `@@` lines are ignored and each hunk is found by its content.
+
+**Task list.** For a job with three or more steps the agent keeps a list with `todo_write`. It is shown above the message box as progress (done, in progress, to do) and is still there after a reload.
+
+**Notes.** The agent can save short notes that it sees at the start of every later session (`remember`, `forget`): how to run a repository's tests, a preference of yours. A note outlives the session, so each one is shown to you for approval first (in a fully autonomous session it is saved without asking, and audited). Notes are scanned for secrets, kept per user (a note about a repository only appears in sessions on that repository), and listed, edited and deleted under **Settings → Notes**. They are shown to the model as information, never as instructions that can change its rules.
+
+**Web search.** With a [SearXNG](https://docs.searxng.org/) address set in the admin app (**Settings → Web search server**), the agent gets a `web_search` tool. The Syntaxis server makes the request, results are marked as untrusted, and a query that contains a secret is refused. Without an address there is no such tool; `fetch_url` still works for pages the agent already has an address for.
+
+**Reading PDFs and pictures.** `read_file` on a PDF returns its text; on a scan or a picture (png, jpg, gif, webp, bmp, tiff) it returns the text found by OCR. This runs inside the sandbox with poppler and Tesseract (English), which the default sandbox image contains; a custom image without them gets a plain message saying so.
 
 Local models are not always good at calling tools. Syntaxis recovers calls written as plain text, retries malformed ones, stops loops and repeated failures, and offers chat-only mode for models without tool support.
 
@@ -15,6 +25,28 @@ Each session has an autonomy level: **ask** (every action waits for you), **work
 ## Sessions
 
 Sessions are named from the first exchange (rename them any time). Where an admin has set a helper model it does this and other small jobs; see [configuration](configuration.md#providers-and-models). A workspace that is not used for a while is deleted after a warning by email (the admin sets how long, 30 days by default).
+
+## Attachments and pictures
+
+The paperclip in the message box attaches files (also by dragging them in, or pasting a picture), up to 8 per message and 20 MB each. They are uploaded to `/workspace/.attachments` in the session's sandbox and listed at the end of the message, so the agent opens them with `read_file`. If the model can see pictures, the first four are also sent to it directly: Ollama says so itself, and for other servers an admin lists the model names under **Settings → Models that accept pictures**. Other models read a picture as text with OCR. Pictures stay visible to the model for the last two messages that carry them. Attachments count against the workspace size limit.
+
+## Files
+
+The **Files** tab browses the session's workspace: open a folder, view or edit a text file (up to 1 MB, **Ctrl+S** saves), download, upload, create folders and delete. It works through the session's sandbox like everything else, is confined to `/workspace`, and changes are refused while the agent is working so they cannot collide with its own edits. The editor is a plain text box, without syntax highlighting.
+
+## Slash commands and hooks
+
+A **slash command** is a saved prompt: type `/review the login code` and the command's text is sent with `$ARGUMENTS` replaced by what follows the name. Three come with Syntaxis (`/review`, `/test`, `/explain`); you can add your own under **Settings → Commands**, and a repository can add some in `.syntaxis/commands/<name>.md` (an optional first line `description: ...`). Your own win over the repository's, which win over the built-in ones. The expanded text is what is sent and shown in the chat.
+
+A **hook** runs a command in the sandbox before (`pre_tool`) or after (`post_tool`) a tool call: a formatter after every edit, a check that refuses writes to a protected path. A failing pre hook stops the tool call and the agent is told why; a post hook's output is added to the tool's result. Hooks are written as JSON under **Settings → Hooks**, or in a repository's `.syntaxis/hooks.json` (the session says when it uses them; an admin can switch repository hooks off with the `repo_hooks` setting). A hook never asks for approval, so a hook command that the approval policy would stop or ask about is not run at all, and the user is told.
+
+```json
+{"hooks":[{"event":"post_tool","tools":["write_file","patch_file","apply_patch"],"command":"gofmt -l ."}]}
+```
+
+## Editing and branching a conversation
+
+**Edit and resend** on one of your messages sets that message and everything after it aside and runs the agent again from there; **Regenerate** on the last reply does the same with your original words. Set-aside messages stay in the history and the export. Files the agent already changed are not put back (use the **Checkpoints** tab for that). **Branch from here** on a reply starts a new session with a copy of the conversation up to it, on the same model and workspace. In a session on a repository the new session gets its own working branch, started where the old one is, so the two can go different ways.
 
 ## Plan first and reviewing changes
 
