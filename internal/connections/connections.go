@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kolonuk/syntaxis/internal/safehttp"
 )
 
 // Field is one credential or setting a connection needs.
@@ -30,6 +32,9 @@ type Field struct {
 	Secret   bool   `json:"secret"` // hidden in the form and never shown again
 	Required bool   `json:"required"`
 	Default  string `json:"default,omitempty"`
+	// URL marks the address of a self-hosted service. The server calls it, so it is checked
+	// (CheckBaseURL) and reached only through the safe client (see package safehttp).
+	URL bool `json:"url,omitempty"`
 }
 
 // Kind describes a service.
@@ -163,10 +168,11 @@ type Registry struct {
 	order []string
 }
 
-// New returns the registry of all supported services.
+// New returns the registry of all supported services. hc must refuse internal addresses (the
+// server calls addresses users type); nil uses safehttp with no private ranges allowed.
 func New(hc *http.Client) *Registry {
 	if hc == nil {
-		hc = &http.Client{Timeout: 15 * time.Second}
+		hc = safehttp.NewClient(15 * time.Second)
 	}
 	r := &Registry{byID: map[string]Provider{}}
 	for _, p := range []Provider{
@@ -218,6 +224,11 @@ func Validate(k Kind, c Creds) error {
 		}
 		if len(v) > 16<<10 {
 			return fmt.Errorf("%s is too long", f.Label)
+		}
+		if f.URL && v != "" {
+			if err := safehttp.CheckBaseURL(v); err != nil {
+				return fmt.Errorf("%s: %w", f.Label, err)
+			}
 		}
 	}
 	return nil

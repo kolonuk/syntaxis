@@ -4,6 +4,8 @@
 package config
 
 import (
+	"github.com/kolonuk/syntaxis/internal/safehttp"
+
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -16,27 +18,30 @@ import (
 // Config holds all runtime configuration. Every environment-specific value
 // lives here; nothing is hardcoded elsewhere.
 type Config struct {
-	Listen        string
-	AdminListen   string
-	BaseURL       string
-	AdminURL      string // where admins open the admin app (a link from the chat app); empty = no link
-	DataDir       string
-	MasterKey     []byte
-	LogLevel      string
-	LogFormat     string
-	SMTP          SMTP
-	Docker        Docker
-	EgressMode    string
-	EgressAllow   []string
-	EgressBlock   []string // extra CIDRs sandboxes must never reach (e.g. the LLM server)
-	DNSListen     string   // address for the sandbox DNS resolver (default: sandbox network gateway :53)
-	FirewallToken string   // shared secret for the host firewall sync service (empty = endpoints disabled)
-	DNSFallback   string   // resolver sandboxes use if the Syntaxis resolver cannot run (default 1.1.1.1)
-	DNSUpstream   string   // upstream resolver host:port (default: first nameserver in /etc/resolv.conf)
-	AdminReadMsg  bool
-	ProxyAuth     ProxyAuth
-	VAPIDPublic   string
-	VAPIDPrivate  string
+	Listen      string
+	AdminListen string
+	BaseURL     string
+	AdminURL    string // where admins open the admin app (a link from the chat app); empty = no link
+	DataDir     string
+	MasterKey   []byte
+	LogLevel    string
+	LogFormat   string
+	SMTP        SMTP
+	Docker      Docker
+	EgressMode  string
+	EgressAllow []string
+	EgressBlock []string // extra CIDRs sandboxes must never reach (e.g. the LLM server)
+	// ConnectionsAllowPrivate lists private address ranges the server may reach for users'
+	// connections (a GitLab or Gitea on the LAN). Empty: only public addresses.
+	ConnectionsAllowPrivate []string
+	DNSListen               string // address for the sandbox DNS resolver (default: sandbox network gateway :53)
+	FirewallToken           string // shared secret for the host firewall sync service (empty = endpoints disabled)
+	DNSFallback             string // resolver sandboxes use if the Syntaxis resolver cannot run (default 1.1.1.1)
+	DNSUpstream             string // upstream resolver host:port (default: first nameserver in /etc/resolv.conf)
+	AdminReadMsg            bool
+	ProxyAuth               ProxyAuth
+	VAPIDPublic             string
+	VAPIDPrivate            string
 
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
@@ -85,23 +90,24 @@ func Load() (*Config, error) { return LoadFrom(os.Getenv) }
 // LoadFrom reads configuration using get, validating values.
 func LoadFrom(get Getenv) (*Config, error) {
 	c := &Config{
-		Listen:        str(get, "SYNTAXIS_LISTEN", "127.0.0.1:8080"),
-		AdminListen:   str(get, "SYNTAXIS_ADMIN_LISTEN", "127.0.0.1:8081"),
-		BaseURL:       strings.TrimRight(str(get, "SYNTAXIS_BASE_URL", "http://localhost:8080"), "/"),
-		DataDir:       str(get, "SYNTAXIS_DATA_DIR", "./data"),
-		LogLevel:      str(get, "SYNTAXIS_LOG_LEVEL", "info"),
-		LogFormat:     str(get, "SYNTAXIS_LOG_FORMAT", "json"),
-		EgressMode:    str(get, "SYNTAXIS_EGRESS_MODE", "open"),
-		EgressAllow:   list(get("SYNTAXIS_EGRESS_ALLOWLIST")),
-		EgressBlock:   list(get("SYNTAXIS_EGRESS_BLOCK")),
-		DNSListen:     get("SYNTAXIS_DNS_LISTEN"),
-		DNSUpstream:   get("SYNTAXIS_DNS_UPSTREAM"),
-		DNSFallback:   str(get, "SYNTAXIS_DNS_FALLBACK", "1.1.1.1"),
-		FirewallToken: get("SYNTAXIS_FIREWALL_TOKEN"),
-		AdminURL:      get("SYNTAXIS_ADMIN_URL"),
-		AdminReadMsg:  boolean(get, "SYNTAXIS_ALLOW_ADMIN_READ_CONTENT", false),
-		VAPIDPublic:   get("SYNTAXIS_VAPID_PUBLIC"),
-		VAPIDPrivate:  get("SYNTAXIS_VAPID_PRIVATE"),
+		Listen:                  str(get, "SYNTAXIS_LISTEN", "127.0.0.1:8080"),
+		AdminListen:             str(get, "SYNTAXIS_ADMIN_LISTEN", "127.0.0.1:8081"),
+		BaseURL:                 strings.TrimRight(str(get, "SYNTAXIS_BASE_URL", "http://localhost:8080"), "/"),
+		DataDir:                 str(get, "SYNTAXIS_DATA_DIR", "./data"),
+		LogLevel:                str(get, "SYNTAXIS_LOG_LEVEL", "info"),
+		LogFormat:               str(get, "SYNTAXIS_LOG_FORMAT", "json"),
+		EgressMode:              str(get, "SYNTAXIS_EGRESS_MODE", "open"),
+		EgressAllow:             list(get("SYNTAXIS_EGRESS_ALLOWLIST")),
+		EgressBlock:             list(get("SYNTAXIS_EGRESS_BLOCK")),
+		ConnectionsAllowPrivate: list(get("SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE")),
+		DNSListen:               get("SYNTAXIS_DNS_LISTEN"),
+		DNSUpstream:             get("SYNTAXIS_DNS_UPSTREAM"),
+		DNSFallback:             str(get, "SYNTAXIS_DNS_FALLBACK", "1.1.1.1"),
+		FirewallToken:           get("SYNTAXIS_FIREWALL_TOKEN"),
+		AdminURL:                get("SYNTAXIS_ADMIN_URL"),
+		AdminReadMsg:            boolean(get, "SYNTAXIS_ALLOW_ADMIN_READ_CONTENT", false),
+		VAPIDPublic:             get("SYNTAXIS_VAPID_PUBLIC"),
+		VAPIDPrivate:            get("SYNTAXIS_VAPID_PRIVATE"),
 
 		BootstrapAdminEmail:    get("SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapAdminPassword: get("SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD"),
@@ -161,6 +167,9 @@ func LoadFrom(get Getenv) (*Config, error) {
 
 // Validate checks enumerated values.
 func (c *Config) Validate() error {
+	if _, err := safehttp.ParseAllow(c.ConnectionsAllowPrivate); err != nil {
+		return fmt.Errorf("SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE: %w", err)
+	}
 	switch c.EgressMode {
 	case "open", "allowlist", "none":
 	default:

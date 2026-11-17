@@ -11,68 +11,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"time"
 
-	"github.com/kolonuk/syntaxis/internal/egress"
+	"github.com/kolonuk/syntaxis/internal/safehttp"
 )
 
 // MaxBody is how much of a response is read.
 const MaxBody = 1 << 20
 
-// NewClient returns an HTTP client for watching public sources. It resolves the name itself and
-// refuses private, loopback, link-local, metadata and other blocked addresses at connection time
-// (so DNS tricks and redirects cannot reach them either).
-func NewClient() *http.Client {
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			lastErr := errors.New("no address")
-			for _, ip := range ips {
-				a, ok := netip.AddrFromSlice(ip.IP)
-				if !ok {
-					continue
-				}
-				if blocked, why := egress.IsAlwaysBlocked(a.Unmap()); blocked {
-					lastErr = fmt.Errorf("that address is not allowed (%s)", why)
-					continue
-				}
-				c, err := d.DialContext(ctx, network, net.JoinHostPort(a.String(), port))
-				if err == nil {
-					return c, nil
-				}
-				lastErr = err
-			}
-			return nil, lastErr
-		},
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       30 * time.Second,
-		DisableKeepAlives:     true,
-		Proxy:                 nil, // never through a configured proxy: the dial check must see the real address
-	}
-	return &http.Client{
-		Transport: tr,
-		Timeout:   25 * time.Second,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-			if len(via) >= 4 {
-				return errors.New("too many redirects")
-			}
-			return nil
-		},
-	}
-}
+// NewClient returns an HTTP client for watching public sources: it refuses private, loopback,
+// link-local, metadata and other blocked addresses at connection time (see package safehttp).
+func NewClient() *http.Client { return safehttp.NewClient(25 * time.Second) }
 
 // get fetches a URL (http or https only) and returns at most MaxBody bytes.
 func get(ctx context.Context, hc *http.Client, url string, header map[string]string) ([]byte, int, error) {

@@ -100,6 +100,7 @@ func TestEnvironmentsAreApprovedByAdminsAndUsedByRealSandboxes(t *testing.T) {
 func TestDevcontainerPicksAnApprovedEnvironmentAndNothingElse(t *testing.T) {
 	gs := testenv.Gitea(t)
 	e := newEnv(t)
+	allowLoopbackConnections(e) // the test Gitea listens on loopback
 	seedModel(e)
 	e.app.Sandbox = realSandbox(t, e)
 	buildTemplateImage(t, "syntaxis-test-env:py", "py")

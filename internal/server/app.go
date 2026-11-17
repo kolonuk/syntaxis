@@ -29,6 +29,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/mcp"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/quota"
+	"github.com/kolonuk/syntaxis/internal/safehttp"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/secrets"
 	"github.com/kolonuk/syntaxis/internal/signing"
@@ -89,9 +90,20 @@ func New(cfg *config.Config, st store.Store, as *auth.Service, q *quota.Service,
 	a := &App{Cfg: cfg, Store: st, Auth: as, Quota: q, Secrets: sec, Mail: m, Log: log, Health: health.NewEngine(health.DefaultThresholds()), Now: time.Now}
 	a.Runs = NewRuns()
 	a.Terms = NewTerminals()
-	a.Connections = connections.New(nil)
+	a.Connections = connections.New(a.ConnectionsClient())
 	a.WatchClient = watch.NewClient()
 	return a
+}
+
+// ConnectionsClient is the HTTP client for users' connections: public addresses only, plus
+// any private ranges in SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE (never loopback or link-local).
+func (a *App) ConnectionsClient() *http.Client {
+	allow, err := safehttp.ParseAllow(a.Cfg.ConnectionsAllowPrivate)
+	if err != nil {
+		a.Log.Warn("ignoring SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE", "err", err)
+		allow = nil
+	}
+	return safehttp.NewClient(15*time.Second, allow...)
 }
 
 // ---- helpers ----

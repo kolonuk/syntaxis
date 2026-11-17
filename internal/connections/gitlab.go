@@ -31,7 +31,7 @@ func (g *GitLab) Kind() Kind {
 		Guide: "In GitLab open Preferences, Access tokens, and create a personal access token with the api scope (or read_repository and write_repository for git only), with an expiry. For a self-hosted GitLab, enter its address below.",
 		Fields: []Field{
 			{Name: "GITLAB_TOKEN", Label: "Personal access token", Secret: true, Required: true},
-			{Name: "GITLAB_HOST", Label: "GitLab address", Hint: "Leave empty for gitlab.com, or https://gitlab.example.com", Default: "https://gitlab.com"},
+			{Name: "GITLAB_HOST", Label: "GitLab address", Hint: "Leave empty for gitlab.com, or https://gitlab.example.com", Default: "https://gitlab.com", URL: true},
 		}}
 }
 

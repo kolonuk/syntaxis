@@ -7,10 +7,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kolonuk/syntaxis/internal/safehttp"
 	"github.com/kolonuk/syntaxis/internal/testenv"
 )
 
@@ -162,7 +165,8 @@ func TestGCPWithRealCredentials(t *testing.T) {
 func TestGiteaAgainstARealServer(t *testing.T) {
 	gs := testenv.Gitea(t)
 	base := gs.URL
-	g := git(t, "gitea")
+	// the test server listens on loopback, which the server refuses unless it is allowed explicitly
+	g, _ := New(safehttp.NewClient(15*time.Second, netip.MustParsePrefix("127.0.0.0/8"))).Git("gitea")
 	c := Creds{"GITEA_TOKEN": gs.Token, "GITEA_URL": base}
 	if id, err := g.Test(ctx, c); err != nil || id.Account != "tester" {
 		t.Fatalf("%+v %v", id, err)
@@ -243,5 +247,38 @@ func TestRegistryAndValidate(t *testing.T) {
 	k, _ := r.Get("github")
 	if Validate(k.Kind(), Creds{}) == nil || Validate(k.Kind(), Creds{"GITHUB_TOKEN": "a\nb"}) == nil || Validate(k.Kind(), Creds{"GITHUB_TOKEN": "ok"}) != nil {
 		t.Error("validation")
+	}
+}
+
+// The server calls the addresses users type for self-hosted services. Those must not reach the
+// server's own loopback (the admin app), the LAN, Docker networks or cloud metadata, unless an
+// operator allowed a private range; and the address must not carry tricks.
+func TestSelfHostedAddressesCannotReachInternalServices(t *testing.T) {
+	inner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal secret page", http.StatusTeapot)
+	}))
+	defer inner.Close()
+	for _, kind := range []string{"gitea", "gitlab"} {
+		field := map[string]string{"gitea": "GITEA_URL", "gitlab": "GITLAB_HOST"}[kind]
+		token := map[string]string{"gitea": "GITEA_TOKEN", "gitlab": "GITLAB_TOKEN"}[kind]
+		_, err := svc(t, kind).Test(ctx, Creds{field: inner.URL, token: "x"})
+		if err == nil || strings.Contains(err.Error(), "internal secret") || !strings.Contains(err.Error(), "not allowed") {
+			t.Errorf("%s reached a loopback service: %v", kind, err)
+		}
+		for _, bad := range []string{"http://169.254.169.254", "ftp://x.example.com", "https://user:pw@x.example.com", "https://x.example.com/?a=1", "https://x.example.com/#frag"} {
+			k, _ := New(nil).Get(kind)
+			if err := Validate(k.Kind(), Creds{field: bad, token: "x"}); err == nil && !strings.HasPrefix(bad, "http://169") {
+				t.Errorf("%s accepted the address %q", kind, bad)
+			}
+		}
+		if _, err := svc(t, kind).Test(ctx, Creds{field: "http://169.254.169.254", token: "x"}); err == nil || !strings.Contains(err.Error(), "not allowed") {
+			t.Errorf("%s reached the metadata address: %v", kind, err)
+		}
+	}
+	if safehttp.Check(netip.MustParseAddr("127.0.0.1"), nil) == "" || safehttp.Check(netip.MustParseAddr("169.254.169.254"), []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16")}) == "" {
+		t.Fatal("loopback must be refused by default and link-local always")
+	}
+	if safehttp.Check(netip.MustParseAddr("192.168.5.5"), []netip.Prefix{netip.MustParsePrefix("192.168.5.0/24")}) != "" {
+		t.Fatal("an allowed private range was refused")
 	}
 }

@@ -17,6 +17,7 @@ import (
 func TestConnectionsArePerUserAndNeverReturnCredentials(t *testing.T) {
 	gs := testenv.Gitea(t)
 	e := newEnv(t)
+	allowLoopbackConnections(e) // the test Gitea listens on loopback
 	alice := e.userSession("alice@example.com")
 	bob := e.userSession("bob@example.com")
 	aliceID := userID(t, e, "alice@example.com")
@@ -117,4 +118,18 @@ func decodeList(t *testing.T, raw []byte) []map[string]any {
 		t.Fatalf("%v: %s", err, raw)
 	}
 	return out
+}
+
+// A user types the address of their self-hosted forge and the server calls it. They must not be
+// able to aim it at the server's own admin app on loopback and read the reply.
+func TestConnectionAddressCannotReachTheServersOwnServices(t *testing.T) {
+	e := newEnv(t)
+	u := e.userSession("a@example.com")
+	code, m, raw := u.do("PUT", "/api/connections/gitea", map[string]any{"fields": map[string]string{"GITEA_TOKEN": "x", "GITEA_URL": e.admin.URL}})
+	if code == 200 || strings.Contains(string(raw), "<html") || !strings.Contains(m["error"].(string), "not allowed") {
+		t.Fatalf("the server called its own admin listener for a user: %d %s", code, raw)
+	}
+	if code, _, _ := u.do("PUT", "/api/connections/gitea", map[string]any{"fields": map[string]string{"GITEA_TOKEN": "x", "GITEA_URL": "http://docker-socket-proxy:2375/containers/json#"}}); code != 400 {
+		t.Fatalf("an address with a fragment was accepted: %d", code)
+	}
 }

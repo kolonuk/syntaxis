@@ -31,7 +31,7 @@ func (g *Gitea) Kind() Kind {
 		Guide: "On your Gitea server open Settings, Applications, and create an access token with read and write access to repository (and write:issue if the agent should open pull requests). Enter the server's address below.",
 		Fields: []Field{
 			{Name: "GITEA_TOKEN", Label: "Access token", Secret: true, Required: true},
-			{Name: "GITEA_URL", Label: "Server address", Hint: "https://gitea.example.com", Required: true},
+			{Name: "GITEA_URL", Label: "Server address", Hint: "https://gitea.example.com", Required: true, URL: true},
 		}}
 }
 

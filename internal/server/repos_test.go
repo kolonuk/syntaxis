@@ -56,6 +56,7 @@ func TestWorkBranchAndDirNamesAreSafe(t *testing.T) {
 func TestSessionFromARepositoryNeedsTheUsersOwnConnectionAndHost(t *testing.T) {
 	gs := testenv.Gitea(t)
 	e := newEnv(t)
+	allowLoopbackConnections(e) // the test Gitea listens on loopback
 	seedModel(e)
 	u := e.userSession("a@example.com")
 	other := e.userSession("b@example.com")
