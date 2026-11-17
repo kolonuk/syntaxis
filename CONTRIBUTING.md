@@ -36,7 +36,7 @@ When something real is not available, the test **skips with `NOT TESTED: <reason
 
 Tests that start sandboxes use user ids far above any real user's and clean up after themselves, and whole-host operations (the reaper, the kill switch) are scoped to the test's own containers, so a Syntaxis already running on the same Docker host is not touched.
 
-The web checks: `npm run e2e` (Playwright flows and axe accessibility) and `npm run lighthouse` need a running instance (see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
+The web checks: `npm run e2e` (Playwright flows and axe accessibility) and `npm run lighthouse` need a running instance (CI runs them against the one the installer creates; see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
 
 ## Adding a provider adapter / agent adapter
 

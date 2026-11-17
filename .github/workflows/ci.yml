@@ -226,6 +226,19 @@ jobs:
           for check in sandbox.network-rules sandbox.socket-proxy sandbox.runsc; do
             if grep -q "$check" doctor.txt; then echo "unexpected finding: $check"; exit 1; fi
           done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Playwright flows and accessibility (axe) against the installed instance
+        run: |
+          cd web && npm ci && npx playwright install --with-deps chromium
+          npm run e2e
+      - name: Lighthouse (accessibility, best practices, SEO, performance) against the installed instance
+        run: |
+          export CHROME_PATH=$(cd web && node -e "console.log(require('@playwright/test').chromium.executablePath())")
+          cd web && npm run lighthouse
       - name: Re-running the installer keeps settings and data
         run: |
           key=$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)
@@ -239,34 +252,6 @@ jobs:
           sudo nft list table inet syntaxis_sandbox | grep -q 'hook input'
       - if: failure()
         run: sudo docker compose logs --tail 200; sudo journalctl -u syntaxis-egress --no-pager | tail -50
-
-  e2e:
-    name: Playwright
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: cd web && npm ci && npm run build && npx playwright install --with-deps chromium
-      - name: Start Syntaxis
-        run: |
-          go build -o bin/syntaxis ./cmd/syntaxis
-          export SYNTAXIS_MASTER_KEY=$(./bin/syntaxis keygen)
-          export SYNTAXIS_DATA_DIR=$RUNNER_TEMP/data SYNTAXIS_LOG_LEVEL=warn
-          ./bin/syntaxis serve &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 1; done
-      - name: Playwright flows and accessibility (axe)
-        run: cd web && npm run e2e
-      - name: Lighthouse (accessibility, best practices, SEO, performance)
-        run: |
-          export CHROME_PATH=$(cd web && node -e "console.log(require('@playwright/test').chromium.executablePath())")
-          cd web && npm run lighthouse
 
   installer:
     name: Installer on ${{ matrix.image }} (${{ matrix.arch }})

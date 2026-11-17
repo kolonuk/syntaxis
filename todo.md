@@ -13,7 +13,3 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 5. Agent and workflow
 
 - [ ] More helper-model jobs. The helper (set per provider in the admin app) does session titles, summaries of long watch events and compaction of long conversations. Still on the session's own model: commit and pull-request messages and plan drafts. Compaction on the helper has no test because it needs a conversation longer than a model's window.
-
-## 6. Operations
-
-- [ ] Run the Playwright, axe and Lighthouse checks against the instance the fresh-install job creates (they run against a plain `syntaxis serve` today).
