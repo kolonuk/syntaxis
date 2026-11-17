@@ -512,6 +512,9 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 		a.Log.Warn("firewall sync is not running; starting an allowlist sandbox without a network", "session", s.ID)
 	}
 	id, err := a.Sandbox.CreateWithImage(ctx, s.Image, u.ID, s.ID, nil, noNetwork)
+	if s.Image != "" {
+		_ = a.Store.TouchImageTemplate(ctx, s.Image, a.Now())
+	}
 	if err != nil {
 		return "", err
 	}

@@ -513,6 +513,7 @@ func cmdServe() error {
 	}
 	go loop(ctx, time.Hour, func() { _, _ = st.PurgeExpiredAuthSessions(ctx, time.Now()) })
 	go app.RunAutomations(ctx)
+	go app.RunEnvironments(ctx)
 	if rt != nil {
 		app.Lifecycle = &lifecycle.Job{Store: st, Runtime: rt, Mail: ml, BaseURL: cfg.BaseURL, Policy: lifecycle.Policy{RetentionDays: int(cfg.WorkspaceRetention / (24 * time.Hour)), WarnDays: 3}}
 		go loop(ctx, 6*time.Hour, func() {

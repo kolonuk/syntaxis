@@ -49,7 +49,9 @@ Add one or more providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with a
 
 ## Environments
 
-An environment is a sandbox image you have prepared and approved. The default one already has Python, Node, Go and a C toolchain. These examples add more; build them on the Docker host with `sh scripts/build-templates.sh` (all) or `sh scripts/build-templates.sh rust java` (some), which makes `syntaxis-env-<name>:1`:
+An environment is a sandbox image you have prepared and approved. The default one already has Python, Node, Go and a C toolchain. **Environments** in the admin app lists the examples below, and nothing is built until you choose it: press **Build**, read the warning (it takes a few minutes or more, uses disk on the Docker host and downloads packages), and confirm. The build runs on the Docker host through the update service, one at a time, and the finished image is approved automatically. You can also build on the host yourself with `sh scripts/build-templates.sh rust java` (or no names for all), which makes `syntaxis-env-<name>:1`.
+
+A built environment that nobody has used for 30 days (change this on the same page; 0 keeps them) is removed again to free the disk, unless a session still has a sandbox in it. Choosing **Build** brings it back.
 
 | Name | Adds | A devcontainer image it can match |
 |---|---|---|

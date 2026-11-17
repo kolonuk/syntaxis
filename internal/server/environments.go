@@ -125,6 +125,7 @@ func (a *App) chooseEnvironment(ctx context.Context, s *store.ChatSession, creds
 			return
 		}
 		s.Image, s.EnvNote = t.Image, why
+		_ = a.Store.TouchImageTemplate(ctx, t.Image, a.Now()) // so it is not cleaned up just as it is chosen
 	}
 	if template != "" {
 		for _, t := range ts {

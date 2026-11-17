@@ -710,6 +710,188 @@ interface EnvTpl {
   present: boolean;
 }
 
+interface CatalogRow {
+  name: string;
+  adds: string;
+  size_gb: number;
+  minutes: string;
+  state: "not built" | "queued" | "building" | "removing" | "built" | "failed";
+  managed?: boolean;
+  last_used?: string;
+  message?: string;
+}
+interface Catalog {
+  environments: CatalogRow[];
+  agent_running: boolean;
+  idle_days: number;
+  manual: string;
+}
+
+function EnvironmentCatalog({ onChange }: { onChange: () => void }) {
+  const toast = useToast();
+  const [cat, setCat] = useState<Catalog | null>(null);
+  const [ask, setAsk] = useState<CatalogRow | null>(null);
+  const [days, setDays] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const c = await get<Catalog>("/environment-catalog");
+      setCat(c);
+      setDays((d) => d || String(c.idle_days));
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }, [toast]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const working = cat?.environments.some((e) =>
+    ["queued", "building", "removing"].includes(e.state),
+  );
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => {
+      void load();
+      onChange();
+    }, 10000);
+    return () => clearInterval(t);
+  }, [working, load, onChange]);
+  async function build() {
+    if (!ask) return;
+    try {
+      await post(`/environment-catalog/${ask.name}/build`);
+      toast("Build requested. It runs on the Docker host and takes a while.", "success");
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+    setAsk(null);
+    void load();
+  }
+  if (!cat) return <Skeleton />;
+  return (
+    <Card title="Example environments">
+      <p className="muted">
+        These are not built until you choose them. Building runs on the Docker host and takes a few
+        minutes or more (see the time and disk space beside each). Once built, an environment is
+        approved automatically, and it is removed again if nobody uses it for a while.
+      </p>
+      {!cat.agent_running && (
+        <Banner tone="warn">
+          The update service on the Docker host is not running, so images cannot be built from here.
+          Start it with <code>sudo systemctl start syntaxis-update-agent</code>, or build one by
+          hand with <code>{cat.manual}</code>.
+        </Banner>
+      )}
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Example environments">
+        <table>
+          <thead>
+            <tr>
+              <th>Environment</th>
+              <th>Adds</th>
+              <th>Disk</th>
+              <th>Build time</th>
+              <th>Status</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {cat.environments.map((e) => (
+              <tr key={e.name}>
+                <td>
+                  <strong>{e.name}</strong>
+                </td>
+                <td>{e.adds}</td>
+                <td>about {e.size_gb} GB</td>
+                <td>{e.minutes} min</td>
+                <td title={e.message}>
+                  {e.state === "built" ? (
+                    <>
+                      built
+                      {e.last_used && (
+                        <span className="muted">
+                          {" "}
+                          · used {new Date(e.last_used).toLocaleDateString()}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    e.state
+                  )}
+                </td>
+                <td className="actions-cell">
+                  {(e.state === "not built" || e.state === "failed") && (
+                    <Button disabled={!cat.agent_running} onClick={() => setAsk(e)}>
+                      Build
+                    </Button>
+                  )}
+                  {e.state === "built" && e.managed && (
+                    <Button
+                      variant="danger"
+                      disabled={!cat.agent_running}
+                      onClick={async () => {
+                        try {
+                          await post(`/environment-catalog/${e.name}/remove`);
+                          void load();
+                        } catch (x) {
+                          toast(errText(x), "error");
+                        }
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="row">
+        <Input
+          label="Remove built environments unused for this many days (0 keeps them)"
+          type="number"
+          min={0}
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+        />
+        <Button
+          onClick={async () => {
+            try {
+              await put("/environment-settings", { idle_days: Number(days) });
+              toast("Saved.", "success");
+            } catch (x) {
+              toast(errText(x), "error");
+            }
+          }}
+        >
+          Save
+        </Button>
+      </div>
+      {ask && (
+        <Modal
+          title={`Build ${ask.name}?`}
+          onClose={() => setAsk(null)}
+          actions={
+            <>
+              <Button onClick={() => setAsk(null)}>Cancel</Button>
+              <Button variant="primary" onClick={() => void build()}>
+                Build it
+              </Button>
+            </>
+          }
+        >
+          <p>
+            This takes about {ask.minutes} minutes and about {ask.size_gb} GB of disk on the Docker
+            host. It downloads packages from the internet, and other builds and updates wait until
+            it finishes. Syntaxis keeps working meanwhile.
+          </p>
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
 function EnvironmentsTab() {
   const toast = useToast();
   const list = useLoad<EnvTpl[]>("/image-templates");
@@ -736,11 +918,11 @@ function EnvironmentsTab() {
   return (
     <>
       <p className="muted">
-        Environments are sandbox images you have prepared (for example with Rust or Java; examples
-        are in images/templates). Users can pick one for a session, and a repository&apos;s
-        devcontainer.json is matched to one by the images listed here. A repository can never choose
-        an image of its own.
+        Environments are sandbox images you have prepared or built from the examples below. Users
+        can pick one for a session, and a repository&apos;s devcontainer.json is matched to one by
+        the images listed here. A repository can never choose an image of its own.
       </p>
+      <EnvironmentCatalog onChange={list.reload} />
       {(list.data ?? []).map((t) => (
         <Card key={t.name} title={t.name}>
           <p>

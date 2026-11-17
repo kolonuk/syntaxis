@@ -511,7 +511,7 @@ func (s *SQLite) GetProvider(ctx context.Context, id int64) (*Provider, error) {
 
 // ListImageTemplates returns the approved environments.
 func (s *SQLite) ListImageTemplates(ctx context.Context) ([]ImageTemplate, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name,image,matches,description FROM image_templates ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name,image,matches,description,managed,last_used FROM image_templates ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -520,8 +520,14 @@ func (s *SQLite) ListImageTemplates(ctx context.Context) ([]ImageTemplate, error
 	for rows.Next() {
 		var t ImageTemplate
 		var m string
-		if err := rows.Scan(&t.Name, &t.Image, &m, &t.Description); err != nil {
+		var managed int
+		var used int64
+		if err := rows.Scan(&t.Name, &t.Image, &m, &t.Description, &managed, &used); err != nil {
 			return nil, err
+		}
+		t.Managed = managed == 1
+		if used > 0 {
+			t.LastUsed = fromTS(used)
 		}
 		for _, x := range strings.Split(m, "\n") {
 			if x = strings.TrimSpace(x); x != "" {
@@ -535,9 +541,26 @@ func (s *SQLite) ListImageTemplates(ctx context.Context) ([]ImageTemplate, error
 
 // UpsertImageTemplate adds or replaces an approved environment.
 func (s *SQLite) UpsertImageTemplate(ctx context.Context, t ImageTemplate) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO image_templates (name,image,matches,description) VALUES (?,?,?,?)
-ON CONFLICT(name) DO UPDATE SET image=excluded.image,matches=excluded.matches,description=excluded.description`,
-		t.Name, t.Image, strings.Join(t.Matches, "\n"), t.Description)
+	var used int64
+	if !t.LastUsed.IsZero() {
+		used = ts(t.LastUsed)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO image_templates (name,image,matches,description,managed,last_used) VALUES (?,?,?,?,?,?)
+ON CONFLICT(name) DO UPDATE SET image=excluded.image,matches=excluded.matches,description=excluded.description,managed=excluded.managed`,
+		t.Name, t.Image, strings.Join(t.Matches, "\n"), t.Description, b2i(t.Managed), used)
+	return mapErr(err)
+}
+
+// ImageInUse reports whether a session that has not been deleted still has a sandbox in this image.
+func (s *SQLite) ImageInUse(ctx context.Context, image string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM chat_sessions WHERE image=? AND sandbox_id!='' AND deleted=0`, image).Scan(&n)
+	return n > 0, err
+}
+
+// TouchImageTemplate records that a session started in an image.
+func (s *SQLite) TouchImageTemplate(ctx context.Context, image string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE image_templates SET last_used=? WHERE image=?`, ts(at), image)
 	return mapErr(err)
 }
 

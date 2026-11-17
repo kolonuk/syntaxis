@@ -201,6 +201,8 @@ type ImageTemplate struct {
 	Image       string
 	Matches     []string
 	Description string
+	Managed     bool      // built from the catalog by Syntaxis, so it may be removed when unused
+	LastUsed    time.Time // when a session last started in it (zero = never)
 }
 
 // Probe is the result of a live check of a model server.
@@ -398,6 +400,8 @@ type Store interface {
 	ListImageTemplates(ctx context.Context) ([]ImageTemplate, error)
 	UpsertImageTemplate(ctx context.Context, t ImageTemplate) error
 	DeleteImageTemplate(ctx context.Context, name string) error
+	TouchImageTemplate(ctx context.Context, image string, at time.Time) error
+	ImageInUse(ctx context.Context, image string) (bool, error)
 	ListProbes(ctx context.Context) ([]Probe, error)
 	ListProviders(ctx context.Context) ([]Provider, error)
 	GetProvider(ctx context.Context, id int64) (*Provider, error)

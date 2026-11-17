@@ -5,13 +5,18 @@
 # this polls Syntaxis for a request (GET /internal/update on the admin listener, with
 # SYNTAXIS_FIREWALL_TOKEN), runs scripts/update.sh, and reports how it went.
 #
+# The same service builds and removes the example environments the admin chooses (Environments in
+# the admin app): scripts/build-templates.sh, one image at a time.
+#
 # Syntaxis never sends the host a command. The only things accepted are "latest", "edge" or a
-# version number; the command is built here from those, and anything else is ignored.
+# version number, and the name of an example environment that has a Dockerfile in images/templates;
+# the command is built here from those, and anything else is ignored.
 #
 #   update-agent.sh            loop forever
 #   update-agent.sh --once     one poll, then exit
 #
-# For tests: UPDATE_EXTRA_ARGS is added to the update.sh command (for example --dry-run).
+# For tests: UPDATE_EXTRA_ARGS is added to the update.sh command (for example --dry-run), and
+# BUILD_EXTRA_ARGS to the build-templates.sh command.
 #
 # One compound command, so the checkout can change underneath it while an update runs.
 {
@@ -50,10 +55,35 @@ run_update() {
   fi
 }
 
+# one environment task: "<build|remove> <name>"
+run_env() {
+  action=$1 name=$2
+  case "$name" in *[!a-z0-9-]*|'') report_env "$action $name failed refused a malformed name"; return ;; esac
+  [ -f "$ROOT/images/templates/$name/Dockerfile" ] || { report_env "$action $name failed no such environment"; return; }
+  report_env "$action $name running"
+  case "$action" in
+    build) set -- "$name" ;;
+    remove) set -- --remove "$name" ;;
+  esac
+  # shellcheck disable=SC2086 # BUILD_EXTRA_ARGS is a list of flags, for tests
+  if out=$(sh "$ROOT/scripts/build-templates.sh" ${BUILD_EXTRA_ARGS:-} "$@" 2>&1); then
+    report_env "$action $name done $(printf '%s' "$out" | tail -n 2 | tr '\n' ' ')"
+  else
+    report_env "$action $name failed $(printf '%s' "$out" | tail -n 6 | tr '\n' ' ')"
+  fi
+}
+report_env() { printf '%s' "$1" | call -X POST --data-binary @- "$URL/internal/environments/status" >/dev/null 2>&1 || true; }
+
 while :; do
   if reply=$(call "$URL/internal/update" 2>/dev/null); then
     case "$reply" in
       "request "*) run_update "${reply#request }" ;;
+    esac
+  fi
+  if reply=$(call "$URL/internal/environments" 2>/dev/null); then
+    case "$reply" in
+      "build "*) run_env build "${reply#build }" ;;
+      "remove "*) run_env remove "${reply#remove }" ;;
     esac
   fi
   [ "$ONCE" = 1 ] && exit 0

@@ -168,9 +168,9 @@ jobs:
           for d in images/templates/*/; do
             t=$(basename "$d")
             echo "::group::$t"
-            docker build -q -t "syntaxis-env-$t:ci" --build-arg BASE=syntaxis-sandbox:ci "$d"
-            [ "$(docker run --rm "syntaxis-env-$t:ci" id -u)" = 10001 ]
-            docker rmi "syntaxis-env-$t:ci" >/dev/null
+            BASE=syntaxis-sandbox:ci sh scripts/build-templates.sh "$t" >/dev/null
+            [ "$(docker run --rm "syntaxis-env-$t:1" id -u)" = 10001 ]
+            sh scripts/build-templates.sh --remove "$t" >/dev/null
             docker builder prune -f >/dev/null
             echo "::endgroup::"
           done
