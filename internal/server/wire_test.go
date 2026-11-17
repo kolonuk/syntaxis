@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -273,5 +274,55 @@ func TestMergeEnvOwnEntriesWinAndOrderIsStable(t *testing.T) {
 	got := mergeEnv([]string{"A=own", "TERM=x"}, map[string]string{"A": "secret", "B": "2", "C": "3"})
 	if strings.Join(got, " ") != "A=own TERM=x B=2 C=3" {
 		t.Fatalf("%v", got)
+	}
+}
+
+// The admin's probe, against the real model server: the result is stored, shown to admins, decides
+// whether agent mode is offered, and reaches the health findings.
+func TestLiveAdminProbeStoresWhatTheModelReallyDoes(t *testing.T) {
+	cfg := testenv.Load(t)
+	if cfg["OLLAMA_URL"] == "" || cfg["MODEL_TINY"] == "" {
+		testenv.NotTested(t, "OLLAMA_URL and MODEL_TINY are not in the private test environment")
+	}
+	e := newEnv(t)
+	ctx := context.Background()
+	pid, _ := e.st.UpsertProvider(ctx, store.Provider{Name: "local", Kind: cfg["OLLAMA_KIND"], BaseURL: cfg["OLLAMA_URL"], Concurrency: 1, Enabled: true})
+	mid, _ := e.st.UpsertModel(ctx, store.Model{ProviderID: pid, Name: cfg["MODEL_TINY"], ToolsSupported: -1})
+	_ = e.st.SetModelEnabled(ctx, mid, true)
+	usr := e.userSession("a@example.com")
+	adm := e.makeAdminSession()
+	if code, _, _ := usr.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/probe", nil); code == 202 {
+		t.Fatal("a chat user started a probe")
+	}
+	if code, _, raw := adm.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/probe", nil); code != 202 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	var probes []store.Probe
+	for i := 0; i < 120; i++ {
+		probes, _ = e.st.ListProbes(ctx)
+		if len(probes) >= 1 {
+			time.Sleep(15 * time.Second) // the second probe follows the first
+			probes, _ = e.st.ListProbes(ctx)
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+	if len(probes) == 0 {
+		t.Fatal("nothing was recorded")
+	}
+	_, _, raw := adm.do("GET", "/api/models", nil)
+	if !strings.Contains(string(raw), `"tool_probe":{"`) {
+		t.Fatalf("the admin cannot see the probe: %s", raw)
+	}
+	// users see only whether agent mode is offered, which now follows the probe
+	_, _, rawU := usr.do("GET", "/api/models", nil)
+	var tools bool
+	for _, p := range probes {
+		if p.Kind == "tools" {
+			tools = p.OK
+		}
+	}
+	if !strings.Contains(string(rawU), fmt.Sprintf(`"tools":%v`, tools)) || strings.Contains(string(rawU), "tool_probe") {
+		t.Fatalf("%s", rawU)
 	}
 }

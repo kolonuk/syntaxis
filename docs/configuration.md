@@ -41,6 +41,8 @@ The most specific setting wins: the user's own, then their group's, then their l
 
 Add one or more providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with an optional API key (encrypted at rest). Set **concurrency** to your server's real parallelism. Discovered models start **disabled**. Set a **context override** for a model when the server cannot report its real window.
 
+**Probe** (per model) checks for real instead of trusting what the server claims: it asks the model to call a trivial tool, and asks for a long reply to see whether it streams or arrives in one block (a proxy or compression in front of the server holding it back). It may load the model, so it only runs when you press it. The result decides whether agent mode is offered for that model, and a buffered stream shows up as a health warning.
+
 ## CLI
 
 `syntaxis serve | admin create | keygen | doctor | backup <dest> | rotate-key <old> <new> | egress-rules <subnet> … | version`

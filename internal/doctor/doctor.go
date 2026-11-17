@@ -62,6 +62,13 @@ func collectProviders(ctx context.Context, d Deps, s *health.State) {
 		}
 		ps := health.ProviderState{Name: p.Name, Kind: p.Kind, Concurrency: p.Concurrency}
 		models, _ := d.Store.ListModels(ctx, p.ID)
+		probed, _ := d.Store.ListProbes(ctx)
+		for _, pb := range probed {
+			if pb.ProviderID == p.ID && pb.Kind == "streaming" {
+				buffered := !pb.OK
+				ps.StreamBuffered = &buffered
+			}
+		}
 		pr, err := d.NewProv(p)
 		if err != nil {
 			ps.Err = err.Error()
@@ -105,6 +112,12 @@ func collectProviders(ctx context.Context, d Deps, s *health.State) {
 				}
 				if n := ctxByName[m.Name]; n > 0 { // running model: the real window
 					ms.ContextLoaded, ms.ContextSource = n, "server (currently loaded)"
+				}
+				for _, pb := range probed {
+					if pb.ProviderID == p.ID && pb.Kind == "tools" && pb.Model == m.Name {
+						ok := pb.OK
+						ms.ToolProbe = &ok
+					}
 				}
 				ms.ContextUsed = ms.ContextLoaded
 				if ms.ContextOverride > 0 {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -188,6 +189,16 @@ func (o *Ollama) Chat(ctx context.Context, req ChatRequest, onDelta func(string)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		// a refusal says why ("does not support tools"); keep that short reason, it is the server's own
+		var e struct {
+			Error string `json:"error"`
+		}
+		if b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)); json.Unmarshal(b, &e) == nil && e.Error != "" && resp.StatusCode == http.StatusBadRequest {
+			if len(e.Error) > 200 {
+				e.Error = e.Error[:200]
+			}
+			return nil, fmt.Errorf("provider returned HTTP %d: %s", resp.StatusCode, e.Error)
+		}
 		return nil, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
 	}
 	res := &ChatResult{}

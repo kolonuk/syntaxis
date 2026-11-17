@@ -74,6 +74,7 @@ interface Prov {
   concurrency: number;
   enabled: boolean;
   has_key: boolean;
+  stream_probe: { ok?: boolean; detail?: string };
 }
 
 const tone = (s: string): Tone => (s === "error" ? "danger" : s === "warning" ? "warn" : "info");
@@ -384,6 +385,7 @@ interface ModFull {
   tools: number;
   recommended: boolean;
   context_override: number;
+  tool_probe: { ok?: boolean; detail?: string };
 }
 interface Bench {
   id: number;
@@ -477,6 +479,7 @@ function ProvidersTab() {
                   <th>Enabled</th>
                   <th>Recommended</th>
                   <th>Context override</th>
+                  <th>Live probe</th>
                   <th>Last benchmark</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -514,6 +517,21 @@ function ProvidersTab() {
                           />
                         </td>
                         <td>{m.context_override || <span className="muted">detected</span>}</td>
+                        <td title={m.tool_probe.detail ?? "Not probed yet"}>
+                          {m.tool_probe.ok === undefined ? (
+                            <span className="muted">not probed</span>
+                          ) : m.tool_probe.ok ? (
+                            "calls tools"
+                          ) : (
+                            "does not call tools"
+                          )}
+                          {p.stream_probe.ok === false && (
+                            <>
+                              {" · "}
+                              <strong title={p.stream_probe.detail}>stream is buffered</strong>
+                            </>
+                          )}
+                        </td>
                         <td>
                           {b ? (
                             `${Math.round(b.report.pass_rate * 100)}% · ${b.report.tokens_per_sec.toFixed(1)} tok/s`
@@ -522,6 +540,25 @@ function ProvidersTab() {
                           )}
                         </td>
                         <td>
+                          <Button
+                            onClick={async () => {
+                              try {
+                                await post(`/models/${m.id}/probe`);
+                                toast(
+                                  "Probe started. It may load the model, so it runs in the background.",
+                                  "success",
+                                );
+                                setTimeout(() => {
+                                  models.reload();
+                                  provs.reload();
+                                }, 30000);
+                              } catch (x) {
+                                toast(errText(x), "error");
+                              }
+                            }}
+                          >
+                            Probe
+                          </Button>{" "}
                           <Button
                             onClick={async () => {
                               try {

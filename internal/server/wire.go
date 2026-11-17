@@ -225,7 +225,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	mode := scanner.Mode(a.setting(bg, SettingScanMode, a.Cfg.SecretScanMode))
 	override := a.settingBool(bg, SettingUserOverride, a.Cfg.AllowUserOverride)
 
-	toolsOn := model.ToolsSupported != 0
+	toolsOn := a.probes(bg).toolsUsable(model)
 	autonomy := agent.Autonomy(s.Autonomy)
 	include := map[string]bool{}
 	if loaded != nil {

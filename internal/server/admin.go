@@ -79,6 +79,7 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/models/{id}/enabled", a.adminModelEnabled)
 			r.Post("/models/{id}/recommended", a.adminModelRecommended)
 			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
+			r.Post("/models/{id}/probe", a.adminModelProbe)
 			r.Get("/benchmarks", a.adminBenchmarks)
 			r.Get("/mcp/search", a.adminMCPSearch)
 			r.Get("/mcp/suggestions", a.adminMCPSuggestions)
@@ -303,9 +304,14 @@ func (a *App) adminResetUsage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminProviders(w http.ResponseWriter, r *http.Request) {
 	ps, _ := a.Store.ListProviders(r.Context())
+	pt := a.probes(r.Context())
 	out := []map[string]any{}
 	for _, p := range ps {
-		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "kind": p.Kind, "base_url": p.BaseURL, "concurrency": p.Concurrency, "enabled": p.Enabled, "has_key": len(p.APIKeyEnc) > 0})
+		stream := map[string]any{}
+		if s, ok := pt.provider[p.ID]; ok {
+			stream = map[string]any{"ok": s.OK, "detail": s.Detail, "at": s.At}
+		}
+		out = append(out, map[string]any{"stream_probe": stream, "id": p.ID, "name": p.Name, "kind": p.Kind, "base_url": p.BaseURL, "concurrency": p.Concurrency, "enabled": p.Enabled, "has_key": len(p.APIKeyEnc) > 0})
 	}
 	writeJSON(w, 200, out)
 }
@@ -431,9 +437,14 @@ func (a *App) RefreshModels(ctx context.Context, p *store.Provider) (int, error)
 
 func (a *App) adminModels(w http.ResponseWriter, r *http.Request) {
 	ms, _ := a.Store.ListModels(r.Context(), 0)
+	pt := a.probes(r.Context())
 	out := []map[string]any{}
 	for _, m := range ms {
-		out = append(out, map[string]any{"id": m.ID, "provider_id": m.ProviderID, "name": m.Name, "enabled": m.Enabled, "context_override": m.ContextOverride, "digest": m.Digest, "tools": m.ToolsSupported, "recommended": m.Recommended})
+		probe := map[string]any{}
+		if p, ok := pt.tools[fmt.Sprintf("%d/%s", m.ProviderID, m.Name)]; ok {
+			probe = map[string]any{"ok": p.OK, "detail": p.Detail, "at": p.At}
+		}
+		out = append(out, map[string]any{"tool_probe": probe, "id": m.ID, "provider_id": m.ProviderID, "name": m.Name, "enabled": m.Enabled, "context_override": m.ContextOverride, "digest": m.Digest, "tools": m.ToolsSupported, "recommended": m.Recommended})
 	}
 	writeJSON(w, 200, out)
 }

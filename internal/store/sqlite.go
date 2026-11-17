@@ -509,6 +509,35 @@ func (s *SQLite) GetProvider(ctx context.Context, id int64) (*Provider, error) {
 	return scanProvider(s.db.QueryRowContext(ctx, `SELECT id,name,kind,base_url,api_key_enc,concurrency,enabled FROM providers WHERE id=?`, id))
 }
 
+// SetProbe records a probe result, replacing the previous one of the same kind.
+func (s *SQLite) SetProbe(ctx context.Context, p Probe) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO probes (provider_id,model,kind,result,detail,at) VALUES (?,?,?,?,?,?)
+ON CONFLICT(provider_id,model,kind) DO UPDATE SET result=excluded.result,detail=excluded.detail,at=excluded.at`,
+		p.ProviderID, p.Model, p.Kind, b2i(p.OK), p.Detail, ts(p.At))
+	return mapErr(err)
+}
+
+// ListProbes returns every stored probe result.
+func (s *SQLite) ListProbes(ctx context.Context) ([]Probe, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT provider_id,model,kind,result,detail,at FROM probes ORDER BY provider_id,model,kind`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Probe
+	for rows.Next() {
+		var p Probe
+		var ok int
+		var at int64
+		if err := rows.Scan(&p.ProviderID, &p.Model, &p.Kind, &ok, &p.Detail, &at); err != nil {
+			return nil, err
+		}
+		p.OK, p.At = ok == 1, fromTS(at)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteProvider removes a provider (cascades to models).
 func (s *SQLite) DeleteProvider(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM providers WHERE id=?`, id)

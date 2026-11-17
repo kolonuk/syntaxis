@@ -8,9 +8,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 ## 1. Fixes and verification
 
-- [ ] CI fully green, including the gVisor integration job, on every push.
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] Probe tool-calling support live rather than inferring it; probe proxy response buffering live.
 
 ## 5. Agent and workflow
 
@@ -19,5 +17,4 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 ## 6. Operations
 
-- [ ] LLM server discovery in the installer and admin app: detect a server on the host or LAN, walk the admin through connecting it, and prefill concurrency and context settings from what it reports.
 - [ ] Run the Playwright, axe and Lighthouse checks against the instance the fresh-install job creates (they run against a plain `syntaxis serve` today).

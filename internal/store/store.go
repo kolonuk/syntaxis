@@ -195,6 +195,16 @@ type Provider struct {
 	Enabled     bool
 }
 
+// Probe is the result of a live check of a model server.
+type Probe struct {
+	ProviderID int64
+	Model      string // "" for a result about the provider
+	Kind       string // "tools" | "streaming"
+	OK         bool
+	Detail     string
+	At         time.Time
+}
+
 // Model is a discovered model on a provider.
 type Model struct {
 	ID              int64
@@ -374,6 +384,8 @@ type Store interface {
 
 	// providers + models
 	UpsertProvider(ctx context.Context, p Provider) (int64, error)
+	SetProbe(ctx context.Context, p Probe) error
+	ListProbes(ctx context.Context) ([]Probe, error)
 	ListProviders(ctx context.Context) ([]Provider, error)
 	GetProvider(ctx context.Context, id int64) (*Provider, error)
 	DeleteProvider(ctx context.Context, id int64) error

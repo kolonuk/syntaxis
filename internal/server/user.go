@@ -267,6 +267,7 @@ func (a *App) handleModels(w http.ResponseWriter, r *http.Request) {
 		allowed[m] = true
 	}
 	models, _ := a.Store.ListModels(r.Context(), 0)
+	pt := a.probes(r.Context())
 	out := []map[string]any{}
 	for _, m := range models {
 		pn, ok := pname[m.ProviderID]
@@ -277,7 +278,7 @@ func (a *App) handleModels(w http.ResponseWriter, r *http.Request) {
 		if len(allowed) > 0 && !allowed[id] {
 			continue // empty allow-list = every enabled model
 		}
-		out = append(out, map[string]any{"id": id, "name": m.Name, "provider": pn, "tools": m.ToolsSupported != 0, "recommended": m.Recommended})
+		out = append(out, map[string]any{"id": id, "name": m.Name, "provider": pn, "tools": pt.toolsUsable(m), "recommended": m.Recommended})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
