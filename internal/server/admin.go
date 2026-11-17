@@ -80,6 +80,7 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/models/{id}/recommended", a.adminModelRecommended)
 			r.Post("/models/{id}/benchmark", a.adminBenchmarkRun)
 			r.Post("/models/{id}/probe", a.adminModelProbe)
+			r.Put("/providers/{id}/helper", a.adminProviderHelper)
 			r.Get("/benchmarks", a.adminBenchmarks)
 			r.Get("/mcp/search", a.adminMCPSearch)
 			r.Get("/mcp/suggestions", a.adminMCPSuggestions)
@@ -311,7 +312,7 @@ func (a *App) adminProviders(w http.ResponseWriter, r *http.Request) {
 		if s, ok := pt.provider[p.ID]; ok {
 			stream = map[string]any{"ok": s.OK, "detail": s.Detail, "at": s.At}
 		}
-		out = append(out, map[string]any{"stream_probe": stream, "id": p.ID, "name": p.Name, "kind": p.Kind, "base_url": p.BaseURL, "concurrency": p.Concurrency, "enabled": p.Enabled, "has_key": len(p.APIKeyEnc) > 0})
+		out = append(out, map[string]any{"helper_model": a.helperModel(r.Context(), p.ID), "helper_assert": a.settingBool(r.Context(), assertKey(p.ID), false), "stream_probe": stream, "id": p.ID, "name": p.Name, "kind": p.Kind, "base_url": p.BaseURL, "concurrency": p.Concurrency, "enabled": p.Enabled, "has_key": len(p.APIKeyEnc) > 0})
 	}
 	writeJSON(w, 200, out)
 }

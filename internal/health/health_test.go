@@ -181,18 +181,18 @@ func TestConcurrency(t *testing.T) {
 
 func TestResidencyRoutingNotCoResident(t *testing.T) {
 	s := healthy()
-	s.Routing = RoutingState{Enabled: true, Provider: "p", Models: []string{"m", "helper"}}
+	s.Routing = []RoutingState{{Enabled: true, Provider: "p", Models: []string{"helper"}}}
 	s.Providers[0].LoadedSupported = true
 	s.Providers[0].Loaded = []provider.LoadedModel{{Name: "m", SizeBytes: 100, VRAMBytes: 100}}
 	f := find(run(s), CheckResidency)
-	if f == nil || f.Severity != Error || f.Subject != "p/helper" {
+	if f == nil || f.Severity != Warning || f.Subject != "p/helper" {
 		t.Fatalf("%+v", f)
 	}
 	s.Providers[0].Loaded = append(s.Providers[0].Loaded, provider.LoadedModel{Name: "helper", SizeBytes: 10, VRAMBytes: 10})
 	if find(run(s), CheckResidency) != nil {
 		t.Fatal("co-resident flagged")
 	}
-	s.Routing.Enabled = false
+	s.Routing[0].Enabled = false
 	s.Providers[0].Loaded = nil
 	if find(run(s), CheckResidency) != nil {
 		t.Fatal("routing off must not flag")
@@ -201,7 +201,7 @@ func TestResidencyRoutingNotCoResident(t *testing.T) {
 
 func TestResidencyAdminAssertedWhenUnsupported(t *testing.T) {
 	s := healthy()
-	s.Routing = RoutingState{Enabled: true, Provider: "p", Models: []string{"x"}}
+	s.Routing = []RoutingState{{Enabled: true, Provider: "p", Models: []string{"x"}}}
 	s.Providers[0].LoadedSupported = false
 	if find(run(s), CheckResidency) != nil {
 		t.Fatal("servers that cannot report residency are admin-asserted")

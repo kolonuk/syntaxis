@@ -19,6 +19,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/queue"
 	"github.com/kolonuk/syntaxis/internal/quota"
+	"github.com/kolonuk/syntaxis/internal/routing"
 	"github.com/kolonuk/syntaxis/internal/rules"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/scanner"
@@ -386,7 +387,19 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		Messages: msgs,
 	}
 	ag.Deps.Summarize = func(c context.Context, prev string, older []provider.Message) (string, error) {
-		req := provider.ChatRequest{Model: s.Model, NumCtx: w.Window(model), Messages: append(append([]provider.Message{{Role: "system", Content: agent.SummaryPrompt}}, summarisable(prev, older)...), provider.Message{Role: "user", Content: "Write the summary now."})}
+		// the helper may do this only if its real window is as large as the session model's, or the
+		// older messages would not fit
+		summaryModel, win := s.Model, w.Window(model)
+		if hm, routed := a.routeModel(c, prov, pr, s.Model, routing.TaskCompaction); routed {
+			if ms, _ := a.Store.ListModels(c, prov.ID); len(ms) > 0 {
+				for _, m := range ms {
+					if m.Name == hm && w.Window(m) >= win {
+						summaryModel = hm
+					}
+				}
+			}
+		}
+		req := provider.ChatRequest{Model: summaryModel, NumCtx: win, Messages: append(append([]provider.Message{{Role: "system", Content: agent.SummaryPrompt}}, summarisable(prev, older)...), provider.Message{Role: "user", Content: "Write the summary now."})}
 		res, err := chat(c, req, nil)
 		if err != nil {
 			return "", err
@@ -410,6 +423,9 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		state = "error"
 	}
 	a.setState(bg, s.ID, state, res.PromptTokens, res.CompletionTokens)
+	if state != "error" && res.Status != agent.StatusStopped {
+		a.titleSession(*s, *u)
+	}
 	if w.Notify != nil && res.Status != agent.StatusStopped {
 		title := "Your session finished"
 		if res.Status == agent.StatusNeedsInput {

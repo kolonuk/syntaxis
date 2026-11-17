@@ -12,7 +12,7 @@ import (
 // from live systems; tests fill it with fake data.
 type State struct {
 	Providers    []ProviderState
-	Routing      RoutingState
+	Routing      []RoutingState
 	Sandbox      SandboxState
 	Security     SecurityState
 	Housekeeping HousekeepingState
@@ -55,10 +55,11 @@ type ModelState struct {
 	Reloads         int    // recent reload count (latency spikes)
 }
 
-// RoutingState describes the optional helper-model routing profile.
+// RoutingState describes one provider's helper-model setting. Models are the helper model names
+// that must be resident for the helper to be used.
 type RoutingState struct {
 	Enabled  bool
-	Models   []string // model names in the profile (provider-qualified by caller)
+	Models   []string
 	Provider string
 }
 

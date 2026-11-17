@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
 	"github.com/kolonuk/syntaxis/internal/testenv"
@@ -39,9 +40,22 @@ func liveEnv(t *testing.T) *live {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mid, _ := e.st.UpsertModel(ctx, store.Model{ProviderID: pid, Name: cfg["MODEL_SMALL"], ToolsSupported: 1})
+	// the models on the server change: use the small one if it is installed, else the main one
+	name := cfg["MODEL_SMALL"]
+	if pr, err := provider.New(provider.Config{Kind: cfg["OLLAMA_KIND"], BaseURL: cfg["OLLAMA_URL"]}); err == nil {
+		have := false
+		if ms, err := pr.ListModels(ctx); err == nil {
+			for _, m := range ms {
+				have = have || m.Name == name
+			}
+		}
+		if !have && cfg["MODEL_MAIN"] != "" {
+			name = cfg["MODEL_MAIN"]
+		}
+	}
+	mid, _ := e.st.UpsertModel(ctx, store.Model{ProviderID: pid, Name: name, ToolsSupported: 1})
 	_ = e.st.SetModelEnabled(ctx, mid, true)
-	l := &live{env: e, model: "local/" + cfg["MODEL_SMALL"]}
+	l := &live{env: e, model: "local/" + name}
 	e.app.RunAgent = e.app.RunAgentFunc(Wiring{Notify: func(_ context.Context, _ int64, title, _ string) {
 		l.mu.Lock()
 		l.notified = append(l.notified, title)

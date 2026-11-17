@@ -75,6 +75,8 @@ interface Prov {
   enabled: boolean;
   has_key: boolean;
   stream_probe: { ok?: boolean; detail?: string };
+  helper_model: string;
+  helper_assert: boolean;
 }
 
 const tone = (s: string): Tone => (s === "error" ? "danger" : s === "warning" ? "warn" : "info");
@@ -445,6 +447,32 @@ function ProvidersTab() {
         <Card key={p.id} title={`${p.name} (${p.kind})`}>
           <p className="muted">
             {p.base_url} · concurrency {p.concurrency} {p.has_key && "· key stored"}
+          </p>
+          <Select
+            label="Helper model for cheap jobs (titles, summaries)"
+            value={p.helper_model}
+            onChange={async (e) => {
+              try {
+                const r = await put<{ notice?: string }>(`/providers/${p.id}/helper`, {
+                  model: e.target.value,
+                  assert_resident: p.helper_assert,
+                });
+                toast(r.notice ?? "Saved.", r.notice ? "info" : "success");
+                provs.reload();
+              } catch (x) {
+                toast(errText(x), "error");
+              }
+            }}
+            options={[
+              { value: "", label: "None (the session's own model does everything)" },
+              ...(models.data ?? [])
+                .filter((m) => m.provider_id === p.id)
+                .map((m) => ({ value: m.name, label: m.name })),
+            ]}
+          />
+          <p className="muted">
+            Used only while the server reports it is already loaded; Syntaxis never loads or swaps a
+            model. If it is not loaded, or fails, the session&apos;s own model does the job.
           </p>
           <div className="row">
             <Button

@@ -13,7 +13,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 5. Agent and workflow
 
 - [ ] `devcontainer.json` support and per-project image templates.
-- [ ] Helper-model routing. A small, fast "helper" model does the cheap jobs so the main model's queue and context stay free for the real work: session titles, conversation summaries when the context is compacted, commit and pull-request messages, a one-line summary of what a watch found, and drafts of plans. The admin picks a helper model per provider (or none); each job falls back to the session's own model if the helper is missing or fails. A helper is used only if the server reports it is already loaded, because Syntaxis never loads or swaps a model mid-session, and a health check says when it is not. The decision logic and tests against a real Ollama server exist; wiring it into the agent, the settings page and the health check does not.
+- [ ] More helper-model jobs. The helper (set per provider in the admin app) does session titles, summaries of long watch events and compaction of long conversations. Still on the session's own model: commit and pull-request messages and plan drafts. Compaction on the helper has no test because it needs a conversation longer than a model's window.
 
 ## 6. Operations
 

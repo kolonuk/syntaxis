@@ -198,23 +198,23 @@ func checkResidency(s *State, t Thresholds) []Finding {
 			}
 		}
 	}
-	if s.Routing.Enabled {
+	for _, rs := range s.Routing {
+		if !rs.Enabled {
+			continue
+		}
 		for _, p := range s.Providers {
-			if p.Name != s.Routing.Provider {
-				continue
-			}
-			if !p.LoadedSupported {
+			if p.Name != rs.Provider || !p.LoadedSupported {
 				continue // residency is admin-asserted for servers that cannot report it
 			}
 			loaded := map[string]bool{}
 			for _, l := range p.Loaded {
 				loaded[l.Name] = true
 			}
-			for _, m := range s.Routing.Models {
+			for _, m := range rs.Models {
 				if !loaded[m] {
-					out = append(out, Finding{CheckID: CheckResidency, Severity: Error, Subject: p.Name + "/" + m,
-						Message: "The routing profile includes a model that is not currently resident. Routing would force a model swap mid-session, so it is refused/disabled and the single session model is used instead.",
-						Fix:     "Load all routing models together (check memory fits), or disable routing."})
+					out = append(out, Finding{CheckID: CheckResidency, Severity: Warning, Subject: p.Name + "/" + m,
+						Message: "The helper model is not loaded right now, so cheap jobs (titles, summaries) use the session's own model instead. Syntaxis never loads or swaps a model mid-session.",
+						Fix:     "Load the helper model alongside the main one (check that they fit in memory together), or choose no helper for this provider."})
 				}
 			}
 		}

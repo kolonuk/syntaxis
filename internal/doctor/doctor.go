@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,9 @@ func collectProviders(ctx context.Context, d Deps, s *health.State) {
 			continue
 		}
 		ps := health.ProviderState{Name: p.Name, Kind: p.Kind, Concurrency: p.Concurrency}
+		if h, err := d.Store.GetSetting(ctx, "helper_model:"+strconv.FormatInt(p.ID, 10), ""); err == nil && h != "" {
+			s.Routing = append(s.Routing, health.RoutingState{Enabled: true, Provider: p.Name, Models: []string{h}})
+		}
 		models, _ := d.Store.ListModels(ctx, p.ID)
 		probed, _ := d.Store.ListProbes(ctx)
 		for _, pb := range probed {
