@@ -54,6 +54,7 @@ An environment is a sandbox image you have prepared and approved. The default on
 | Name | Adds | A devcontainer image it can match |
 |---|---|---|
 | `rust` | Rust (rustup, cargo) | `mcr.microsoft.com/devcontainers/rust` |
+| `go` | Go tooling on top of the Go already in the default image: gopls, delve, staticcheck, golangci-lint, govulncheck | `mcr.microsoft.com/devcontainers/go` |
 | `java` | OpenJDK 17, Maven | `mcr.microsoft.com/devcontainers/java` |
 | `dotnet` | .NET 8 SDK | `mcr.microsoft.com/devcontainers/dotnet` |
 | `ruby` | Ruby, Bundler | `mcr.microsoft.com/devcontainers/ruby` |
