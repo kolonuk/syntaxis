@@ -66,7 +66,7 @@ An environment is a sandbox image you have prepared and approved. The default on
 | `haskell` | GHC, Cabal, Stack | `mcr.microsoft.com/devcontainers/haskell` |
 | `zig` | Zig (checked against the project's published checksum) | |
 | `swift` | Swift toolchain (large) | `swift` |
-| `browser` | Headless Chromium with Playwright, for browser tests (large). Launch it with `--no-sandbox`: Chromium's own sandbox cannot start inside gVisor, which is the sandbox here | |
+| `browser` | Headless Chromium with Playwright and its test runner, Puppeteer, axe-core, Jest, Vitest, Mocha, and pytest with pytest-playwright (large). Chromium is wrapped to start with `--no-sandbox`, because its own sandbox cannot start inside gVisor, which is the sandbox here; Puppeteer needs `headless: "shell"`. Cypress and Lighthouse are not included: they need a full Chrome or Electron, which does not start under gVisor | |
 | `data` | NumPy, pandas, SciPy, scikit-learn, Matplotlib, Jupyter | `mcr.microsoft.com/devcontainers/anaconda` |
 
 Some are large (Swift is about 6 GB, the browser image about 3 GB), so build only the ones you need. Copy one to make your own (a toolchain your team needs, with your internal CA certificates). Keep `USER 10001:10001` and make sure the tools write their caches under `/tmp`, as the examples do: the sandbox's root filesystem is read-only. Add it under **Environments** in the admin app with the images a repository's `devcontainer.json` may name to get it (tags are ignored).
