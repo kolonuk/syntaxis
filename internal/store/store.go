@@ -258,6 +258,17 @@ type ChatSession struct {
 	Image, EnvNote string
 }
 
+// MemoryNote is a note the agent keeps across sessions.
+type MemoryNote struct {
+	ID        int64
+	UserID    int64
+	Scope     string // "user" or "repo"
+	ScopeKey  string // owner/name for a repo note
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Message is a stored conversation message.
 type Message struct {
 	ID         int64
@@ -397,6 +408,11 @@ type Store interface {
 	// providers + models
 	UpsertProvider(ctx context.Context, p Provider) (int64, error)
 	SetProbe(ctx context.Context, p Probe) error
+	// memory notes (every call is scoped to one user)
+	ListMemory(ctx context.Context, userID int64) ([]MemoryNote, error)
+	AddMemory(ctx context.Context, n MemoryNote) (int64, error)
+	UpdateMemory(ctx context.Context, userID, id int64, content string, at time.Time) error
+	DeleteMemory(ctx context.Context, userID, id int64) error
 	ListImageTemplates(ctx context.Context) ([]ImageTemplate, error)
 	UpsertImageTemplate(ctx context.Context, t ImageTemplate) error
 	DeleteImageTemplate(ctx context.Context, name string) error

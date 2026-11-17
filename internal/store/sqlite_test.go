@@ -450,3 +450,38 @@ func TestBackupRoundTrip(t *testing.T) {
 		t.Fatal("backup missing data")
 	}
 }
+
+func TestMemoryNotesAreScopedToTheirUser(t *testing.T) {
+	s := open(t)
+	now := time.Now()
+	a, err := s.AddMemory(ctx, MemoryNote{UserID: 1, Scope: "user", Content: "prefers tabs", CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := s.AddMemory(ctx, MemoryNote{UserID: 1, Scope: "repo", ScopeKey: "acme/app", Content: "tests: make check", CreatedAt: now, UpdatedAt: now})
+	other, _ := s.AddMemory(ctx, MemoryNote{UserID: 2, Scope: "user", Content: "someone else's", CreatedAt: now, UpdatedAt: now})
+	ns, _ := s.ListMemory(ctx, 1)
+	if len(ns) != 2 || ns[0].ID != a || ns[1].ScopeKey != "acme/app" {
+		t.Fatalf("%+v", ns)
+	}
+	// another user's note can be neither changed nor removed through this user's id
+	if err := s.UpdateMemory(ctx, 1, other, "hacked", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("%v", err)
+	}
+	if err := s.DeleteMemory(ctx, 1, other); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("%v", err)
+	}
+	if o, _ := s.ListMemory(ctx, 2); len(o) != 1 || o[0].Content != "someone else's" {
+		t.Fatalf("%+v", o)
+	}
+	if err := s.UpdateMemory(ctx, 1, a, "prefers spaces", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteMemory(ctx, 1, b); err != nil {
+		t.Fatal(err)
+	}
+	ns, _ = s.ListMemory(ctx, 1)
+	if len(ns) != 1 || ns[0].Content != "prefers spaces" || !ns[0].UpdatedAt.After(ns[0].CreatedAt) {
+		t.Fatalf("%+v", ns)
+	}
+}

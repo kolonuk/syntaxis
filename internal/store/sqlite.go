@@ -558,6 +558,48 @@ func (s *SQLite) ImageInUse(ctx context.Context, image string) (bool, error) {
 	return n > 0, err
 }
 
+// ListMemory returns all of a user's notes, oldest first.
+func (s *SQLite) ListMemory(ctx context.Context, userID int64) ([]MemoryNote, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,scope,scope_key,content,created_at,updated_at FROM memory_notes WHERE user_id=? ORDER BY id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MemoryNote
+	for rows.Next() {
+		var n MemoryNote
+		var c, u int64
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Scope, &n.ScopeKey, &n.Content, &c, &u); err != nil {
+			return nil, err
+		}
+		n.CreatedAt, n.UpdatedAt = fromTS(c), fromTS(u)
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// AddMemory stores a note.
+func (s *SQLite) AddMemory(ctx context.Context, n MemoryNote) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO memory_notes (user_id,scope,scope_key,content,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
+		n.UserID, n.Scope, n.ScopeKey, n.Content, ts(n.CreatedAt), ts(n.UpdatedAt))
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	return res.LastInsertId()
+}
+
+// UpdateMemory changes the text of one of a user's notes.
+func (s *SQLite) UpdateMemory(ctx context.Context, userID, id int64, content string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE memory_notes SET content=?, updated_at=? WHERE id=? AND user_id=?`, content, ts(at), id, userID)
+	return affected(res, err)
+}
+
+// DeleteMemory removes one of a user's notes.
+func (s *SQLite) DeleteMemory(ctx context.Context, userID, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM memory_notes WHERE id=? AND user_id=?`, id, userID)
+	return affected(res, err)
+}
+
 // TouchImageTemplate records that a session started in an image.
 func (s *SQLite) TouchImageTemplate(ctx context.Context, image string, at time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE image_templates SET last_used=? WHERE image=?`, ts(at), image)
