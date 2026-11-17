@@ -53,9 +53,20 @@ build() {
     }'
 }
 
+# The token goes to curl in a header file only root can read, never on the command line, where any
+# local user could see it in the process list.
+HDR=""
+auth_header() {
+  [ -n "$HDR" ] && return
+  HDR=$(mktemp)
+  chmod 600 "$HDR"
+  printf 'Authorization: Bearer %s\n' "$TOKEN" > "$HDR"
+}
+
 fetch() {
   if [ -n "${FW_STATE_FILE:-}" ]; then cat "$FW_STATE_FILE"; return; fi
-  curl -fsS --max-time 5 -H "Authorization: Bearer $TOKEN" "$URL/internal/firewall"
+  auth_header
+  curl -fsS --max-time 5 -H "@$HDR" "$URL/internal/firewall"
 }
 
 sync_once() {
@@ -63,13 +74,18 @@ sync_once() {
   printf '%s\n' "$state" | build | $NFT -f -
 }
 
-if [ "${1:-}" = "--once" ]; then sync_once; exit $?; fi
+if [ "${1:-}" = "--once" ]; then
+  [ -n "${FW_STATE_FILE:-}" ] || auth_header # here, not inside fetch's subshell, so the trap sees it
+  trap 'rm -f "$HDR"' EXIT
+  sync_once; exit $?
+fi
 
 [ -n "$TOKEN" ] || { echo "SYNTAXIS_FIREWALL_TOKEN is not set in .env; nothing to sync" >&2; exit 1; }
 
 # forward the firewall's connection log (kernel log lines tagged syxa:/syxd:)
 BUF=$(mktemp)
-trap 'kill 0 2>/dev/null; rm -f "$BUF" "$BUF.send"' EXIT INT TERM
+auth_header
+trap 'kill 0 2>/dev/null; rm -f "$BUF" "$BUF.send" "$HDR"' EXIT INT TERM
 {
   if command -v journalctl >/dev/null 2>&1; then journalctl -k -f -n0 -o cat 2>/dev/null; else dmesg --follow 2>/dev/null; fi |
     grep --line-buffered -E 'syx[ad]: ' | while IFS= read -r line; do printf '%s\n' "$line" >> "$BUF"; done
@@ -79,7 +95,7 @@ while :; do
   sync_once || true
   if [ -s "$BUF" ]; then
     mv "$BUF" "$BUF.send"
-    head -n 400 "$BUF.send" | curl -fsS --max-time 5 -H "Authorization: Bearer $TOKEN" --data-binary @- "$URL/internal/firewall/log" >/dev/null 2>&1 || true
+    head -n 400 "$BUF.send" | curl -fsS --max-time 5 -H "@$HDR" --data-binary @- "$URL/internal/firewall/log" >/dev/null 2>&1 || true
     rm -f "$BUF.send"
   fi
   sleep "$INTERVAL"

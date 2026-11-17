@@ -85,14 +85,15 @@ fi
 if [ "$NEED_DOCKER$NEED_GVISOR${NEED_PKGS:+1}" != "00" ] && [ "$OS_FAMILY" = unknown ]; then
   die "cannot install packages on $OS_ID: install Docker Engine, Compose v2${NEED_PKGS:+, $NEED_PKGS} and gVisor yourself (docs/getting-started.md), then run this again"
 fi
+PLAN=$(mktemp)
 {
   [ "$NEED_DOCKER" = 1 ] && echo "  - Docker Engine and Compose, from Docker's repository"
   [ -n "$NEED_PKGS" ] && echo "  -$NEED_PKGS"
   [ "$NEED_GVISOR" = 1 ] && echo "  - gVisor (runsc), registered with Docker"
   true
-} > /tmp/.syntaxis-plan.$$
-if [ -s /tmp/.syntaxis-plan.$$ ]; then echo "To install:"; cat /tmp/.syntaxis-plan.$$; else echo "Everything needed is already installed."; fi
-rm -f /tmp/.syntaxis-plan.$$
+} > "$PLAN"
+if [ -s "$PLAN" ]; then echo "To install:"; cat "$PLAN"; else echo "Everything needed is already installed."; fi
+rm -f "$PLAN"
 if [ "$CHECK" = 1 ]; then echo "(--check: nothing was changed)"; exit 0; fi
 
 [ "$(id -u)" = 0 ] || die "run as root (sudo sh scripts/install.sh ...)"
