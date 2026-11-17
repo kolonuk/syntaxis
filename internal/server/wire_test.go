@@ -166,7 +166,7 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 	}
 	var code int
 	var raw []byte
-	for i := 0; i < 20; i++ { // the server takes a moment to start
+	for i := 0; i < 60; i++ { // the server takes a moment to start
 		code, _, raw = alice.do("GET", "/preview/"+id+"/8000/app/index.html", nil)
 		if code == 200 {
 			break
@@ -174,7 +174,10 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if code != 200 || string(raw) != "hello from dev server" {
-		t.Fatalf("%d %q", code, raw)
+		// say what the sandbox sees, so a failure on a slow machine can be told from a real one
+		r, _ := e.app.Sandbox.Exec(ctx, id, cid, execSpec("ps aux | grep -c '[d]ev.py'; curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/ || true"))
+		ip, _ := e.app.Sandbox.RT.ContainerIP(ctx, cid, e.app.Sandbox.Cfg.Network)
+		t.Fatalf("the preview answered %d %q; inside the sandbox: %q; sandbox address %q", code, raw, strings.TrimSpace(r.Stdout), ip)
 	}
 	req, _ := http.NewRequest("GET", e.user.URL+"/preview/"+id+"/8000/app/index.html", nil)
 	for _, ck := range alice.hc.Jar.Cookies(mustURL(e.user.URL)) {
