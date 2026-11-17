@@ -146,8 +146,9 @@ jobs:
           tags: syntaxis-sandbox:ci
       - name: Build the example environment images (no push on CI)
         run: |
-          for t in rust java; do
-            docker build -t "syntaxis-env-$t:ci" --build-arg BASE=syntaxis-sandbox:ci "images/templates/$t"
+          for d in images/templates/*/; do
+            t=$(basename "$d")
+            docker build -t "syntaxis-env-$t:ci" --build-arg BASE=syntaxis-sandbox:ci "$d"
           done
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@v0.36.0
