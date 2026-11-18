@@ -9,6 +9,11 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 1. Fixes and verification
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
+- [ ] **Cut the first release (Easy to Medium).** None exists yet, and the verified-update, roll-back and self-management items need one. Run the release workflow (images, binaries, signatures, SBOMs) for a first tag and fix what it finds.
+- [ ] **Prompt-injection test with a real model (Medium).** The defences (untrusted wrapping, note approval, attachment list rules, hook policy, search query scan) are tested one by one. Add an end-to-end test where a hostile web page, PDF and repository file try to make a real model save a note, run a hook, push or leak a secret, and the test checks what actually happened in the sandbox.
+- [ ] **Backup and restore drill (Medium).** Check that `syntaxis backup` includes every table (notes, hooks and commands settings, shares, automations), and test a restore into a clean host, including the workspace volumes and the master key.
+- [ ] **Accessibility and mobile checks for every screen, with a skill to keep them in check (Medium).** Only the sign-in pages are in the axe flows today. Add Playwright and axe flows for the chat, Files, attachments, slash menu, task list, settings and admin pages on a phone and desktop width in light and dark, and extend the existing `.claude/skills/check-the-web-app` skill with a checklist for a new screen (contrast, focus order, labels, keyboard use, screen-reader text), with the ship-a-feature skill requiring it, so each new feature is checked before it ships.
+- [ ] **Hook limits and a trust prompt for repository hooks (Easy to Medium).** A hook runs on every tool call. Add a per-run hook time budget, show hook time in the Resources tab, and ask the user once to trust a repository's `.syntaxis/hooks.json` and commands (remembered per repository and file hash) instead of only showing a notice.
 
 ## 2. Agent and workflow
 
@@ -38,6 +43,9 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 - [ ] **Issues and pull-request comments start sessions (Medium).** The Jules core loop. Add automation event kinds for an issue labelled, a pull-request review comment and an `@syntaxis` mention, and let a session continue on an existing pull-request branch. Webhook automations and GitHub connections already exist.
 - [ ] **CI feedback loop (Medium).** After a push the agent reads check runs and failure logs through the user's connection (`ci_status` and `ci_logs` tools), then fixes and pushes again. Needed because Syntaxis's own integration tests need real Docker and gVisor, which a sandbox cannot nest: unit tests run in the sandbox, integration tests in CI.
 - [ ] **Self-management setup (Easy to configure, Medium to verify).** A "Syntaxis development" environment image, and a rule that the agent may open pull requests to the repository but never trigger the host update itself. Depends on the verified update roll-back in section 3.
+- [ ] **API tokens for users (Medium).** Per-user, revocable tokens with an optional expiry and a scope (read, run sessions), shown once, stored hashed, listed in Settings and audited. The MCP server, the VS Code extension and chat integration all need them.
+- [ ] **A stable, documented API (Medium).** The chat app's `/api` is internal and changes freely. Publish a versioned, documented subset (an OpenAPI file, tested against the real server) for sessions, messages, events, approvals and changes, with a rule for deprecations.
+- [ ] **Outbound webhooks and email for session events (Medium).** A general "finished", "needs approval" and "failed" notification to a URL or an email address the user sets, signed, with retries. Automations can call IFTTT today, but nothing else, and push notifications and chat integration both build on this.
 
 ### Tier 2: everyday gaps against Claude Code
 
@@ -45,6 +53,12 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 - [ ] **Admin switches for repository content (Easy).** `repo_skills` and `repo_hooks` (a repository's skills, slash commands and hooks) have no field in the admin app yet.
 - [ ] **Branching with uncommitted work (Easy to Medium).** A branched session on a repository starts at the old branch's last commit; changes not yet committed stay with the old session.
 - [ ] **Better attachments (Medium).** Attachments are uploaded one file at a time and lost from the model's view after two messages; add upload progress, previews of pictures in the chat, a way to attach a file already in the workspace, and an OCR language setting.
+- [ ] **Upload checks and limits (Medium).** Block executable files (by name and by content: ELF, PE, Mach-O and installers) in uploads and attachments, keeping scripts and source code allowed (to be confirmed). Add an admin setting for the largest file and a per-user upload limit, set on the admin screen at user, level and group like the other limits, and record uploads in the audit log. Virus scanning (for example ClamAV) is not planned; add it only if wanted.
+- [ ] **Configurable workspace size and attachment clean-up (Easy to Medium).** The 5 GiB workspace limit is fixed. Make it an admin setting (instance default, and per user, level and group), and remove old files from `.attachments` after a number of days the admin sets.
+- [ ] **Admin can review and manage every user setting (Medium).** In the admin app, show and edit each user's notes, slash commands, hooks, connections' names (never secrets), MCP choices and automations, with every change audited. This is about settings, not conversation content, which stays behind `SYNTAXIS_ALLOW_ADMIN_READ_CONTENT`. Not opt-in.
+- [ ] **Per-repository agent settings and `syntaxis init` (Medium).** Rules, skills, commands, hooks and notes now live in separate places. Add one page per repository that shows what applies, and a command or button that writes a starter `syntaxis.md`, commands and hooks into the repository.
+- [ ] **Cost and usage per session (Easy to Medium).** Show tokens, model time and sandbox time for each session, and a rough per-day total, so a user can see what a task cost.
+- [ ] **Undo for edits made in the Files tab (Easy).** Take a checkpoint before saving, uploading over or deleting a file from the Files tab, as the agent's turns already do, and offer to undo from the Checkpoints tab.
 
 ### Tier 3: polish and scale
 
