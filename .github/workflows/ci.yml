@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - name: Build server image (no push on CI)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -138,7 +138,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build sandbox image (no push on CI)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: images/sandbox
           push: false
