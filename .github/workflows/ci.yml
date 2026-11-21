@@ -295,6 +295,6 @@ jobs:
           - { runner: ubuntu-24.04-arm, arch: arm64, image: "debian:12" }
           - { runner: ubuntu-24.04-arm, arch: arm64, image: "almalinux:9" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Docker, nftables and gVisor install from their repositories
         run: docker run --rm -v "$PWD":/repo:ro ${{ matrix.image }} sh /repo/scripts/test-install-packages.sh
