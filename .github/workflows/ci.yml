@@ -65,12 +65,12 @@ jobs:
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint -color -shellcheck=   # the scripts are linted by shellcheck in the install job
       - name: hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: Dockerfile
           ignore: DL3008,DL3013
       - name: hadolint (sandbox image)
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: images/sandbox/Dockerfile
           ignore: DL3008,DL3013   # distribution packages are unpinned on purpose: security updates come with a rebuild
