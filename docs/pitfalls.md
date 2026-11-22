@@ -40,7 +40,17 @@ Sandboxes have fixed CPU, memory and process limits. On top of that Syntaxis wat
 
 ## Backups and upgrades
 
-Back up the database (`syntaxis backup <file>`), the workspace volumes, and the **master key, separately**; without the key stored secrets and 2FA cannot be recovered. `scripts/update.sh` takes a backup, upgrades and rolls back if the new version is unhealthy. To check which version is running, see Settings → Profile, `syntaxis version` or `/api/version`, and compare with the [changelog](../CHANGELOG.md).
+Back up the database (`syntaxis backup <file>`), the workspace volumes, and the **master key, separately**; without the key stored secrets and 2FA cannot be recovered, and a wrong key is not noticed until a secret fails to decrypt.
+
+`syntaxis backup` writes a consistent copy and then opens it on its own: SQLite must find it intact and it must have every table, or the file is removed and the command fails. Everything Syntaxis keeps (users, sessions, notes, hooks, commands, shares, automations, tokens, settings) is in that one file. A restore is: stop Syntaxis, put the file where the old one was (`<data dir>/syntaxis.db`, with the old master key in place), and start it again. This was tried on a real host with the real binary and with a database holding data in every table, and the restored copy matched table by table.
+
+A workspace volume is a Docker volume named `syntaxis-ws-u<user id>`. To copy one, run `tar` as root in a throwaway container, one end into the other (replace the names and the image with one you have):
+
+```sh
+docker run --rm --user 0 -v OLD-VOLUME:/w:ro IMAGE tar -C /w -cpf - . | docker run --rm -i --user 0 -v NEW-VOLUME:/w IMAGE tar -C /w -xpf -
+```
+
+Without `--user 0` the sandbox image runs as a normal user and cannot write the volume. This keeps content, permissions, owners and links. `scripts/update.sh` takes a backup, upgrades and rolls back if the new version is unhealthy. To check which version is running, see Settings → Profile, `syntaxis version` or `/api/version`, and compare with the [changelog](../CHANGELOG.md).
 
 ## Known limits
 

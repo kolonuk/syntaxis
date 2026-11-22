@@ -17,7 +17,11 @@ It is **not** built for hostile users or the open internet. [gVisor](https://gvi
 - **Sign-in:** argon2id passwords, optional two-factor authentication (mandatory for admins), lockout, revocable sessions, CSRF protection.
 - **Secrets and connections:** encrypted at rest (AES-256-GCM), never shown again, never sent to the model, removed from output. They are read fresh for every command.
 - **Approvals:** risky commands (destructive git, deploys, cloud changes, `sudo` and so on) wait for the user. This is code, not a prompt, and nothing the model reads can change it. Commands aimed at your local network are blocked outright.
-- **Audit log:** tamper-evident. Admins see session metadata, not message content, unless you turn that on.
+- **Admins can read everything users have set up.** The machine is the admin's: they can read every session's messages and see and change each user's notes, commands, hooks, connections, MCP choices, automations and API tokens, and every such read or change is in the audit log. People you invite should know this. The one thing nobody sees is a stored credential's value: it is encrypted with the master key and shown nowhere, to admins either.
+- **Audit log:** tamper-evident.
+- **Uploads are off until an admin turns them on** (Policies → Allow file uploads). Then only pictures, PDFs, office documents (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`) and plain text (`txt`, `md`, `csv`, `tsv`, `json`, `log`) are accepted, up to a size the admin sets, and the content must really be what the name says. Programs, scripts, archives, old Office files, macros, embedded objects, appended data after a picture, long base64 or hex runs in text, and PDFs with scripts, launch actions, embedded files, encryption or encodings that hide content are refused, and every refusal is audited. The check reads bytes only; it never opens a file with another program. It is a filter, not proof of safety: a file it accepts can still be a bad document, so keep sandboxes and egress limits in place.
+- **API tokens** are per user, hashed, scoped (`read` or `run`), expiring and revocable. A token can never touch secrets, connections, settings, hooks, the terminal or other tokens. See the [API](api.md).
+- **Repository hooks need your trust.** A repository's `.syntaxis/hooks.json` runs commands around every tool call, so it does not run until you have read the commands and trusted that exact file for that repository; any change to the file asks again. Hooks together get 5 minutes in each run, and the time they use shows on the Resources tab.
 
 ## Network
 
@@ -58,4 +62,6 @@ Text the model reads can try to steer it ([prompt injection](https://en.wikipedi
 
 ## Known gaps
 
-gVisor escape resistance has not been tested, and the workspace size limit is checked every minute rather than enforced by the filesystem.
+- gVisor escape resistance has not been tested here.
+- The workspace size limit is enforced by measuring, not by the filesystem: every minute normally, every 10 seconds above half the limit and every 3 seconds above 90%. A sandbox is slowed when it writes 100 MB/s for a while and stopped at 125% of the limit, so a fast writer can overshoot for a few seconds. Hard limits need a filesystem quota or a fixed-size volume; see [architecture](architecture.md#why-sandboxes-are-containers-with-gvisor-and-how-big-a-workspace-can-get) for why neither is used.
+- A wrong master key is not noticed at start-up: secrets simply fail to decrypt. Keep the key with every backup.

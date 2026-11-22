@@ -5,6 +5,11 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- **API tokens:** per-user, hashed, revocable tokens with a `read` or `run` scope and an optional expiry, made under Settings → API tokens and listed in the new [API](docs/api.md) page. A token can never reach secrets, connections, settings, hooks, the terminal, files-writing or other tokens, and a test fails if a new route is open to tokens by accident.
+- **Uploads are checked and off by default.** An admin turns them on, sets the largest file and which kinds are allowed. Only pictures, PDFs, office documents and plain text pass, judged by content: programs, scripts, archives, macros, embedded files, data hidden after a picture, encoded text, and PDFs with scripts, launch actions, embedded files or encodings that hide content are refused and audited.
+- **Admin review of user settings:** the admin app shows and edits each user's notes, commands, hooks, connections (names only), MCP choices, automations and tokens, and can read any session's messages. Changes are audited.
+- **Repository hooks need trust:** a repository's `.syntaxis/hooks.json` runs only after the user has read it and trusted that exact file for that repository. Hooks together get a 5 minute budget per run, and their time shows on the Resources tab.
+- `syntaxis backup` now opens the finished backup, runs SQLite's integrity check and compares its tables with the live database. The restore was drilled on a real host and with a test that compares every table.
 - **Editing:** `apply_patch` makes several edits to one file, or applies a unified diff, all or nothing (line numbers in `@@` lines are ignored; hunks are found by content). `patch_file` and `apply_patch` now tolerate differences in indentation and spacing and re-indent the replacement to the file, never guess when a match is ambiguous, and show the closest text in the file when nothing matches.
 - **Task list:** a `todo_write` tool and a progress list above the message box, restored after a reload.
 - **Files tab:** browse the session's workspace, view and edit text files, download, upload, create folders and delete, through the session's sandbox and confined to `/workspace`; changes are refused while the agent is working.
@@ -56,6 +61,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Checkpoints tab: a timeline with what changed since each checkpoint, and restore of the files or of the files and the conversation, tested against a real gVisor sandbox.
 
 ### Changed
+- **Admins can read everything.** `SYNTAXIS_ALLOW_ADMIN_READ_CONTENT` is gone: admins always see session titles and can read messages (each read is audited). Stored credential values stay encrypted and are shown to nobody.
+- The workspace size limit is measured more often as a workspace fills (every 10 seconds above half the limit, every 3 seconds above 90%), so a runaway writer is caught sooner.
+- The server image runs as the numeric user `65532` (same user as before), which satisfies the newer hadolint.
 - User levels (user, power user, admin) and user groups. Levels and groups carry the same permissions and settings as a user; the most specific setting wins, and an on/off permission stays off if any layer turns it off. Admins get an "Admin mode" link from the chat app and a link back.
 - The installer installs Docker, nftables and gVisor when missing, on Debian, Ubuntu, Raspberry Pi OS, AlmaLinux, Rocky Linux, RHEL and Fedora (x86-64 and arm64); `--check` shows the plan. Package installation is tested on each in CI.
 - Frontend toolchain: React 19, Vite 8, Vitest 5, ESLint 10 (Node 22 or newer is needed to build the web apps).
@@ -67,6 +75,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Simpler getting started guide and README.
 
 ### Fixed
+- CI was red on every push: three tests wrote a slice from the agent's goroutine while the test read it, which `go test -race` reports as a data race, and the Go job's log did not say which tests failed. The tests are fixed and the job now prints failed tests. hadolint 3.5's numeric-user rule is met by writing the server image's user as `65532:65532`, and the TypeScript 7 bump (which `typescript-eslint` does not support yet) is held back.
+- The monitor tests ran a watchdog over every sandbox on the Docker host, so they could pause or stop sandboxes that were not theirs, including another Syntaxis instance's. They now see only their own.
 - **Security:** a user could aim the server at internal addresses through the address of a self-hosted GitLab or Gitea (the server's own admin app on loopback, the Docker proxy, the LLM server, the LAN), and read part of the reply in the error. Connections now go through the same address-checking client as watches, addresses with credentials, queries or fragments are refused, and LAN forges need `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`.
 - **Security:** MCP servers, which now run with a user's own credentials, ran under the instance-wide egress mode instead of that user's; a user limited to `allowlist` or `none` could reach the internet through one. They now carry the user's id and egress mode.
 - **Security:** the firewall sync service passed its token on the `curl` command line, where any local user could read it; it now uses a header file only root can read. The installer no longer writes a predictable file in `/tmp` as root.

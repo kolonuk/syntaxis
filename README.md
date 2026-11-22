@@ -57,7 +57,7 @@ The installer adds gVisor if it is missing, generates the keys, starts everythin
 
 ## Documentation
 
-[Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Security](docs/security.md) · [Architecture](docs/architecture.md) · [The agent](docs/agent.md) · [Integrations](docs/integrations.md) · [Troubleshooting](docs/pitfalls.md)
+[Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Security](docs/security.md) · [Architecture](docs/architecture.md) · [The agent](docs/agent.md) · [API](docs/api.md) · [Integrations](docs/integrations.md) · [Troubleshooting](docs/pitfalls.md)
 
 ## Project
 
