@@ -42,11 +42,12 @@ type HookFile struct {
 
 // Limits.
 const (
-	MaxHooks       = 20
-	maxHookCommand = 1000
-	defaultHookSec = 60
-	maxHookSec     = 300
-	maxHookOutput  = 2000
+	MaxHooks          = 20
+	maxHookCommand    = 1000
+	defaultHookSec    = 60
+	defaultHookBudget = 5 * time.Minute
+	maxHookSec        = 300
+	maxHookOutput     = 2000
 )
 
 // hookable are the tools a hook may be attached to.
@@ -106,9 +107,21 @@ func (a *Agent) runHooks(ctx context.Context, event string, call string, args js
 	if a.Deps.Tools == nil || len(a.Cfg.Hooks) == 0 || a.Cfg.PlanPhase {
 		return ""
 	}
+	budget := a.Cfg.HookBudget
+	if budget <= 0 {
+		budget = defaultHookBudget
+	}
 	var out []string
 	for _, h := range a.Cfg.Hooks {
 		if !h.matches(event, call) {
+			continue
+		}
+		if a.hookSpent >= budget {
+			if !a.hookStopped {
+				a.hookStopped = true
+				a.audit("agent.hook.budget", fmt.Sprintf("hooks used %s", a.hookSpent.Round(time.Second)))
+				a.emit(EvNotice, "message", fmt.Sprintf("Hooks have used their time budget for this run (%s), so none run any more until the next message.", budget))
+			}
 			continue
 		}
 		// a hook cannot ask the user: anything the policy would stop or ask about is not run
@@ -128,19 +141,25 @@ func (a *Agent) runHooks(ctx context.Context, event string, call string, args js
 			input = input[:4000]
 		}
 		a.emit(EvPhase, "phase", "tool", "detail", "hook: "+firstLine(h.Command, 60))
+		started := a.now()
 		r, err := a.Deps.Tools.Exec(ctx, sandbox.ExecSpec{
 			Cmd:       []string{"sh", "-c", h.Command},
 			Env:       []string{"SYNTAXIS_HOOK=" + event, "SYNTAXIS_TOOL=" + call, "SYNTAXIS_TOOL_INPUT=" + input},
 			Timeout:   time.Duration(sec) * time.Second,
 			MaxOutput: 16 << 10,
 		})
+		took := a.now().Sub(started)
+		a.hookSpent += took
+		if a.Deps.HookTime != nil {
+			a.Deps.HookTime(took)
+		}
 		text := strings.TrimSpace(r.Stdout + "\n" + r.Stderr)
 		if len(text) > maxHookOutput {
 			text = text[:maxHookOutput] + "\n[hook output cut]"
 		}
 		text = a.redact(text)
 		failed := err != nil || r.ExitCode != 0 || r.TimedOut
-		a.audit("agent.hook", fmt.Sprintf("%s %s %s: exit=%d", event, call, firstLine(h.Command, 80), r.ExitCode))
+		a.audit("agent.hook", fmt.Sprintf("%s %s %s: exit=%d took=%s", event, call, firstLine(h.Command, 80), r.ExitCode, took.Round(time.Millisecond)))
 		if event == HookPre {
 			if failed {
 				why := text

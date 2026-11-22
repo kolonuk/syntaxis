@@ -89,6 +89,8 @@ type Deps struct {
 	Summarize Summarizer
 	Audit     func(action, detail string)
 	Now       func() time.Time
+	// HookTime is told how long each hook ran, for the Resources tab.
+	HookTime func(time.Duration)
 }
 
 // Config tunes one run.
@@ -108,7 +110,8 @@ type Config struct {
 	SkillsEnabled  bool
 	KeepLast       int // message groups kept verbatim on compaction (default 6)
 	Temperature    *float64
-	Hooks          []Hook // commands run before or after tool calls
+	Hooks          []Hook        // commands run before or after tool calls
+	HookBudget     time.Duration // all hooks together in one run (default 5 minutes)
 }
 
 // Result summarises a run.
@@ -129,6 +132,9 @@ type Agent struct {
 
 	Messages []provider.Message
 	Summary  string
+
+	hookSpent   time.Duration // time the hooks have used in this run
+	hookStopped bool          // the budget ran out and the user was told
 }
 
 func (a *Agent) now() time.Time {

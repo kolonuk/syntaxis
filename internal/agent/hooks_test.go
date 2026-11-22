@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
@@ -142,5 +143,36 @@ func TestHooksDoNotRunWhilePlanningAndSeeTheToolInEnvironment(t *testing.T) {
 	joined := strings.Join(env, " ")
 	if !strings.Contains(joined, "SYNTAXIS_TOOL=write_file") || !strings.Contains(joined, "SYNTAXIS_HOOK=pre_tool") || !strings.Contains(joined, "SYNTAXIS_TOOL_INPUT=") {
 		t.Fatalf("%v", env)
+	}
+}
+
+// Hooks together get a time budget per run, so a slow hook cannot make every tool call slow.
+func TestHooksStopWhenTheirTimeBudgetIsSpent(t *testing.T) {
+	h := hookHarness(t, `{"hooks":[{"event":"pre_tool","command":"true"}]}`,
+		toolReply(call("w1", ToolWrite, `{"path":"a","content":"1"}`)), toolReply(call("w2", ToolWrite, `{"path":"b","content":"2"}`)),
+		toolReply(call("w3", ToolWrite, `{"path":"c","content":"3"}`)), &provider.ChatResult{Content: "ok"})
+	now := int64(1000)
+	h.a.Deps.Now = func() time.Time { now += 10; return time.Unix(now, 0) } // every reading is 10 s later
+	h.a.Cfg.HookBudget = time.Second
+	var told time.Duration
+	h.a.Deps.HookTime = func(d time.Duration) { told += d }
+	h.a.Run(context.Background(), "go")
+	ran := 0
+	for _, c := range h.box.cmds {
+		if c == "sh -c true" {
+			ran++
+		}
+	}
+	if ran != 1 {
+		t.Fatalf("the hook ran %d times; after the budget it should not run", ran)
+	}
+	if told <= 0 {
+		t.Error("the time the hook used was not reported")
+	}
+	if !strings.Contains(strings.Join(h.audits, "\n"), "agent.hook.budget") || !h.hasEvent(EvNotice) {
+		t.Error("the user is not told and the budget stop is not audited")
+	}
+	if h.box.files["/workspace/c"] != "3" {
+		t.Error("tool calls must still work once hooks have stopped")
 	}
 }
