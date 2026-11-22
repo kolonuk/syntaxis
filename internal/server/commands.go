@@ -4,6 +4,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -241,9 +243,76 @@ func (a *App) handleMyHooksPut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-// hooksFor collects the user's hooks and the repository's. A broken repository file is reported
-// and ignored; it must not stop the session.
-func (a *App) hooksFor(ctx context.Context, uid int64, repoDir string, fs execFS, warn func(string)) []agent.Hook {
+// repoHooksKey names the repository for hook trust: its address, or the session when the hooks
+// file is in a plain workspace.
+func repoHooksKey(s *store.ChatSession) string {
+	if s.RepoURL != "" {
+		return s.RepoURL
+	}
+	return "session:" + s.ID
+}
+
+func hooksTrustKey(uid int64) string { return fmt.Sprintf("hooks_trust:%d", uid) }
+
+const maxTrustedHooks = 200
+
+func hooksTrustEntry(repo, hash string) string { return repo + "@" + hash }
+
+// hooksTrusted tells whether the user has trusted exactly this hooks file for this repository.
+func (a *App) hooksTrusted(ctx context.Context, uid int64, repo, hash string) bool {
+	var list []string
+	_ = json.Unmarshal([]byte(a.setting(ctx, hooksTrustKey(uid), "[]")), &list)
+	for _, e := range list {
+		if e == hooksTrustEntry(repo, hash) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) trustHooks(ctx context.Context, uid int64, repo, hash string) {
+	var list []string
+	_ = json.Unmarshal([]byte(a.setting(ctx, hooksTrustKey(uid), "[]")), &list)
+	list = append(list, hooksTrustEntry(repo, hash))
+	if len(list) > maxTrustedHooks {
+		list = list[len(list)-maxTrustedHooks:]
+	}
+	b, _ := json.Marshal(list)
+	_ = a.Store.SetSetting(ctx, hooksTrustKey(uid), string(b))
+}
+
+// RepoHooks is the repository's hooks file as it is now.
+type RepoHooks struct {
+	Present bool         `json:"present"`
+	Hash    string       `json:"hash,omitempty"`
+	Hooks   []agent.Hook `json:"hooks,omitempty"`
+	Error   string       `json:"error,omitempty"`
+	Trusted bool         `json:"trusted"`
+}
+
+// readRepoHooks reads .syntaxis/hooks.json from the repository (or the workspace) and says whether
+// the user has trusted this exact content.
+func (a *App) readRepoHooks(ctx context.Context, uid int64, repoKey, repoDir string, fs execFS) RepoHooks {
+	raw, _, err := fs.ReadFile(ctx, path.Join(firstNonEmpty(repoDir, sandbox.WorkspacePath), ".syntaxis/hooks.json"), 32<<10)
+	if err != nil {
+		return RepoHooks{}
+	}
+	sum := sha256.Sum256([]byte(raw))
+	out := RepoHooks{Present: true, Hash: hex.EncodeToString(sum[:])}
+	hs, perr := agent.ParseHooks(raw, "repository")
+	if perr != nil {
+		out.Error = perr.Error()
+		return out
+	}
+	out.Hooks = hs
+	out.Trusted = a.hooksTrusted(ctx, uid, repoKey, out.Hash)
+	return out
+}
+
+// hooksFor collects the user's hooks and the repository's. The repository's hooks run only when the
+// user has trusted this exact file for this repository (the hash changes with any edit, so a changed
+// file asks again). A broken file is reported and ignored; it must not stop the session.
+func (a *App) hooksFor(ctx context.Context, uid int64, repoKey, repoDir string, fs execFS, warn func(string)) []agent.Hook {
 	var hooks []agent.Hook
 	if hs, err := agent.ParseHooks(a.setting(ctx, userHooksKey(uid), ""), "user"); err == nil {
 		hooks = append(hooks, hs...)
@@ -251,17 +320,61 @@ func (a *App) hooksFor(ctx context.Context, uid int64, repoDir string, fs execFS
 	if !a.settingBool(ctx, "repo_hooks", true) {
 		return hooks
 	}
-	raw, _, err := fs.ReadFile(ctx, path.Join(firstNonEmpty(repoDir, sandbox.WorkspacePath), ".syntaxis/hooks.json"), 32<<10)
-	if err != nil {
-		return hooks
+	rh := a.readRepoHooks(ctx, uid, repoKey, repoDir, fs)
+	switch {
+	case !rh.Present:
+	case rh.Error != "":
+		warn("The repository's .syntaxis/hooks.json was ignored: " + rh.Error)
+	case len(rh.Hooks) > 0 && !rh.Trusted:
+		warn(fmt.Sprintf("This repository defines %d hook(s) (.syntaxis/hooks.json) that would run commands around tool calls. They are not run until you trust them: open the banner above the message box to read and trust them.", len(rh.Hooks)))
+	case len(rh.Hooks) > 0:
+		hooks = append(hooks, rh.Hooks...)
 	}
-	hs, err := agent.ParseHooks(raw, "repository")
-	if err != nil {
-		warn("The repository's .syntaxis/hooks.json was ignored: " + err.Error())
-		return hooks
+	return hooks
+}
+
+// handleRepoHooks shows the repository's hooks file and whether it is trusted.
+func (a *App) handleRepoHooks(w http.ResponseWriter, r *http.Request) {
+	s, u, cid, ok := a.fileSession(w, r, false)
+	if !ok {
+		return
 	}
-	if len(hs) > 0 {
-		warn(fmt.Sprintf("This repository defines %d hook(s) that run commands around tool calls (.syntaxis/hooks.json).", len(hs)))
+	writeJSON(w, http.StatusOK, a.readRepoHooks(r.Context(), u.ID, repoHooksKey(s), a.repoDirOf(s), a.sessionFS(s, cid)))
+}
+
+// handleRepoHooksTrust trusts the file the user was shown. The hash must match what is there now,
+// so a file changed after it was shown is not trusted by mistake.
+func (a *App) handleRepoHooksTrust(w http.ResponseWriter, r *http.Request) {
+	s, u, cid, ok := a.fileSession(w, r, false)
+	if !ok {
+		return
 	}
-	return append(hooks, hs...)
+	var b struct {
+		Hash string `json:"hash"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	rh := a.readRepoHooks(r.Context(), u.ID, repoHooksKey(s), a.repoDirOf(s), a.sessionFS(s, cid))
+	if !rh.Present || rh.Error != "" || rh.Hash != b.Hash {
+		writeErr(w, http.StatusConflict, "the hooks file has changed; read it again before trusting it")
+		return
+	}
+	a.trustHooks(r.Context(), u.ID, repoHooksKey(s), rh.Hash)
+	a.fileAudit(r, "hooks.trust", s.ID, repoHooksKey(s)+" "+rh.Hash[:12])
+	rh.Trusted = true
+	writeJSON(w, http.StatusOK, rh)
+}
+
+func (a *App) repoDirOf(s *store.ChatSession) string {
+	if s.RepoName == "" {
+		return ""
+	}
+	return sandbox.WorkspacePath + "/" + sessionRepoDir(s)
+}
+
+func (a *App) sessionFS(s *store.ChatSession, cid string) execFS {
+	return execFS{exec: func(ctx context.Context, spec sandbox.ExecSpec) (sandbox.ExecResult, error) {
+		return a.fileExec(ctx, s, cid, spec)
+	}}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
+	"github.com/kolonuk/syntaxis/internal/uploadcheck"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,6 +38,10 @@ const (
 	SettingVisionModels = "vision_models"
 	// SettingSearchURL is the address of a SearXNG instance the web_search tool uses; empty = no web search.
 	SettingSearchURL = "search_url"
+	// File uploads (the Files tab and message attachments) are off until an admin turns them on.
+	SettingUploadsEnabled = "uploads_enabled"
+	SettingUploadMaxMB    = "upload_max_mb"
+	SettingUploadKinds    = "upload_kinds"
 )
 
 // AdminHandler returns the admin app: separate routes, cookie and credentials.
@@ -70,6 +75,14 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/users", a.adminInvite)
 			r.Post("/users/{id}/resend", a.adminResend)
 			r.Patch("/users/{id}", a.adminUserPatch)
+			r.Get("/users/{id}/settings", a.adminUserSettings)
+			r.Put("/users/{id}/hooks", a.adminUserHooksPut)
+			r.Put("/users/{id}/commands", a.adminUserCommandsPut)
+			r.Put("/users/{id}/mcp", a.adminUserMCPSet)
+			r.Delete("/users/{id}/notes/{note}", a.adminUserNoteDelete)
+			r.Delete("/users/{id}/connections/{kind}", a.adminUserConnectionDelete)
+			r.Delete("/users/{id}/automations/{aid}", a.adminUserAutomationDelete)
+			r.Delete("/users/{id}/tokens/{tid}", a.adminUserTokenRevoke)
 			r.Post("/users/{id}/topup", a.adminTopUp)
 			r.Post("/users/{id}/reset-usage", a.adminResetUsage)
 
@@ -492,26 +505,19 @@ func (a *App) adminModelEnabled(w http.ResponseWriter, r *http.Request) {
 // ---- metadata, audit, egress ----
 
 // adminSessions shows metadata only: who, when, model, tokens, state. Titles
-// and content are user data and are withheld unless ALLOW_ADMIN_READ_CONTENT.
+// and title are shown; the admin can open the messages (every read is audited).
 func (a *App) adminSessions(w http.ResponseWriter, r *http.Request) {
 	ss, _ := a.Store.ListAllChatSessions(r.Context())
 	out := []map[string]any{}
 	for _, s := range ss {
-		m := map[string]any{"id": s.ID, "user_id": s.UserID, "model": s.Model, "state": s.State, "sandbox": s.SandboxID != "",
+		m := map[string]any{"id": s.ID, "user_id": s.UserID, "title": s.Title, "model": s.Model, "state": s.State, "sandbox": s.SandboxID != "",
 			"created_at": s.CreatedAt, "updated_at": s.UpdatedAt, "tokens_in": s.TokensIn, "tokens_out": s.TokensOut}
-		if a.Cfg.AdminReadMsg {
-			m["title"] = s.Title
-		}
 		out = append(out, m)
 	}
 	writeJSON(w, 200, out)
 }
 
 func (a *App) adminMessages(w http.ResponseWriter, r *http.Request) {
-	if !a.Cfg.AdminReadMsg {
-		writeErr(w, http.StatusForbidden, "message content is private (ALLOW_ADMIN_READ_CONTENT is false)")
-		return
-	}
 	ms, _ := a.Store.ListMessages(r.Context(), chi.URLParam(r, "id"), false)
 	_, _ = a.Store.AppendAudit(r.Context(), a.actor(r), "admin.read_content", "session:"+chi.URLParam(r, "id"), "")
 	writeJSON(w, 200, ms)
@@ -626,6 +632,7 @@ func (a *App) adminSettingsGet(w http.ResponseWriter, r *http.Request) {
 var settingDefaults = map[string]string{
 	SettingRotationDays: "30", SettingScanMode: "warn", SettingUserOverride: "true", SettingDailyTokens: "0", SettingMonthlyTokens: "0",
 	SettingVisionModels: "", SettingSearchURL: "",
+	SettingUploadsEnabled: "false", SettingUploadMaxMB: "10", SettingUploadKinds: "images,pdf,documents,text",
 }
 
 func validSetting(k, v string) bool {
@@ -638,6 +645,14 @@ func validSetting(k, v string) bool {
 		return len(v) <= 2000 && !strings.ContainsAny(v, "\n\r")
 	case SettingSearchURL:
 		return v == "" || validSearchURL(v)
+	case SettingUploadsEnabled:
+		return v == "true" || v == "false"
+	case SettingUploadMaxMB:
+		n, err := strconv.Atoi(v)
+		return err == nil && n >= 1 && n <= maxUploadMBLimit
+	case SettingUploadKinds:
+		_, err := uploadcheck.ParseKinds(v)
+		return err == nil
 	case SettingRotationDays, SettingDailyTokens, SettingMonthlyTokens:
 		n, err := strconv.Atoi(v)
 		return err == nil && n >= 0

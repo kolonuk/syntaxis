@@ -6,6 +6,7 @@ import { Connections } from "./Connections";
 import { McpTools } from "./McpTools";
 import { CommandsEditor, HooksEditor, Notes } from "./AgentSettings";
 import { SharedLinks } from "./Shared";
+import { ApiTokens } from "./ApiTokens";
 import {
   Badge,
   Banner,
@@ -159,6 +160,7 @@ export function Settings({
           { id: "hooks", label: "Hooks" },
           { id: "shared", label: "Shared links" },
           { id: "secrets", label: "Secrets" },
+          { id: "tokens", label: "API tokens" },
           { id: "usage", label: "Usage" },
         ]}
         value={tab}
@@ -213,6 +215,7 @@ export function Settings({
       {tab === "hooks" && <HooksEditor />}
       {tab === "shared" && <SharedLinks />}
       {tab === "secrets" && <Secrets />}
+      {tab === "tokens" && <ApiTokens />}
       {tab === "usage" && <UsagePanel />}
     </div>
   );

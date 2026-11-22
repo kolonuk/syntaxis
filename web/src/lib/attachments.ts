@@ -41,5 +41,19 @@ export function fileSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export const MAX_UPLOAD = 20 * 1024 * 1024;
+/** The picker filter for the kinds an admin allows (the server checks the real content). */
+export function acceptFor(kinds: string[]): string {
+  const by: Record<string, string> = {
+    images: ".png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff",
+    pdf: ".pdf",
+    documents: ".docx,.xlsx,.pptx,.odt,.ods,.odp",
+    text: ".txt,.md,.csv,.tsv,.json,.log",
+  };
+  return kinds
+    .map((k) => by[k])
+    .filter(Boolean)
+    .join(",");
+}
+
+export const MAX_UPLOAD = 10 * 1024 * 1024; // used only when the server does not say
 export const MAX_ATTACHMENTS = 8;

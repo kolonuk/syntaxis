@@ -21,6 +21,7 @@ import {
 } from "../ui/ui";
 import { AuthFrame, Login, SetPassword, TwoFactorSetup } from "../user/Auth";
 import { useMe } from "../user/hooks";
+import { SessionMessagesDialog, UserSettingsDialog } from "./UserSettings";
 
 interface Finding {
   check_id: string;
@@ -146,6 +147,7 @@ function UsersTab() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [edit, setEdit] = useState<User | null>(null);
+  const [settingsOf, setSettingsOf] = useState<User | null>(null);
   const [link, setLink] = useState<{ url: string; who: string; warning?: string } | null>(null);
   async function invite(e: FormEvent) {
     e.preventDefault();
@@ -202,6 +204,7 @@ function UsersTab() {
                 <td>{u.egress_mode || "default"}</td>
                 <td className="actions-cell">
                   <Button onClick={() => setEdit(u)}>Edit</Button>
+                  <Button onClick={() => setSettingsOf(u)}>Settings</Button>
                   {u.invited && (
                     <Button
                       onClick={async () => {
@@ -284,6 +287,7 @@ function UsersTab() {
           }}
         />
       )}
+      {settingsOf && <UserSettingsDialog user={settingsOf} onClose={() => setSettingsOf(null)} />}
     </div>
   );
 }
@@ -1473,7 +1477,15 @@ function McpTab() {
   );
 }
 
-function Table({ rows, cols }: { rows: Record<string, unknown>[]; cols: string[] }) {
+function Table({
+  rows,
+  cols,
+  action,
+}: {
+  rows: Record<string, unknown>[];
+  cols: string[];
+  action?: (row: Record<string, unknown>) => React.ReactNode;
+}) {
   return (
     <div className="table-wrap" tabIndex={0} role="region" aria-label="Table">
       <table>
@@ -1482,6 +1494,7 @@ function Table({ rows, cols }: { rows: Record<string, unknown>[]; cols: string[]
             {cols.map((c) => (
               <th key={c}>{c}</th>
             ))}
+            {action && <th aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
@@ -1490,6 +1503,7 @@ function Table({ rows, cols }: { rows: Record<string, unknown>[]; cols: string[]
               {cols.map((c) => (
                 <td key={c}>{String(r[c] ?? "")}</td>
               ))}
+              {action && <td>{action(r)}</td>}
             </tr>
           ))}
         </tbody>
@@ -1500,16 +1514,19 @@ function Table({ rows, cols }: { rows: Record<string, unknown>[]; cols: string[]
 
 function SessionsTab() {
   const { data } = useLoad<Record<string, unknown>[]>("/sessions");
+  const [open, setOpen] = useState("");
   if (!data) return <Skeleton />;
   return (
     <>
       <p className="muted">
-        Metadata only. Message content is private unless ALLOW_ADMIN_READ_CONTENT is enabled.
+        Admins can read every session's messages; each read is recorded in the audit log.
       </p>
       <Table
         rows={data}
-        cols={["id", "user_id", "model", "state", "tokens_in", "tokens_out", "updated_at"]}
+        cols={["id", "user_id", "title", "model", "state", "tokens_in", "tokens_out", "updated_at"]}
+        action={(r) => <Button onClick={() => setOpen(String(r.id))}>Read</Button>}
       />
+      {open && <SessionMessagesDialog id={open} onClose={() => setOpen("")} />}
     </>
   );
 }
@@ -1602,6 +1619,22 @@ function SettingsTab() {
         hint="Model names, separated by commas. Ollama reports this itself; list models here for servers that do not (OpenAI-compatible ones). Other models read pictures as text with OCR."
         value={s.vision_models ?? ""}
         onChange={(e) => setS({ ...s, vision_models: e.target.value })}
+      />
+      <Toggle
+        label="Allow file uploads (Files tab and message attachments)"
+        checked={s.uploads_enabled === "true"}
+        onChange={(v) => setS({ ...s, uploads_enabled: String(v) })}
+      />
+      <Input
+        label="Largest upload (MB, 1 to 100)"
+        value={s.upload_max_mb ?? ""}
+        onChange={(e) => setS({ ...s, upload_max_mb: e.target.value })}
+      />
+      <Input
+        label="Kinds of file users may upload"
+        hint="Any of: images, pdf, documents (docx, xlsx, pptx, odt, ods, odp), text (txt, md, csv, tsv, json, log). Every upload is also checked by content: programs, scripts, archives, macros, embedded files and encoded data are always refused."
+        value={s.upload_kinds ?? ""}
+        onChange={(e) => setS({ ...s, upload_kinds: e.target.value })}
       />
       <div className="row">
         <Button

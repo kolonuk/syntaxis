@@ -18,7 +18,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.EgressMode != "open" || c.AdminReadMsg || c.ProxyAuth.Enabled {
+	if c.EgressMode != "open" || c.ProxyAuth.Enabled {
 		t.Fatalf("unsafe defaults: %+v", c)
 	}
 	if c.AdminListen != "127.0.0.1:8081" {

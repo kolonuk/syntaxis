@@ -448,6 +448,7 @@ function Shell({
             <Chat
               key={cur.id}
               session={cur}
+              uploads={me.uploads}
               userKey={me.email}
               onChanged={() => void refresh()}
               onDeleted={() => {

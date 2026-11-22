@@ -12,6 +12,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/connections"
 	"github.com/kolonuk/syntaxis/internal/policy"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
+	"github.com/kolonuk/syntaxis/internal/uploadcheck"
 	"net/http"
 	"path"
 	"strconv"
@@ -60,6 +61,9 @@ func (a *App) UserHandler() http.Handler {
 			r.Get("/models", a.handleModels)
 			r.Get("/usage", a.handleUsage)
 			r.Get("/egress", a.handleMyEgress)
+			r.Get("/tokens", a.handleTokensList)
+			r.Post("/tokens", a.handleTokenCreate)
+			r.Delete("/tokens/{id}", a.handleTokenRevoke)
 			r.Get("/secrets", a.handleSecretNames)
 			r.Put("/secrets/{name}", a.handleSecretPut)
 			r.Delete("/secrets/{name}", a.handleSecretDelete)
@@ -119,6 +123,8 @@ func (a *App) UserHandler() http.Handler {
 				r.Get("/resources", a.handleResources)
 				r.Get("/terminal", a.handleTerminal)
 				r.Get("/commands", a.handleSessionCommands)
+				r.Get("/repo-hooks", a.handleRepoHooks)
+				r.Post("/repo-hooks/trust", a.handleRepoHooksTrust)
 				r.Get("/files", a.handleFileList)
 				r.Get("/files/content", a.handleFileGet)
 				r.Put("/files/content", a.handleFilePut)
@@ -222,7 +228,18 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 		"must_change_password": must, "password_days_left": left, "csrf": p.Session.CSRF,
 		"remind_2fa": p.Account.Kind == store.KindUser && !p.Account.TOTPEnabled,
 	}
+	if t := tokenFrom(r); t != nil {
+		out["api_token"] = map[string]any{"name": t.Name, "scope": t.Scope}
+	}
 	if p.Account.Kind == store.KindUser {
+		up := a.uploadLimit(r.Context())
+		kinds := []string{}
+		for _, k := range uploadcheck.AllKinds {
+			if up.kinds[k] {
+				kinds = append(kinds, k)
+			}
+		}
+		out["uploads"] = map[string]any{"enabled": up.enabled, "max_bytes": up.maxBytes, "kinds": kinds}
 		out["banners"] = health.UserBanners(a.healthFindings(r.Context()))
 		if cu, err := a.Store.GetUser(r.Context(), p.Account.ID); err == nil {
 			out["level"] = cu.Level

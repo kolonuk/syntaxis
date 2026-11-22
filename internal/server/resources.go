@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/kolonuk/syntaxis/internal/agent"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
@@ -29,7 +30,24 @@ func (a *App) handleResources(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	out["hook_seconds"] = a.hookSeconds(s.ID)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// addHookTime and hookSeconds keep how long a session's hooks have run, for the Resources tab.
+func (a *App) addHookTime(session string, d time.Duration) {
+	a.hookMu.Lock()
+	defer a.hookMu.Unlock()
+	if a.hookTimes == nil {
+		a.hookTimes = map[string]time.Duration{}
+	}
+	a.hookTimes[session] += d
+}
+
+func (a *App) hookSeconds(session string) float64 {
+	a.hookMu.Lock()
+	defer a.hookMu.Unlock()
+	return a.hookTimes[session].Seconds()
 }
 
 // SandboxEvent tells the user (and the audit log) what the monitor did to their sandbox.

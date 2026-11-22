@@ -15,6 +15,14 @@ export interface Me {
   level?: string;
   admin_url?: string;
   chat_url?: string;
+  /** What the admin allows for file uploads; absent for admins. */
+  uploads?: Uploads;
+}
+
+export interface Uploads {
+  enabled: boolean;
+  max_bytes: number;
+  kinds: string[];
 }
 
 /** Current user; null = signed out; undefined = loading. */

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { useCallback, useEffect, useRef, useState } from "react";
 import { del, errText, get, post, put, upload } from "../lib/api";
-import { fileSize, MAX_UPLOAD } from "../lib/attachments";
+import { acceptFor, fileSize, MAX_UPLOAD } from "../lib/attachments";
+import type { Uploads } from "./hooks";
 import { ago } from "../lib/format";
 import { Banner, Button, Input, Modal, Skeleton, TextArea, useToast } from "../ui/ui";
 
@@ -46,7 +47,15 @@ export function crumbs(path: string): { label: string; path: string }[] {
 }
 
 /** The files of the session's workspace: browse, view, edit, download, upload and delete. */
-export function Files({ sessionId, running }: { sessionId: string; running: boolean }) {
+export function Files({
+  sessionId,
+  running,
+  uploads,
+}: {
+  sessionId: string;
+  running: boolean;
+  uploads?: Uploads;
+}) {
   const toast = useToast();
   const base = `/sessions/${sessionId}`;
   const [path, setPath] = useState(ROOT);
@@ -114,8 +123,9 @@ export function Files({ sessionId, running }: { sessionId: string; running: bool
     setBusy(true);
     try {
       for (const f of Array.from(files)) {
-        if (f.size > MAX_UPLOAD) {
-          toast(`${f.name} is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`, "error");
+        const maxUpload = uploads?.max_bytes || MAX_UPLOAD;
+        if (f.size > maxUpload) {
+          toast(`${f.name} is larger than ${Math.round(maxUpload / 1024 / 1024)} MB.`, "error");
           continue;
         }
         await upload(`${base}/files/upload?dir=${q(path)}&name=${q(f.name)}`, f);
@@ -158,17 +168,24 @@ export function Files({ sessionId, running }: { sessionId: string; running: bool
     return (
       <div className="files">
         <p className="muted">{list.reason ?? "Nothing has run in this session yet."}</p>
-        <input
-          ref={picker}
-          type="file"
-          multiple
-          hidden
-          aria-label="Choose files to upload"
-          onChange={(e) => void uploadFiles(e.target.files)}
-        />
-        <Button onClick={() => picker.current?.click()} loading={busy}>
-          Upload files
-        </Button>
+        {uploads?.enabled ? (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              accept={acceptFor(uploads.kinds)}
+              aria-label="Choose files to upload"
+              onChange={(e) => void uploadFiles(e.target.files)}
+            />
+            <Button onClick={() => picker.current?.click()} loading={busy}>
+              Upload files
+            </Button>
+          </>
+        ) : (
+          <p className="muted">File uploads are switched off by the administrator.</p>
+        )}
       </div>
     );
 
@@ -191,17 +208,22 @@ export function Files({ sessionId, running }: { sessionId: string; running: bool
         ))}
       </nav>
       <div className="row files-actions">
-        <input
-          ref={picker}
-          type="file"
-          multiple
-          hidden
-          aria-label="Choose files to upload"
-          onChange={(e) => void uploadFiles(e.target.files)}
-        />
-        <Button onClick={() => picker.current?.click()} loading={busy} disabled={running}>
-          Upload
-        </Button>
+        {uploads?.enabled && (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              accept={acceptFor(uploads.kinds)}
+              aria-label="Choose files to upload"
+              onChange={(e) => void uploadFiles(e.target.files)}
+            />
+            <Button onClick={() => picker.current?.click()} loading={busy} disabled={running}>
+              Upload
+            </Button>
+          </>
+        )}
         <Button onClick={() => setFolderName("")} disabled={running}>
           New folder
         </Button>

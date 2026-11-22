@@ -19,16 +19,17 @@ import (
 	"github.com/kolonuk/syntaxis/internal/agent"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/uploadcheck"
 )
 
 // The file browser works on the session's own workspace, through the session's sandbox: nothing is
 // read or written on the host. Paths are resolved inside /workspace (agent.SafePath) like the
 // agent's own file tools.
 const (
-	maxViewBytes   = 1 << 20  // largest file shown or edited as text
-	maxUploadBytes = 20 << 20 // largest upload
-	maxDownload    = 25 << 20 // largest download
-	maxListEntries = 2000
+	maxViewBytes     = 1 << 20  // largest file shown or edited as text
+	maxUploadMBLimit = 100      // the most an admin can allow for one upload, in MiB
+	maxDownload      = 25 << 20 // largest download
+	maxListEntries   = 2000
 )
 
 // FileEntry is one item of a directory listing.
@@ -360,9 +361,32 @@ func cleanUploadName(n string) (string, bool) {
 	return n, true
 }
 
+// uploadSettings is what the admin allows for uploads.
+type uploadSettings struct {
+	enabled  bool
+	maxBytes int64
+	kinds    map[string]bool
+}
+
+func (a *App) uploadLimit(ctx context.Context) uploadSettings {
+	mb, err := strconv.Atoi(a.setting(ctx, SettingUploadMaxMB, settingDefaults[SettingUploadMaxMB]))
+	if err != nil || mb < 1 || mb > maxUploadMBLimit {
+		mb = 10
+	}
+	kinds, err := uploadcheck.ParseKinds(a.setting(ctx, SettingUploadKinds, settingDefaults[SettingUploadKinds]))
+	if err != nil {
+		kinds = map[string]bool{}
+	}
+	return uploadSettings{enabled: a.settingBool(ctx, SettingUploadsEnabled, false), maxBytes: int64(mb) << 20, kinds: kinds}
+}
+
 // handleFileUpload stores an uploaded file (the request body) in a folder of the workspace.
 func (a *App) handleFileUpload(w http.ResponseWriter, r *http.Request) {
-	s, _, cid, ok := a.writableSession(w, r, true)
+	if !a.uploadLimit(r.Context()).enabled {
+		writeErr(w, http.StatusForbidden, "file uploads are switched off by the administrator")
+		return
+	}
+	s, ok := a.ownSession(w, r)
 	if !ok {
 		return
 	}
@@ -375,10 +399,21 @@ func (a *App) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "the file needs a name")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+1)
+	limit := a.uploadLimit(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, limit.maxBytes+1)
 	data, err := io.ReadAll(r.Body)
-	if err != nil || len(data) > maxUploadBytes {
-		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("files can be up to %d MiB", maxUploadBytes>>20))
+	if err != nil || int64(len(data)) > limit.maxBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("files can be up to %d MiB", limit.maxBytes>>20))
+		return
+	}
+	if err := uploadcheck.Check(name, data, limit.kinds); err != nil {
+		_, _ = a.Store.AppendAudit(r.Context(), fmt.Sprintf("user:%d", principal(r).Account.ID), "file.upload_refused", "session:"+s.ID, fmt.Sprintf("%s: %v", name, err))
+		writeErr(w, http.StatusUnsupportedMediaType, err.Error())
+		return
+	}
+	// the sandbox is only started for a file that passed the checks
+	s, _, cid, ok := a.writableSession(w, r, true)
+	if !ok {
 		return
 	}
 	p := path.Join(dir, name)

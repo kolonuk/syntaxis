@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,15 +48,17 @@ const (
 
 // App holds shared dependencies.
 type App struct {
-	Cfg     *config.Config
-	Store   store.Store
-	Auth    *auth.Service
-	Quota   *quota.Service
-	Secrets *secrets.Service
-	Signing *signing.Service
-	Mail    mail.Mailer
-	Health  *health.Engine
-	Sandbox *sandbox.Manager // may be nil (sandboxes unavailable)
+	hookMu    sync.Mutex
+	hookTimes map[string]time.Duration // session id to time its hooks have run
+	Cfg       *config.Config
+	Store     store.Store
+	Auth      *auth.Service
+	Quota     *quota.Service
+	Secrets   *secrets.Service
+	Signing   *signing.Service
+	Mail      mail.Mailer
+	Health    *health.Engine
+	Sandbox   *sandbox.Manager // may be nil (sandboxes unavailable)
 	// FirewallState describes the running sandboxes and allowlisted addresses for the host
 	// firewall sync service; nil when the resolver is not running.
 	FirewallState func(ctx context.Context) ([]egress.SandboxEntry, []egress.HostEntry)
@@ -259,6 +262,24 @@ func (a *App) requireAuth(kind string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c, err := r.Cookie(cookie)
 			if err != nil {
+				// a personal API token: the chat app only, never with a cookie, never for settings
+				if raw := bearerToken(r); raw != "" && kind == store.KindUser {
+					p, tok, terr := a.authenticateToken(r.Context(), raw)
+					if terr != nil {
+						writeErr(w, http.StatusUnauthorized, "invalid or expired token")
+						return
+					}
+					if !tokenAllowed(tok.Scope, r.Method, r.URL.Path) {
+						writeErr(w, http.StatusForbidden, "this token's scope does not allow that")
+						return
+					}
+					if !isSafe(r.Method) {
+						_, _ = a.Store.AppendAudit(r.Context(), fmt.Sprintf("token:%d", tok.ID), "api.request", fmt.Sprintf("user:%d", tok.UserID), r.Method+" "+r.URL.Path)
+					}
+					ctx := context.WithValue(context.WithValue(r.Context(), keyPrincipal, p), ctxTokenKey{}, tok)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 				writeErr(w, http.StatusUnauthorized, "not signed in")
 				return
 			}

@@ -392,7 +392,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		}
 	}
 
-	hooks := a.hooksFor(bg, u.ID, repoDir, fs, func(m string) {
+	hooks := a.hooksFor(bg, u.ID, repoHooksKey(s), repoDir, fs, func(m string) {
 		run.Emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": m}})
 	})
 
@@ -401,6 +401,7 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 			MaxTurns: w.MaxTurns, ToolOutputMax: w.ToolOutput, MaxDuration: 2 * time.Hour},
 		Deps: agent.Deps{
 			Chat: chat, Tools: ex, Policy: policy, Images: imagesFor,
+			HookTime:     func(d time.Duration) { a.addHookTime(s.ID, d) },
 			ApprovalNote: a.approvalNote(bg, u.ID),
 			Approve:      func(c context.Context, r agent.ApprovalRequest) (bool, error) { return run.Approve(c, r.CallID) },
 			Answer:       func(c context.Context, _ string) (string, error) { return run.Ask(c) },

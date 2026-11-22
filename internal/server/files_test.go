@@ -6,14 +6,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kolonuk/syntaxis/internal/sandbox"
+	"github.com/kolonuk/syntaxis/internal/secrets"
+	"github.com/kolonuk/syntaxis/internal/store"
+	"github.com/kolonuk/syntaxis/internal/vault"
 )
 
 func (c *client) doRaw(method, path, contentType string, body []byte) (int, map[string]any, []byte) {
@@ -74,6 +81,7 @@ func TestIsText(t *testing.T) {
 
 func TestFilesNeedSignInAndOwnership(t *testing.T) {
 	e := newEnv(t)
+	_ = e.st.SetSetting(context.Background(), SettingUploadsEnabled, "true")
 	seedModel(e)
 	owner := e.userSession("fo@example.com")
 	other := e.userSession("fx@example.com")
@@ -108,6 +116,7 @@ func TestFilesNeedSignInAndOwnership(t *testing.T) {
 // The file browser against a real gVisor sandbox.
 func TestIntegrationFileBrowser(t *testing.T) {
 	e := newEnv(t)
+	_ = e.st.SetSetting(context.Background(), SettingUploadsEnabled, "true")
 	seedModel(e)
 	e.app.Sandbox = realSandbox(t, e)
 	u := e.userSession("fb@example.com")
@@ -128,7 +137,9 @@ func TestIntegrationFileBrowser(t *testing.T) {
 	if code != 200 || up["path"] != "/workspace/docs/notes.txt" {
 		t.Fatalf("%d %s", code, raw)
 	}
-	bin := []byte{0x89, 'P', 'N', 'G', 0, 1, 2, 255, 254, 0}
+	var pb bytes.Buffer
+	_ = png.Encode(&pb, image.NewRGBA(image.Rect(0, 0, 4, 4)))
+	bin := pb.Bytes()
 	if code, _, raw := u.doRaw("POST", base+"/files/upload?name=pic.png", "application/octet-stream", bin); code != 200 {
 		t.Fatalf("%d %s", code, raw)
 	}
@@ -232,5 +243,137 @@ func TestIntegrationFileBrowser(t *testing.T) {
 	_, ls, _ = u.do("GET", base+"/files", nil)
 	if n := len(ls["entries"].([]any)); n != 0 {
 		t.Fatalf("not deleted: %v", ls)
+	}
+}
+
+// Uploads are off until an admin turns them on, and then only checked files are stored.
+func TestUploadsAreOffByDefaultAndChecked(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	u := e.userSession("up@example.com")
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
+	url := "/api/sessions/" + s["id"].(string) + "/files/upload?name="
+	if code, _, _ := u.doRaw("POST", url+"a.txt", "application/octet-stream", []byte("hello")); code != 403 {
+		t.Fatalf("uploads work by default: %d", code)
+	}
+	ctx := context.Background()
+	_ = e.st.SetSetting(ctx, SettingUploadsEnabled, "true")
+	_ = e.st.SetSetting(ctx, SettingUploadMaxMB, "1")
+	// refused before any sandbox is needed
+	for name, body := range map[string][]byte{
+		"a.sh":    []byte("echo hi"),
+		"a.txt":   []byte("#!/bin/sh\nrm -rf /\n"),
+		"a.png":   []byte("\x7fELF\x02\x01\x01\x00"),
+		"big.txt": bytes.Repeat([]byte("a "), 600<<10),
+	} {
+		code, _, raw := u.doRaw("POST", url+name, "application/octet-stream", body)
+		want := 415
+		if name == "big.txt" {
+			want = 413
+		}
+		if code != want {
+			t.Errorf("%s: %d %s", name, code, raw)
+		}
+	}
+	es, _ := e.st.ListAudit(ctx, 0)
+	refused := false
+	for _, a := range es {
+		refused = refused || a.Action == "file.upload_refused"
+	}
+	if !refused {
+		t.Error("a refused upload must be audited")
+	}
+	// the admin switches (enable, size, kinds) are validated and need an admin
+	adm := e.makeAdminSession()
+	for k, v := range map[string]string{SettingUploadMaxMB: "0", SettingUploadKinds: "images,exe", SettingUploadsEnabled: "maybe"} {
+		if code, _, _ := adm.do("PUT", "/api/settings", map[string]string{k: v}); code != 400 {
+			t.Errorf("setting %s=%s accepted: %d", k, v, code)
+		}
+	}
+	if code, _, _ := adm.do("PUT", "/api/settings", map[string]string{SettingUploadKinds: "images,pdf"}); code != 200 {
+		t.Fatal("valid kinds refused")
+	}
+	if code, _, _ := u.do("PUT", "/api/settings", map[string]string{SettingUploadsEnabled: "true"}); code == 200 {
+		t.Error("a user changed an admin setting")
+	}
+	_, me, _ := u.do("GET", "/api/me", nil)
+	up, _ := me["uploads"].(map[string]any)
+	if up == nil || up["enabled"] != true || up["max_bytes"] != float64(1<<20) {
+		t.Errorf("me: %v", me["uploads"])
+	}
+}
+
+// The backup drill: a database holding a user's real data is backed up, restored into a clean place
+// and compared table by table; the restored copy must still decrypt the user's secret with the same
+// master key.
+func TestBackupAndRestoreKeepEverything(t *testing.T) {
+	e := newEnv(t)
+	seedModel(e)
+	ctx := context.Background()
+	u := e.userSession("drill@example.com")
+	u.do("PUT", "/api/secrets/DRILL_TOKEN", map[string]string{"value": "s3cret-value"})
+	u.do("POST", "/api/memory", map[string]any{"scope": "user", "content": "prefers tabs"})
+	u.do("PUT", "/api/hooks", map[string]string{"hooks": `{"hooks":[{"event":"post_tool","command":"gofmt -l ."}]}`})
+	u.do("PUT", "/api/commands", map[string]any{"commands": []Command{{Name: "lint", Description: "Run the linter", Template: "Run the linter"}}})
+	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1", "title": "drill"})
+	id := s["id"].(string)
+	_, _ = e.st.AppendMessage(ctx, store.Message{SessionID: id, Role: "user", Content: "hello", CreatedAt: e.now})
+	u.do("POST", "/api/sessions/"+id+"/shares", map[string]any{"name": "share", "hours": 1})
+	u.do("POST", "/api/automations", map[string]any{"name": "On push", "trigger": "webhook", "prompt": "Review", "model": "prov/m1", "autonomy": "full"})
+	adm := e.makeAdminSession()
+	adm.do("PUT", "/api/settings", map[string]string{SettingScanMode: "block"})
+
+	live, err := e.st.Digest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filled := 0
+	for _, d := range live {
+		if !strings.HasPrefix(d, "0 rows") {
+			filled++
+		}
+	}
+	if filled < 8 {
+		t.Fatalf("the drill database is nearly empty (%d tables filled): %v", filled, live)
+	}
+
+	dest := filepath.Join(t.TempDir(), "restore", "syntaxis.db")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Backup(ctx, dest); err != nil {
+		t.Fatal(err)
+	}
+	// "restore": open the copy as a fresh server would
+	r, err := store.OpenSQLite(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got, err := r.Digest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range live {
+		if got[table] != want {
+			t.Errorf("table %s differs after the restore: %s vs %s", table, want, got[table])
+		}
+	}
+	for table := range got {
+		if _, ok := live[table]; !ok {
+			t.Errorf("the restore has an extra table %s", table)
+		}
+	}
+	// the master key (kept separately) opens the restored secret
+	v, _ := vault.New(bytes.Repeat([]byte{5}, 32))
+	uid := userID(t, e, "drill@example.com")
+	svc := &secrets.Service{Store: r, Vault: v}
+	if val, err := svc.Get(ctx, "user", uid, "DRILL_TOKEN"); err != nil || val != "s3cret-value" {
+		t.Fatalf("the restored database did not give the secret back: %q %v", val, err)
+	}
+	// and the wrong key does not
+	bad, _ := vault.New(bytes.Repeat([]byte{6}, 32))
+	if val, err := (&secrets.Service{Store: r, Vault: bad}).Get(ctx, "user", uid, "DRILL_TOKEN"); err == nil && val != "" {
+		t.Fatal("a different master key read the secret")
 	}
 }

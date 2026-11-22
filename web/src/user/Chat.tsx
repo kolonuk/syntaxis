@@ -25,12 +25,15 @@ import { commentsMessage, parseDiff } from "../lib/diff";
 import { ago } from "../lib/format";
 import { ShareDialog } from "./Shared";
 import { Files } from "./Files";
+import { RepoHooks } from "./RepoHooks";
+import type { Uploads } from "./hooks";
 import { TodoList } from "./Todos";
 import {
   attachmentName,
   fileSize,
   MAX_ATTACHMENTS,
   MAX_UPLOAD,
+  acceptFor,
   parseAttachments,
   type Attachment,
 } from "../lib/attachments";
@@ -138,7 +141,9 @@ export function Chat({
   onOpen,
   panelOpen,
   setPanelOpen,
+  uploads,
 }: {
+  uploads?: Uploads;
   session: Session;
   userKey: string;
   onChanged: () => void;
@@ -330,6 +335,10 @@ export function Chat({
   async function addFiles(files: FileList | File[] | null) {
     const list = files ? Array.from(files) : [];
     if (list.length === 0) return;
+    if (!uploads?.enabled) {
+      toast("File uploads are switched off by the administrator.", "error");
+      return;
+    }
     if (!navigator.onLine) {
       toast("Attaching files needs a connection.", "error");
       return;
@@ -341,8 +350,9 @@ export function Chat({
           toast(`Attach at most ${MAX_ATTACHMENTS} files to one message.`, "error");
           break;
         }
-        if (f.size > MAX_UPLOAD) {
-          toast(`${f.name} is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`, "error");
+        const maxUpload = uploads.max_bytes || MAX_UPLOAD;
+        if (f.size > maxUpload) {
+          toast(`${f.name} is larger than ${Math.round(maxUpload / 1024 / 1024)} MB.`, "error");
           continue;
         }
         const name = f.name || `pasted-${Date.now()}.png`;
@@ -709,6 +719,7 @@ export function Chat({
             </Card>
           )}
           <TodoList todos={todos} />
+          <RepoHooks sessionId={session.id} running={running} />
           <div className="composer-wrap">
             {attached.length > 0 && (
               <div className="chips" aria-label="Files to attach">
@@ -758,25 +769,30 @@ export function Chat({
                 }
               }}
             >
-              <input
-                ref={picker}
-                type="file"
-                multiple
-                hidden
-                aria-label="Choose files to attach"
-                onChange={(e) => void addFiles(e.target.files)}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                aria-label="Attach files"
-                title="Attach files, pictures or PDFs"
-                loading={uploading}
-                disabled={running}
-                onClick={() => picker.current?.click()}
-              >
-                Attach
-              </Button>
+              {uploads?.enabled && (
+                <>
+                  <input
+                    ref={picker}
+                    type="file"
+                    multiple
+                    hidden
+                    accept={acceptFor(uploads.kinds)}
+                    aria-label="Choose files to attach"
+                    onChange={(e) => void addFiles(e.target.files)}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-label="Attach files"
+                    title="Attach files, pictures or PDFs"
+                    loading={uploading}
+                    disabled={running}
+                    onClick={() => picker.current?.click()}
+                  >
+                    Attach
+                  </Button>
+                </>
+              )}
               <div className="grow">
                 <TextArea
                   label="Message"
@@ -816,7 +832,7 @@ export function Chat({
         </div>
         {filesOpened && (
           <div hidden={view !== "files"} className="chat-body">
-            <Files sessionId={session.id} running={running} />
+            <Files sessionId={session.id} running={running} uploads={uploads} />
           </div>
         )}
         {termOpened && (
@@ -1094,7 +1110,16 @@ interface Res {
   cpu_seconds?: number;
   disk_bytes?: number;
   disk_limit?: number;
+  hook_seconds?: number;
 }
+
+const hookNote = (r: Res) =>
+  r.hook_seconds ? (
+    <p className="muted">
+      Hooks have run for {Math.round(r.hook_seconds)} seconds in this session. Together they get 5
+      minutes in each run, then stop until the next message.
+    </p>
+  ) : null;
 
 const pct = (n: number | undefined, cores: number) =>
   Math.min(100, Math.round(((n ?? 0) / (cores * 100)) * 100));
@@ -1328,7 +1353,12 @@ function Resources({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
   if (!r) return <Skeleton lines={2} />;
   if (!r.active)
-    return <p className="muted">The sandbox is not running. Figures appear once it starts.</p>;
+    return (
+      <div className="stack">
+        <p className="muted">The sandbox is not running. Figures appear once it starts.</p>
+        {hookNote(r)}
+      </div>
+    );
   const cores = r.cpu_cores_normal || 1;
   const memPct = r.memory_limit ? Math.round(((r.memory_bytes ?? 0) / r.memory_limit) * 100) : 0;
   return (
@@ -1355,6 +1385,7 @@ function Resources({ sessionId }: { sessionId: string }) {
         Sustained load is what gets limited, not short bursts. {Math.round(r.cpu_seconds ?? 0)} CPU
         seconds used since this sandbox started.
       </p>
+      {hookNote(r)}
     </div>
   );
 }

@@ -18,9 +18,9 @@ import (
 func TestSendAttachmentsAreChecked(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	var got []string
+	var got msgLog
 	e.app.RunAgent = func(_ context.Context, _ *Run, _ *store.ChatSession, _ *store.User, msg string) {
-		got = append(got, msg)
+		got.add(msg)
 	}
 	u := e.userSession("at@example.com")
 	_, s, _ := u.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
@@ -41,8 +41,8 @@ func TestSendAttachmentsAreChecked(t *testing.T) {
 	if code, _, _ := u.do("POST", base+"/messages", map[string]any{"text": "hello"}); code != 202 {
 		t.Fatalf("%d", code)
 	}
-	if len(got) != 1 || strings.Contains(got[0], "<attachments>") {
-		t.Fatalf("%q", got)
+	if got.n() != 1 || strings.Contains(got.at(0), "<attachments>") {
+		t.Fatalf("%q", got.all())
 	}
 }
 
@@ -50,11 +50,12 @@ func TestSendAttachmentsAreChecked(t *testing.T) {
 // the agent's own read_file tool: the text layer of a PDF, and OCR for a scan and for a picture.
 func TestIntegrationAttachmentsAreReadWithOCR(t *testing.T) {
 	e := newEnv(t)
+	_ = e.st.SetSetting(context.Background(), SettingUploadsEnabled, "true")
 	seedModel(e)
 	e.app.Sandbox = realSandbox(t, e)
-	var sent []string
+	var sent msgLog
 	e.app.RunAgent = func(_ context.Context, run *Run, _ *store.ChatSession, _ *store.User, msg string) {
-		sent = append(sent, msg)
+		sent.add(msg)
 	}
 	u := e.userSession("ocr@example.com")
 	uid := userID(t, e, "ocr@example.com")
@@ -85,8 +86,8 @@ func TestIntegrationAttachmentsAreReadWithOCR(t *testing.T) {
 	if code, _, raw := u.do("POST", base+"/messages", map[string]any{"text": "summarise these", "attachments": paths}); code != 202 {
 		t.Fatalf("%d %s", code, raw)
 	}
-	waitFor(t, func() bool { return len(sent) == 1 })
-	text, items := agent.ParseAttachments(sent[0])
+	waitFor(t, func() bool { return sent.n() == 1 })
+	text, items := agent.ParseAttachments(sent.at(0))
 	if text != "summarise these" || len(items) != 3 || items[0].Kind != agent.KindImage || items[1].Kind != agent.KindPDF || items[0].Size != int64(len(pngBytes)) {
 		t.Fatalf("%q %+v", text, items)
 	}
@@ -125,15 +126,18 @@ func TestIntegrationAttachmentsAreReadWithOCR(t *testing.T) {
 		t.Fatalf("PDF with text: %+v", o)
 	}
 	// a file that is not a real PDF is reported, not mistaken for an empty document
-	if code, _, _ := u.doRaw("POST", base+"/files/upload?name=fake.pdf", "application/octet-stream", []byte("this is not a pdf")); code != 200 {
-		t.Fatal("upload")
+	if code, _, _ := u.doRaw("POST", base+"/files/upload?name=fake.pdf", "application/octet-stream", []byte("this is not a pdf")); code != 415 {
+		t.Fatalf("a fake PDF was accepted by upload: %d", code)
+	}
+	if err := e.app.writeFileBytes(ctx, cur, cur.SandboxID, "/workspace/fake.pdf", []byte("this is not a pdf")); err != nil {
+		t.Fatal(err)
 	}
 	if o := read("fake.pdf"); !o.IsError && !strings.Contains(o.Text, "no text found") {
 		t.Fatalf("%+v", o)
 	}
 
 	// the picture reaches a vision model as bytes
-	imgs := agent.LoadImages(ctx, exec, sent[0])
+	imgs := agent.LoadImages(ctx, exec, sent.at(0))
 	if len(imgs) != 1 || !bytes.Equal(imgs[0].Data, pngBytes) || imgs[0].MIME != "image/png" {
 		t.Fatalf("%d images", len(imgs))
 	}

@@ -78,9 +78,9 @@ func TestParseCommandFile(t *testing.T) {
 func TestCommandsAPI(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
-	var sent []string
+	var sent msgLog
 	e.app.RunAgent = func(_ context.Context, _ *Run, _ *store.ChatSession, _ *store.User, msg string) {
-		sent = append(sent, msg)
+		sent.add(msg)
 	}
 	u := e.userSession("c1@example.com")
 	other := e.userSession("c2@example.com")
@@ -103,9 +103,9 @@ func TestCommandsAPI(t *testing.T) {
 	if code, _, _ := u.do("POST", "/api/sessions/"+id+"/messages", map[string]any{"text": "/review please"}); code != 202 {
 		t.Fatal(code)
 	}
-	waitFor(t, func() bool { return len(sent) == 1 })
-	if sent[0] != "My own review prompt\n\nplease" {
-		t.Fatalf("%q", sent[0])
+	waitFor(t, func() bool { return sent.n() == 1 })
+	if sent.at(0) != "My own review prompt\n\nplease" {
+		t.Fatalf("%q", sent.at(0))
 	}
 	// another user has only the built-in commands
 	_, s2, _ := other.do("POST", "/api/sessions", map[string]string{"model": "prov/m1"})
@@ -135,7 +135,7 @@ func TestHooksSettingIsValidatedAndPrivate(t *testing.T) {
 	}
 	uid := userID(t, e, "h1@example.com")
 	notes := ""
-	hs := e.app.hooksFor(context.Background(), uid, "", execFS{exec: func(context.Context, sandbox.ExecSpec) (sandbox.ExecResult, error) {
+	hs := e.app.hooksFor(context.Background(), uid, "repo", "", execFS{exec: func(context.Context, sandbox.ExecSpec) (sandbox.ExecResult, error) {
 		return sandbox.ExecResult{ExitCode: 1}, nil
 	}}, func(m string) { notes += m })
 	if len(hs) != 1 || hs[0].Source != "user" || notes != "" {
@@ -146,6 +146,7 @@ func TestHooksSettingIsValidatedAndPrivate(t *testing.T) {
 // Repository commands and hooks, read from a real workspace.
 func TestIntegrationRepositoryCommandsAndHooks(t *testing.T) {
 	e := newEnv(t)
+	_ = e.st.SetSetting(context.Background(), SettingUploadsEnabled, "true")
 	seedModel(e)
 	e.app.Sandbox = realSandbox(t, e)
 	u := e.userSession("rc@example.com")
@@ -195,20 +196,44 @@ func TestIntegrationRepositoryCommandsAndHooks(t *testing.T) {
 		return e.app.Sandbox.Exec(c, id, cur.SandboxID, sp)
 	}
 	var warned []string
-	hs := e.app.hooksFor(ctx, uid, "", execFS{exec: exec}, func(m string) { warned = append(warned, m) })
-	if len(hs) != 1 || hs[0].Source != "repository" || hs[0].Command != "echo checked" || len(warned) != 1 || !strings.Contains(warned[0], "1 hook") {
+	hs := e.app.hooksFor(ctx, uid, repoHooksKey(cur), "", execFS{exec: exec}, func(m string) { warned = append(warned, m) })
+	if len(hs) != 0 || len(warned) != 1 || !strings.Contains(warned[0], "not run until you trust") {
+		t.Fatalf("repository hooks ran without being trusted: %+v %v", hs, warned)
+	}
+	// the user reads the file and trusts exactly that content
+	base := "/api/sessions/" + id
+	_, rh, _ := u.do("GET", base+"/repo-hooks", nil)
+	if rh["present"] != true || rh["trusted"] != false || rh["hash"] == "" {
+		t.Fatalf("%v", rh)
+	}
+	if code, _, _ := u.do("POST", base+"/repo-hooks/trust", map[string]string{"hash": "0000"}); code != 409 {
+		t.Fatalf("trusting a hash that is not the file: %d", code)
+	}
+	if code, _, raw := u.do("POST", base+"/repo-hooks/trust", map[string]string{"hash": rh["hash"].(string)}); code != 200 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	warned = nil
+	hs = e.app.hooksFor(ctx, uid, repoHooksKey(cur), "", execFS{exec: exec}, func(m string) { warned = append(warned, m) })
+	if len(hs) != 1 || hs[0].Source != "repository" || hs[0].Command != "echo checked" || len(warned) != 0 {
 		t.Fatalf("%+v %v", hs, warned)
+	}
+	// trust belongs to this user and this repository
+	if hs := e.app.hooksFor(ctx, uid, "another-repo", "", execFS{exec: exec}, func(string) {}); len(hs) != 0 {
+		t.Fatalf("trust carried over to another repository: %+v", hs)
+	}
+	if hs := e.app.hooksFor(ctx, uid+1, repoHooksKey(cur), "", execFS{exec: exec}, func(string) {}); len(hs) != 0 {
+		t.Fatalf("trust carried over to another user: %+v", hs)
 	}
 	// the admin can switch repository hooks and commands off
 	_ = e.st.SetSetting(ctx, "repo_hooks", "false")
-	if hs := e.app.hooksFor(ctx, uid, "", execFS{exec: exec}, func(string) {}); len(hs) != 0 {
+	if hs := e.app.hooksFor(ctx, uid, repoHooksKey(cur), "", execFS{exec: exec}, func(string) {}); len(hs) != 0 {
 		t.Fatalf("repository hooks ran although they are switched off: %+v", hs)
 	}
 	_ = e.st.SetSetting(ctx, "repo_hooks", "true")
 	// a broken file is reported and ignored
 	up("/workspace/.syntaxis/hooks.json", `{"hooks":[{"event":"never","command":"true"}]}`)
 	warned = nil
-	if hs := e.app.hooksFor(ctx, uid, "", execFS{exec: exec}, func(m string) { warned = append(warned, m) }); len(hs) != 0 || len(warned) != 1 || !strings.Contains(warned[0], "ignored") {
+	if hs := e.app.hooksFor(ctx, uid, repoHooksKey(cur), "", execFS{exec: exec}, func(m string) { warned = append(warned, m) }); len(hs) != 0 || len(warned) != 1 || !strings.Contains(warned[0], "ignored") {
 		t.Fatalf("%+v %v", hs, warned)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -520,7 +521,7 @@ func TestSecretsAPIOwnNamesOnlyNeverValues(t *testing.T) {
 	}
 }
 
-func TestAdminSeesMetadataNotContent(t *testing.T) {
+func TestAdminSeesSessionsAndMessages(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
 	alice := e.userSession("alice@example.com")
@@ -529,15 +530,11 @@ func TestAdminSeesMetadataNotContent(t *testing.T) {
 	_, _ = e.st.AppendMessage(context.Background(), store.Message{SessionID: id, Role: "user", Content: "private content", CreatedAt: e.now})
 	adm := e.makeAdminSession()
 	_, _, raw := adm.do("GET", "/api/sessions", nil)
-	if strings.Contains(string(raw), "private") || !strings.Contains(string(raw), id) {
+	if !strings.Contains(string(raw), "private title") || !strings.Contains(string(raw), id) {
 		t.Fatalf("admin session list: %s", raw)
 	}
-	if code, _, _ := adm.do("GET", "/api/sessions/"+id+"/messages", nil); code != 403 {
-		t.Fatalf("admin read content by default: %d", code)
-	}
-	e.app.Cfg.AdminReadMsg = true
 	if code, _, raw := adm.do("GET", "/api/sessions/"+id+"/messages", nil); code != 200 || !strings.Contains(string(raw), "private content") {
-		t.Fatalf("opt-in read: %d", code)
+		t.Fatalf("admin read: %d", code)
 	}
 	es, _ := e.st.ListAudit(context.Background(), 0)
 	found := false
@@ -941,4 +938,35 @@ func TestInviteResponseCarriesTheSingleUseLink(t *testing.T) {
 	if code, _, raw := usr.do("POST", "/api/users", map[string]string{"email": "c@example.com", "name": "C"}); code == 201 || strings.Contains(string(raw), "invite_url") {
 		t.Fatalf("a chat user reached the admin invite: %d", code)
 	}
+}
+
+// msgLog collects what a stand-in agent run was sent. Runs happen on another goroutine, so it is
+// guarded; a plain slice is a data race under go test -race, which CI uses.
+type msgLog struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (l *msgLog) add(m string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.msgs = append(l.msgs, m)
+}
+
+func (l *msgLog) n() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.msgs)
+}
+
+func (l *msgLog) at(i int) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.msgs[i]
+}
+
+func (l *msgLog) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.msgs...)
 }
