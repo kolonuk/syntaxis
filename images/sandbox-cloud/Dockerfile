@@ -18,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends gnupg apt-trans
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g wrangler @cloudflare/cli 2>/dev/null || npm install -g wrangler
 RUN pip3 install --break-system-packages --no-cache-dir awscli azure-cli
+# HOME is /home/dev, which does not exist yet at build time, so gpg (used by the OpenTofu installer to
+# verify its download) gets a temporary home of its own.
 RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
     && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
-    && curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone \
+    && curl -fsSL https://get.opentofu.org/install-opentofu.sh | GNUPGHOME="$(mktemp -d)" sh -s -- --install-method standalone \
     && curl -fsSL https://fly.io/install.sh | FLYCTL_INSTALL=/usr/local sh
 USER 10001:10001
