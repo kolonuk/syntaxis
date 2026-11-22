@@ -26,6 +26,7 @@ func TestAdminUpdateInfoAndRequestRules(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("%d %s", code, raw)
 	}
+	skipIfGitHubLimited(t, m)
 	if rs, _ := m["releases"].([]any); len(rs) == 0 || m["latest"] == nil {
 		t.Fatalf("no releases found: %s", raw)
 	}
@@ -75,6 +76,7 @@ func TestHostUpdateServiceRunsARequestedUpdate(t *testing.T) {
 		t.Fatalf("%v %s", err, out)
 	}
 	_, info, _ := adm.do("GET", "/api/update", nil)
+	skipIfGitHubLimited(t, info)
 	if info["agent"].(map[string]any)["running"] != true {
 		t.Fatalf("%v", info["agent"])
 	}
@@ -111,4 +113,13 @@ func TestHostUpdateServiceRunsARequestedUpdate(t *testing.T) {
 		t.Fatalf("a request ran twice: %v %s", err, out)
 	}
 	t.Log("NOT TESTED: a real update (pull or build, restart, health check, rollback); that needs a disposable Docker host")
+}
+
+// GitHub limits unauthenticated requests per address, so a busy runner or a developer machine can be
+// refused. That is a test that could not run, not one that passed or failed.
+func skipIfGitHubLimited(t *testing.T, info map[string]any) {
+	t.Helper()
+	if msg, _ := info["check_error"].(string); strings.Contains(msg, "limiting requests") {
+		testenv.NotTested(t, "the real GitHub API is rate limiting this address: "+msg)
+	}
 }
