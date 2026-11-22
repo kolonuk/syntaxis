@@ -184,8 +184,18 @@ func Nftables(table string, subnet netip.Prefix, resolverIP netip.Addr, p Policy
 	fmt.Fprintf(&b, "table bridge %s\ndelete table bridge %s\n", l2, l2)
 	fmt.Fprintf(&b, "table bridge %s {\n  chain forward {\n    type filter hook forward priority -200; policy accept;\n", l2)
 	if resolverIP.IsValid() {
+		// The Syntaxis container may open connections to sandboxes. A sandbox may only ask it for
+		// DNS; it must not reach the app's own listeners (the chat and admin ports share this
+		// address), so a new TCP connection to anything but port 53 is dropped. Packets of
+		// connections the server opened itself (replies, and the SYN-ACK that starts them) still
+		// pass: they are not a bare SYN, which needs no connection tracking to tell.
 		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s accept\n", resolverIP, subnet)
-		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s accept\n", subnet, resolverIP)
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s udp dport 53 accept\n", subnet, resolverIP)
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s tcp dport 53 accept\n", subnet, resolverIP)
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s tcp flags & (syn | ack) == syn counter drop\n", subnet, resolverIP)
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s ip protocol tcp accept\n", subnet, resolverIP)
+		// path MTU discovery and errors for connections the server opened
+		fmt.Fprintf(&b, "    ip saddr %s ip daddr %s ip protocol icmp accept\n", subnet, resolverIP)
 	}
 	fmt.Fprintf(&b, "    ip saddr %s ip daddr %s counter drop\n  }\n}\n", subnet, subnet)
 	return RuleSet{Table: table, Text: b.String()}, nil

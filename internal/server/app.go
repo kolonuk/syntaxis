@@ -210,6 +210,11 @@ func (a *App) logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
 		next.ServeHTTP(sw, r)
+		// the host's firewall-sync service polls once a second; logging each poll would be 86,000
+		// lines a day of nothing. Failures are still logged.
+		if sw.code == http.StatusOK && strings.HasPrefix(r.URL.Path, "/internal/firewall") {
+			return
+		}
 		a.Log.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "ms", time.Since(start).Milliseconds())
 	})
 }

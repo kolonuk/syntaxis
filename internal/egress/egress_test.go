@@ -235,7 +235,9 @@ func TestRulesAlsoFilterLayer2SoIsolationDoesNotDependOnBrNetfilter(t *testing.T
 		"table bridge syx_l2",
 		"type filter hook forward priority -200",
 		"ip saddr 172.30.0.2 ip daddr 172.30.0.0/24 accept",
-		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 accept",
+		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 udp dport 53 accept",
+		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 tcp dport 53 accept",
+		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 tcp flags & (syn | ack) == syn counter drop",
 		"ip saddr 172.30.0.0/24 ip daddr 172.30.0.0/24 counter drop",
 	} {
 		if !strings.Contains(rs.Text, want) {
@@ -243,8 +245,13 @@ func TestRulesAlsoFilterLayer2SoIsolationDoesNotDependOnBrNetfilter(t *testing.T
 		}
 	}
 	// the resolver exceptions must come before the drop
-	if strings.Index(rs.Text, "ip daddr 172.30.0.2 accept") > strings.LastIndex(rs.Text, "counter drop\n  }\n}") {
+	if strings.Index(rs.Text, "ip daddr 172.30.0.2 ip protocol tcp accept") > strings.LastIndex(rs.Text, "counter drop\n  }\n}") {
 		t.Error("exception after the drop")
+	}
+	// a sandbox may not simply be let through to every port of the Syntaxis container: the chat
+	// and admin listeners are on that address too
+	if strings.Contains(rs.Text, "ip saddr 172.30.0.0/24 ip daddr 172.30.0.2 accept") {
+		t.Error("sandboxes can reach every port of the Syntaxis container")
 	}
 }
 

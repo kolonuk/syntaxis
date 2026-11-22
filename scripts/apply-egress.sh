@@ -45,7 +45,11 @@ rules() {
     IMAGE=$(envval SYNTAXIS_IMAGE); IMAGE="${IMAGE:-ghcr.io/kolonuk/syntaxis:latest}"
     set -- "$SUBNET" "$RESOLVER" "$GATEWAY" "$@"
     if [ -f .env ]; then
-      docker run --rm --network none --env-file .env -e SYNTAXIS_SANDBOX_BRIDGE "$IMAGE" egress-rules "$@"
+      # only the egress and sandbox settings go in: .env also holds the master key and passwords,
+      # which a throwaway container that only prints rules has no use for
+      ENVF=$(mktemp); trap 'rm -f "$ENVF"' EXIT
+      grep -E '^SYNTAXIS_(EGRESS|SANDBOX|DNS|CONNECTIONS)[A-Z_]*=' .env > "$ENVF" || true
+      docker run --rm --network none --env-file "$ENVF" -e SYNTAXIS_SANDBOX_BRIDGE "$IMAGE" egress-rules "$@"
     else
       docker run --rm --network none -e SYNTAXIS_SANDBOX_BRIDGE "$IMAGE" egress-rules "$@"
     fi
