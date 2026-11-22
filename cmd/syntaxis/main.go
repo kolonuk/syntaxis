@@ -502,6 +502,7 @@ func cmdServe() error {
 	app.RunAgent = app.RunAgentFunc(server.Wiring{})
 
 	bootstrapAdmin(ctx, cfg, as, st, log)
+	go app.BootstrapProvider(ctx, cfg.BootstrapProvider, log)
 
 	go loop(ctx, 5*time.Minute, func() { app.SetHealth(collectHealth(ctx, cfg, st, rt, app.Sandbox, app.FirewallSyncAge)) })
 	if app.Sandbox != nil {

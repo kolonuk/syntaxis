@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- `SYNTAXIS_BOOTSTRAP_PROVIDER_URL` (with `_NAME`, `_KIND`, `_CONCURRENCY`, `_ENABLE_MODELS`) adds a model provider on a brand-new instance and switches on its discovered chat models, so a rebuilt host comes up ready to use. It never touches an instance that already has a provider.
+
 ### Fixed
 - **Security:** a sandbox could reach every port of the Syntaxis container on the sandbox network, including the chat and admin listeners, because the layer-2 firewall rule let all traffic to the resolver's address through. It now allows only DNS, plus the replies to connections the server opened itself. If you installed 0.1.1, update and let the firewall be re-applied (`sudo systemctl restart syntaxis-egress`).
 - `apply-egress.sh` no longer hands the whole `.env` (with the master key and passwords) to the throwaway container that prints the rules; it passes only the egress and sandbox settings.

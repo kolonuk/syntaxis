@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+// BootstrapProvider describes a model provider to add on first start.
+type BootstrapProvider struct {
+	URL, Name, Kind string
+	Concurrency     int
+	// EnableModels is "all" (every discovered chat model), a comma-separated list of model names,
+	// or empty (discover them, leave them off for the admin to switch on).
+	EnableModels string
+}
+
 // Config holds all runtime configuration. Every environment-specific value
 // lives here; nothing is hardcoded elsewhere.
 type Config struct {
@@ -44,6 +53,8 @@ type Config struct {
 
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
+	// BootstrapProvider adds a model provider on a brand-new instance (no provider yet).
+	BootstrapProvider BootstrapProvider
 
 	// Policy defaults (admin can change at runtime; these are first-boot values).
 	PasswordRotationDays int
@@ -109,6 +120,12 @@ func LoadFrom(get Getenv) (*Config, error) {
 
 		BootstrapAdminEmail:    get("SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapAdminPassword: get("SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD"),
+		BootstrapProvider: BootstrapProvider{
+			URL:          get("SYNTAXIS_BOOTSTRAP_PROVIDER_URL"),
+			Name:         str(get, "SYNTAXIS_BOOTSTRAP_PROVIDER_NAME", "local-llm"),
+			Kind:         str(get, "SYNTAXIS_BOOTSTRAP_PROVIDER_KIND", "ollama"),
+			EnableModels: get("SYNTAXIS_BOOTSTRAP_PROVIDER_ENABLE_MODELS"),
+		},
 
 		SecretScanMode:    str(get, "SYNTAXIS_SECRET_SCAN", "warn"),
 		AllowUserOverride: boolean(get, "SYNTAXIS_ALLOW_USER_OVERRIDE", true),
@@ -134,6 +151,9 @@ func LoadFrom(get Getenv) (*Config, error) {
 		Enabled: boolean(get, "SYNTAXIS_PROXY_AUTH_ENABLED", false),
 		Header:  str(get, "SYNTAXIS_PROXY_AUTH_HEADER", "X-Forwarded-User"),
 		Trusted: list(get("SYNTAXIS_PROXY_TRUSTED")),
+	}
+	if c.BootstrapProvider.Concurrency, err = integer(get, "SYNTAXIS_BOOTSTRAP_PROVIDER_CONCURRENCY", 1); err != nil {
+		return nil, err
 	}
 	if c.PasswordRotationDays, err = integer(get, "SYNTAXIS_PASSWORD_ROTATION_DAYS", 30); err != nil {
 		return nil, err
