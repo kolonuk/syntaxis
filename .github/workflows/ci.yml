@@ -29,6 +29,11 @@ jobs:
           version: latest
       - name: Tests (what needs something real that is not here is skipped and listed below)
         run: go test -race -coverprofile=coverage.out -json ./... > results.json
+      - name: Failed tests
+        if: failure()
+        run: |
+          jq -r 'select(.Action=="fail" and .Test!=null) | "\(.Package) \(.Test)"' results.json
+          jq -r 'select(.Action=="output") | .Output' results.json | grep -B2 -A14 -e '--- FAIL' -e 'DATA RACE' | head -200
       - name: What was not tested
         if: always()
         run: scripts/not-tested.sh results.json | tee -a "$GITHUB_STEP_SUMMARY"

@@ -11,7 +11,7 @@ gh run view <id> --json jobs -q '.jobs[] | select(.conclusion!="success") | .nam
 gh run view <id> --log-failed | grep -E "FAIL|error|Error"
 ```
 
-The real-service job writes test results to a file, so it has a "Failed tests" step that prints them; read that step. The "What was not tested" summary lists everything that skipped and why.
+Both Go test jobs (`go`, with -race, and the real-service job) write results to a file, so each has a "Failed tests" step that prints them; read that step. A data race only shows under `go test -race` (the `go` job): run it locally with `DOCKER_HOST=tcp://127.0.0.1:1 go test -race ./...` to see what CI sees. The "What was not tested" summary lists everything that skipped and why.
 
 Wait for a run with a loop that polls (`until [ "$(gh run view <id> --json status -q .status)" = completed ]; do sleep 30; done`), not a long single sleep.
 
@@ -23,3 +23,4 @@ Wait for a run with a loop that polls (`until [ "$(gh run view <id> --json statu
 - **Images job**: example environment images build on the sandbox image, which must be loaded into the local Docker (`load: true`).
 - **hadolint**: unpinned distribution packages are accepted on purpose (`DL3008`, `DL3013`).
 - **GitHub API limits**: unauthenticated checks share a runner address; a rate limit is a skip, not a pass.
+- **Data race in a test** (shows only in the `go` job, which uses `-race`): a stand-in run writes a slice the test reads. Use the guarded `msgLog` helper in `internal/server/server_test.go`.

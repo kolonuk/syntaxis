@@ -6,6 +6,11 @@ updates:
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
+    ignore:
+      # typescript-eslint does not accept TypeScript 7 yet (npm ci fails with ERESOLVE), so a major
+      # bump cannot build. Remove this when typescript-eslint lists TypeScript 7 as supported.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
