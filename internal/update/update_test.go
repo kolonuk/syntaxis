@@ -4,6 +4,7 @@ package update
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ func TestRealGitHub(t *testing.T) {
 	ctx := context.Background()
 	s := &Source{Repo: "docker/compose"}
 	rs, edge, err := s.Refresh(ctx)
+	skipIfGitHubUnavailable(t, err)
 	if err != nil || len(rs) == 0 || edge.SHA == "" {
 		t.Fatalf("%v %d %+v", err, len(rs), edge)
 	}
@@ -75,7 +77,9 @@ func TestCheckRemembersTheAnswer(t *testing.T) {
 	testenv.Network(t, "api.github.com:443")
 	now := time.Now()
 	s := &Source{Repo: "docker/compose", TTL: time.Hour, Now: func() time.Time { return now }}
-	if _, _, err := s.Check(context.Background(), false); err != nil {
+	_, _, err := s.Check(context.Background(), false)
+	skipIfGitHubUnavailable(t, err)
+	if err != nil {
 		t.Fatal(err)
 	}
 	s.Base = "http://127.0.0.1:1" // would fail if asked again
@@ -84,5 +88,17 @@ func TestCheckRemembersTheAnswer(t *testing.T) {
 	}
 	if _, _, err := s.Check(context.Background(), true); err == nil {
 		t.Fatal("forcing a refresh must ask again")
+	}
+}
+
+// The real GitHub API is sometimes down (a 5xx) or limits an address. That is a test that could not
+// run, not a failure of this code.
+func skipIfGitHubUnavailable(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if msg := err.Error(); strings.Contains(msg, "HTTP 5") || strings.Contains(msg, "limiting") || strings.Contains(msg, "rate limit") {
+		testenv.NotTested(t, "the real GitHub API is not answering normally: "+msg)
 	}
 }
