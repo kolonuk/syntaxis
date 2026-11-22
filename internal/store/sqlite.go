@@ -4,12 +4,14 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -70,8 +72,105 @@ func (s *SQLite) Backup(ctx context.Context, dest string) error {
 	if _, err := os.Stat(dest); err == nil {
 		return fmt.Errorf("backup destination %q already exists", dest)
 	}
-	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, dest)
-	return err
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, dest); err != nil {
+		return err
+	}
+	if err := verifyBackup(ctx, s, dest); err != nil {
+		_ = os.Remove(dest)
+		return fmt.Errorf("the backup was written but did not check out, so it was removed: %w", err)
+	}
+	return nil
+}
+
+// verifyBackup opens the finished backup on its own and checks that SQLite finds it intact and that
+// it has every table the live database has.
+func verifyBackup(ctx context.Context, live *SQLite, dest string) error {
+	b, err := sql.Open("sqlite", "file:"+dest+"?mode=ro")
+	if err != nil {
+		return err
+	}
+	defer b.Close()
+	var res string
+	if err := b.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil || res != "ok" {
+		return fmt.Errorf("integrity check: %v %s", err, res)
+	}
+	want, err := tableNames(ctx, live.db)
+	if err != nil {
+		return err
+	}
+	got, err := tableNames(ctx, b)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for _, n := range got {
+		have[n] = true
+	}
+	for _, n := range want {
+		if !have[n] {
+			return fmt.Errorf("table %s is missing", n)
+		}
+	}
+	return nil
+}
+
+func tableNames(ctx context.Context, db *sql.DB) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// Digest returns, for every table, how many rows it has and a hash of all their contents. Two
+// databases with the same digest hold the same data; the restore drill compares a database with
+// its restored backup this way, so a table the backup left out cannot go unnoticed.
+func (s *SQLite) Digest(ctx context.Context) (map[string]string, error) {
+	names, err := tableNames(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, n := range names {
+		if strings.Contains(n, `"`) {
+			continue
+		}
+		rows, err := s.db.QueryContext(ctx, `SELECT * FROM "`+n+`"`)
+		if err != nil {
+			return nil, err
+		}
+		cols, _ := rows.Columns()
+		var lines []string // sorted below: a restore may number rows differently
+		for rows.Next() {
+			vals := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			lines = append(lines, fmt.Sprintf("%v", vals))
+		}
+		_ = rows.Close()
+		sort.Strings(lines)
+		h := sha256.New()
+		for _, l := range lines {
+			fmt.Fprintf(h, "%s\x00", l)
+		}
+		out[n] = fmt.Sprintf("%d rows %x", len(lines), h.Sum(nil))
+	}
+	return out, nil
 }
 
 // Close closes the database.
@@ -1410,4 +1509,59 @@ func (s *SQLite) ListCheckpointMarks(ctx context.Context, userID int64) ([]Check
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// ---- API tokens ----
+
+const apiTokenCols = `id,user_id,name,prefix,scope,created_at,expires_at,last_used_at,revoked_at`
+
+func scanAPIToken(r interface{ Scan(...any) error }) (*APIToken, error) {
+	var t APIToken
+	var created, expires, used, revoked int64
+	if err := r.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope, &created, &expires, &used, &revoked); err != nil {
+		return nil, mapErr(err)
+	}
+	t.CreatedAt, t.ExpiresAt, t.LastUsedAt, t.RevokedAt = fromTS(created), fromTS(expires), fromTS(used), fromTS(revoked)
+	return &t, nil
+}
+
+func (s *SQLite) CreateAPIToken(ctx context.Context, t APIToken, hash string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO api_tokens (user_id,name,prefix,token_hash,scope,created_at,expires_at) VALUES (?,?,?,?,?,?,?)`,
+		t.UserID, t.Name, t.Prefix, hash, t.Scope, ts(t.CreatedAt), ts(t.ExpiresAt))
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	return res.LastInsertId()
+}
+
+func (s *SQLite) GetAPITokenByHash(ctx context.Context, hash string) (*APIToken, error) {
+	return scanAPIToken(s.db.QueryRowContext(ctx, `SELECT `+apiTokenCols+` FROM api_tokens WHERE token_hash=?`, hash))
+}
+
+func (s *SQLite) ListAPITokens(ctx context.Context, userID int64) ([]APIToken, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+apiTokenCols+` FROM api_tokens WHERE user_id=? ORDER BY created_at DESC, id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []APIToken
+	for rows.Next() {
+		t, err := scanAPIToken(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *t)
+	}
+	return out, rows.Err()
+}
+
+// RevokeAPIToken revokes one of the user's tokens (another user's id is not found).
+func (s *SQLite) RevokeAPIToken(ctx context.Context, userID, id int64, at time.Time) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET revoked_at=? WHERE id=? AND user_id=? AND revoked_at=0`, ts(at), id, userID)
+	return affected(res, err)
+}
+
+func (s *SQLite) TouchAPIToken(ctx context.Context, id int64, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at=? WHERE id=?`, ts(at), id)
+	return err
 }

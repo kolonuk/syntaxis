@@ -120,6 +120,19 @@ type AutomationRun struct {
 	Detail       string
 }
 
+// APIToken is a personal API token. The token itself is never stored, only its hash.
+type APIToken struct {
+	ID         int64
+	UserID     int64
+	Name       string
+	Prefix     string // the first characters, to recognise it in a list
+	Scope      string // "read" or "run"
+	CreatedAt  time.Time
+	ExpiresAt  time.Time // zero = does not expire
+	LastUsedAt time.Time
+	RevokedAt  time.Time
+}
+
 // Share is a disposable read-only link to a session.
 type Share struct {
 	ID           string
@@ -362,6 +375,11 @@ type Store interface {
 	ListCheckpointMarks(ctx context.Context, userID int64) ([]CheckpointMark, error)
 
 	// shared session links
+	CreateAPIToken(ctx context.Context, t APIToken, hash string) (int64, error)
+	GetAPITokenByHash(ctx context.Context, hash string) (*APIToken, error)
+	ListAPITokens(ctx context.Context, userID int64) ([]APIToken, error)
+	RevokeAPIToken(ctx context.Context, userID, id int64, at time.Time) error
+	TouchAPIToken(ctx context.Context, id int64, at time.Time) error
 	CreateShare(ctx context.Context, s Share) error
 	GetShareByHash(ctx context.Context, hash string) (*Share, error)
 	GetShare(ctx context.Context, id string) (*Share, error)
