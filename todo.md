@@ -9,7 +9,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 1. Fixes and verification
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] **Cut the first release (Easy to Medium).** None exists yet, and the verified-update, roll-back and self-management items need one. Run the release workflow (images, binaries, signatures, SBOMs) for a first tag and fix what it finds.
+- [ ] **Check the first release end to end (Easy to Medium).** v0.1.0 is published. Pull its signed images with `cosign verify`, install it on a fresh host and fix what that finds; the release workflow itself has not run before.
 - [ ] **Accessibility and mobile checks for every screen, with a skill to keep them in check (Medium).** Only the sign-in pages are in the axe flows today. Add Playwright and axe flows for the chat, Files, attachments, slash menu, task list, settings and admin pages on a phone and desktop width in light and dark, and extend the existing `.claude/skills/check-the-web-app` skill with a checklist for a new screen (contrast, focus order, labels, keyboard use, screen-reader text), with the ship-a-feature skill requiring it, so each new feature is checked before it ships.
 
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
@@ -29,7 +29,7 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] SMTP login and STARTTLS against a real relay.
 - [ ] The llama.cpp and LiteLLM adapters against real servers.
 - [ ] The installer on a full virtual machine per distribution (CI checks package installation and the fresh install on one image; this host has no hardware virtualisation).
-- [ ] A real update through the admin app on a disposable Docker host: a published release (none exists yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
+- [ ] A real update through the admin app on a disposable Docker host: a published release (v0.1.0 is the first, so there is nothing newer to update to yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 - [ ] Web search against a real SearXNG server (the parser is tested; the live test needs `SYNTAXIS_TEST_SEARXNG_URL`).
 - [ ] Pictures sent to a vision model through the llama.cpp and LiteLLM adapters (checked with Ollama's native and OpenAI-compatible APIs only), and OCR of languages other than English.

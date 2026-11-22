@@ -4,6 +4,10 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-22
+
+The first release. Syntaxis is pre-1.0: expect changes, and read [security](docs/security.md) for the honest limits.
+
 ### Added
 - **API tokens:** per-user, hashed, revocable tokens with a `read` or `run` scope and an optional expiry, made under Settings → API tokens and listed in the new [API](docs/api.md) page. A token can never reach secrets, connections, settings, hooks, the terminal, files-writing or other tokens, and a test fails if a new route is open to tokens by accident.
 - **Uploads are checked and off by default.** An admin turns them on, sets the largest file and which kinds are allowed. Only pictures, PDFs, office documents and plain text pass, judged by content: programs, scripts, archives, macros, embedded files, data hidden after a picture, encoded text, and PDFs with scripts, launch actions, embedded files or encodings that hide content are refused and audited.
