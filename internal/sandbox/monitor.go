@@ -101,6 +101,22 @@ func (m *Monitor) Run(ctx context.Context) {
 	}
 }
 
+// diskCheckEvery is how often to measure a workspace. The size limit is enforced by measuring, not by
+// the filesystem, so the closer a workspace gets to its limit the more often it is measured: a runaway
+// writer is then caught within seconds, not a minute, while idle workspaces cost almost nothing.
+func diskCheckEvery(base time.Duration, used, limit int64) time.Duration {
+	if limit <= 0 || used <= 0 {
+		return base
+	}
+	switch {
+	case used*10 >= limit*9:
+		return min(base, 3*time.Second)
+	case used*2 >= limit:
+		return min(base, 10*time.Second)
+	}
+	return base
+}
+
 // Tick takes one sample of every running sandbox.
 func (m *Monitor) Tick(ctx context.Context, now time.Time) {
 	cs, err := m.RT.List(ctx)
@@ -181,6 +197,7 @@ func (m *Monitor) observe(ctx context.Context, session string, user int64, id st
 	if every <= 0 {
 		every = time.Minute
 	}
+	every = diskCheckEvery(every, t.disk, m.Watchdog.Cfg.DiskBytesLimit)
 	checkDisk := m.DiskBytes != nil && now.Sub(t.diskAt) >= every
 	if checkDisk {
 		t.diskAt = now
