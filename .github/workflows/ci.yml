@@ -121,7 +121,7 @@ jobs:
           ignore-unfixed: true   # unfixed Docker-engine advisories are documented in docs/security.md
           exit-code: "1"
       - name: Secret scan of the repository
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
