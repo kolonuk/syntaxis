@@ -39,7 +39,9 @@ func TestFullWorkspaceBlocksNewWorkUntilSpaceIsFreed(t *testing.T) {
 	cfg := sandbox.DefaultWatchdogConfig()
 	cfg.DiskBytesLimit = 5 << 20
 	d := e.app.Sandbox.RT.(*sandbox.Docker)
-	mon := sandbox.NewMonitor(d, sandbox.NewWatchdog(cfg), 2, nil)
+	// the monitor looks at every sandbox its runtime lists, with this test's 5 MiB limit: it must see only this user's
+	// sandbox, never another Syntaxis' on the same Docker host (a 6 MiB workspace there would be stopped)
+	mon := sandbox.NewMonitor(onlyUser{Runtime: d, user: itoa(usr.ID)}, sandbox.NewWatchdog(cfg), 2, nil)
 	mon.DiskBytes = func(c context.Context, cid string) (int64, error) { return sandbox.WorkspaceBytes(c, d, cid) }
 	mon.DiskEvery = time.Millisecond
 	e.app.Monitor = mon
@@ -60,4 +62,21 @@ func TestFullWorkspaceBlocksNewWorkUntilSpaceIsFreed(t *testing.T) {
 	if code, _, raw := u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "hello"}); code != 202 {
 		t.Fatalf("after freeing space: %d %s", code, raw)
 	}
+}
+
+// onlyUser is the real Docker engine, but listing only one user's sandboxes.
+type onlyUser struct {
+	sandbox.Runtime
+	user string
+}
+
+func (o onlyUser) List(ctx context.Context) ([]sandbox.ContainerInfo, error) {
+	all, err := o.Runtime.List(ctx)
+	var out []sandbox.ContainerInfo
+	for _, c := range all {
+		if c.Labels[sandbox.LabelUser] == o.user {
+			out = append(out, c)
+		}
+	}
+	return out, err
 }

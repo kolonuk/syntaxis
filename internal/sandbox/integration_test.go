@@ -292,7 +292,9 @@ func monitorFixture(t *testing.T, session string, uid int64) (*Manager, *Docker,
 	}
 	cfg := DefaultWatchdogConfig()
 	cfg.WarnAfter, cfg.ThrottleAfter, cfg.PauseAfter, cfg.KillAfter, cfg.MinerAfter = 3*time.Second, 6*time.Second, 14*time.Second, 40*time.Second, 0
-	mon := NewMonitor(d, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
+	// a monitor ticks every sandbox its runtime lists, so it sees only this test's user: another
+	// Syntaxis on the same Docker host (and other tests) must not be paused or stopped by it
+	mon := NewMonitor(scoped{Runtime: d, users: map[string]bool{strconv.FormatInt(uid, 10): true}}, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
 	mon.Interval, mon.Window = time.Second, 4
 	return m, d, id, mon
 }
@@ -395,7 +397,7 @@ func TestIntegrationMonitorWarnsWhenTheWorkspaceIsOverItsLimitAndKeepsRunning(t 
 	}
 	cfg := DefaultWatchdogConfig()
 	cfg.DiskBytesLimit = 5 << 20 // 6 MiB is 120%: over the limit, under the 125% that stops a runaway fill
-	mon := NewMonitor(d, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
+	mon := NewMonitor(scoped{Runtime: d, users: map[string]bool{strconv.FormatInt(uid, 10): true}}, NewWatchdog(cfg), DefaultLimits().CPUs, nil)
 	mon.Interval, mon.Window = time.Second, 4
 	mon.DiskBytes = func(ctx context.Context, cid string) (int64, error) { return WorkspaceBytes(ctx, d, cid) }
 	mon.DiskEvery = time.Second
