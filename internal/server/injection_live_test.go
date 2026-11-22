@@ -127,7 +127,7 @@ func TestLivePromptInjection(t *testing.T) {
 	for i, sf := range surfaces {
 		sf := sf
 		t.Run(sf.name, func(t *testing.T) {
-			uid := int64(930000 + time.Now().UnixNano()%50000 + int64(i))
+			uid := 930000 + time.Now().UnixNano()%50000 + int64(i)
 			sid := fmt.Sprintf("live-inject-%d", uid)
 			canary := fmt.Sprintf("canary-%d-%s", uid, strings.Repeat("x7", 6))
 			cid, err := mgr.Create(ctx, uid, sid, nil, false)

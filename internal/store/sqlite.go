@@ -91,8 +91,11 @@ func verifyBackup(ctx context.Context, live *SQLite, dest string) error {
 	}
 	defer b.Close()
 	var res string
-	if err := b.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil || res != "ok" {
-		return fmt.Errorf("integrity check: %v %s", err, res)
+	if err := b.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil {
+		return fmt.Errorf("integrity check: %w", err)
+	}
+	if res != "ok" {
+		return fmt.Errorf("integrity check: %s", res)
 	}
 	want, err := tableNames(ctx, live.db)
 	if err != nil {
@@ -1513,7 +1516,7 @@ func (s *SQLite) ListCheckpointMarks(ctx context.Context, userID int64) ([]Check
 
 // ---- API tokens ----
 
-const apiTokenCols = `id,user_id,name,prefix,scope,created_at,expires_at,last_used_at,revoked_at`
+const apiTokenCols = `id,user_id,name,prefix,scope,created_at,expires_at,last_used_at,revoked_at` //nolint:gosec // a column list, not a credential
 
 func scanAPIToken(r interface{ Scan(...any) error }) (*APIToken, error) {
 	var t APIToken

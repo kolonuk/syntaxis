@@ -189,13 +189,13 @@ func (a *App) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, fmt.Sprintf("you can have %d tokens; revoke one first", maxAPITokens))
 		return
 	}
-	raw, hash, err := auth.NewToken()
+	raw, _, err := auth.NewToken()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not make a token")
 		return
 	}
 	raw = TokenPrefix + raw
-	hash = auth.HashToken(raw)
+	hash := auth.HashToken(raw)
 	t := store.APIToken{UserID: uid, Name: b.Name, Prefix: raw[:len(TokenPrefix)+6], Scope: b.Scope, CreatedAt: a.Now()}
 	if b.ExpiresDays > 0 {
 		t.ExpiresAt = a.Now().Add(time.Duration(b.ExpiresDays) * 24 * time.Hour)
