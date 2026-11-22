@@ -102,8 +102,8 @@ function HealthTab() {
   if (!data) return <Skeleton />;
   return (
     <div className="stack">
-      {data.findings.length === 0 && <Banner>All checks passed.</Banner>}
-      {data.findings.map((f) => (
+      {(data.findings ?? []).length === 0 && <Banner>All checks passed.</Banner>}
+      {(data.findings ?? []).map((f) => (
         <Card key={f.check_id + f.subject}>
           <div className="row">
             <Badge tone={tone(f.severity)}>{f.severity}</Badge>

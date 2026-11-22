@@ -970,3 +970,14 @@ func (l *msgLog) all() []string {
 	defer l.mu.Unlock()
 	return append([]string(nil), l.msgs...)
 }
+
+// A healthy instance has no findings. The admin app reads the list as JSON, and a null instead of an
+// empty list used to blank its whole page.
+func TestAdminHealthListIsNeverNull(t *testing.T) {
+	e := newEnv(t)
+	adm := e.makeAdminSession()
+	_, _, raw := adm.do("GET", "/api/health", nil)
+	if !strings.Contains(string(raw), `"findings":[]`) {
+		t.Fatalf("with no findings the list must be empty, not null: %s", raw)
+	}
+}

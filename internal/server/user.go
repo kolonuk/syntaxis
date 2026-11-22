@@ -891,7 +891,8 @@ func (a *App) handleExport(w http.ResponseWriter, r *http.Request) {
 func (a *App) healthFindings(_ context.Context) []health.Finding {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]health.Finding(nil), a.healthSnap...)
+	// never nil: the admin app reads the list as JSON, and a null there blanks its health page
+	return append([]health.Finding{}, a.healthSnap...)
 }
 
 // SetHealth stores the latest findings (called by the health collector).
