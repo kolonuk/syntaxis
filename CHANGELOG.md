@@ -4,9 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-22
+## [0.1.1] - 2026-11-22
 
-The first release. Syntaxis is pre-1.0: expect changes, and read [security](docs/security.md) for the honest limits.
+The first release. Syntaxis is pre-1.0: expect changes, and read [security](docs/security.md) for the honest limits. The `v0.1.0` tag was cut first, but its release run failed building the cloud sandbox image (the OpenTofu installer's gpg had no home directory), so no release was made from it; 0.1.1 has the same changes and the fix.
 
 ### Added
 - **API tokens:** per-user, hashed, revocable tokens with a `read` or `run` scope and an optional expiry, made under Settings → API tokens and listed in the new [API](docs/api.md) page. A token can never reach secrets, connections, settings, hooks, the terminal, files-writing or other tokens, and a test fails if a new route is open to tokens by accident.
