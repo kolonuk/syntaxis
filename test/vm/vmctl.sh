@@ -24,6 +24,9 @@ SSH_WAIT=${SYX_VM_SSH_WAIT:-240}
 die() { echo "vmctl: $*" >&2; exit 1; }
 log() { echo "vmctl: $*" >&2; }
 
+# shellcheck source=windows.sh
+. "$HERE/windows.sh"
+
 usage() {
 	cat <<'EOF'
 usage: vmctl.sh <command> [args]
@@ -34,7 +37,11 @@ usage: vmctl.sh <command> [args]
   list                            list fetched images and VMs
   create <vm> <distro> [cpus] [mem-MB] [disk]
                                   make a VM disk from the current base image
-                                  (defaults: 2 cpus, 2048 MB, 20G)
+                                  (defaults: 2 cpus, 2048 MB, 20G); the distro
+                                  "windows11" installs from the imported ISO
+                                  (defaults: 4 cpus, 4096 MB, 64G)
+  import-iso <file>               register a Windows 11 ISO for "create windows11"
+  screenshot <vm> <out.png>       picture of a Windows VM's screen (install progress)
   start <vm> [--net=nat]          boot VM; default is isolated networking
   stop <vm>                       ACPI-style poweroff, then kill after a timeout
   ssh <vm> [command...]           shell (or run command) as user "tester"
@@ -196,6 +203,9 @@ load_vm() {
 		-o LogLevel=ERROR "$SSH_USER@127.0.0.1")
 	SCP=(scp -i "$KEY" -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new
 		-o UserKnownHostsFile="$VM/known_hosts" -o LogLevel=ERROR -r)
+	# Win32-OpenSSH's SFTP server cuts a download short (200 KiB) when scp reads in
+	# parallel, so Windows guests use the legacy scp protocol, which is exact.
+	if [ "${kind:-linux}" = windows ]; then SCP+=(-O); fi
 }
 
 is_running() {
@@ -251,6 +261,7 @@ EOF
 cmd_create() {
 	local vm=$1 distro=$2 cpus=${3:-2} mem=${4:-2048} size=${5:-20G} dir
 	valid_name "$vm"
+	if [ "$distro" = windows11 ]; then win_create "$vm" "${@:3}"; return; fi
 	distro_line "$distro" >/dev/null
 	dir=$VM_DIR/$vm
 	[ ! -e "$dir" ] || die "VM '$vm' exists (use rebuild or destroy)"
@@ -272,7 +283,7 @@ EOF
 
 wait_ssh() {
 	local deadline=$((SECONDS + SSH_WAIT))
-	until "${SSH[@]}" true >/dev/null 2>&1; do
+	until "${SSH[@]}" 'exit 0' >/dev/null 2>&1; do
 		[ "$SECONDS" -lt "$deadline" ] || die "$VM_NAME: no SSH after ${SSH_WAIT}s (see $VM/console.log)"
 		sleep 3
 	done
@@ -281,6 +292,8 @@ wait_ssh() {
 cmd_start() {
 	local vm=$1 net=isolated netdev
 	shift
+	load_vm "$vm"
+	if [ "${kind:-linux}" = windows ]; then win_start "$vm" "$@"; return; fi
 	while [ $# -gt 0 ]; do
 		case $1 in
 			--net=nat) net=nat ;;
@@ -319,6 +332,7 @@ cmd_stop() {
 	local vm=$1 deadline
 	load_vm "$vm"
 	is_running || { log "$vm not running"; return 0; }
+	if [ "${kind:-linux}" = windows ]; then win_stop; log "$vm stopped"; return 0; fi
 	timeout 20 "${SSH[@]}" sudo systemctl poweroff >/dev/null 2>&1 || true
 	deadline=$((SECONDS + 60))
 	while is_running && [ "$SECONDS" -lt "$deadline" ]; do sleep 2; done
@@ -337,6 +351,7 @@ cmd_rebuild() {
 	load_vm "$vm"
 	cmd_stop "$vm"
 	ensure_key
+	if [ "${kind:-linux}" = windows ]; then win_rebuild "$vm" "$net"; return; fi
 	make_disk "$VM" "$distro" "$disk"
 	rm -f "$VM/known_hosts"
 	make_seed "$vm" "$VM"
@@ -453,6 +468,8 @@ case $cmd in
 	rebuild) need_tools; [ $# -ge 1 ] || die "usage: rebuild <vm>"; cmd_rebuild "$@" ;;
 	destroy) [ $# -eq 1 ] || die "usage: destroy <vm>"; cmd_destroy "$1" ;;
 	prune) cmd_prune ;;
+	import-iso) [ $# -eq 1 ] || die "usage: import-iso <windows11.iso>"; cmd_import_iso "$1" ;;
+	screenshot) [ $# -eq 2 ] || die "usage: screenshot <vm> <out.png>"; cmd_screenshot "$1" "$2" ;;
 	timer) cmd_timer "$@" ;;
 	*) die "unknown command '$cmd' (try: vmctl.sh help)" ;;
 esac

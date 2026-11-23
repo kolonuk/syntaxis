@@ -7,7 +7,7 @@
 # rebuild wiping the guest, stop, destroy. The first distro also checks nat
 # mode really differs from isolated mode, and prune keeping a base in use.
 # Needs the base images (vmctl.sh fetch) and /dev/kvm. Takes about 3 minutes
-# per distro. Exit status is the number of failed checks (capped at 100).
+# per distro. Pass windows11 to also test Windows (opt-in; see README). Exit status is the number of failed checks (capped at 100).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -99,6 +99,42 @@ test_distro() {
 	check_not "$distro: destroy removed the VM directory" test -e "$HOME_DIR/vms/$name"
 }
 
+# A PowerShell condition run in a Windows guest: exit 0 if it is true.
+wps() { gx "$1" "if ($2) { exit 0 } else { exit 1 }"; }
+
+reach_win() { # reach_win <vm> <host> <port>
+	wps "$1" "(New-Object Net.Sockets.TcpClient).ConnectAsync('$2', $3).Wait(5000)"
+}
+
+# Windows 11 is opt-in (windows11 as an argument): it needs the imported ISO and
+# a 15 to 40 minute unattended install. The first start is nat by design.
+test_windows() {
+	local name=selftest-windows11 d=windows11
+	echo "== $d"
+	check "$d: create" vm create "$name" windows11
+	check "$d: first start installs Windows (nat)" vm start "$name"
+	check "$d: ssh runs a command" gx "$name" 'exit 0'
+	check "$d: OS is Windows 11" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Windows 11'"
+	check "$d: edition is Pro" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Pro'"
+	check_not "$d: the answer file carries no product key" grep -Eq '[A-Z0-9]{5}(-[A-Z0-9]{5}){4}' "$HERE/windows/autounattend.xml.in"
+	echo "INFO $d: Windows reports: $(gx "$name" 'cscript //nologo C:\Windows\System32\slmgr.vbs /xpr' 2>/dev/null | tr -d '\r' | grep -v '^$' | tr '\n' ' ')"
+	check "$d: tester is an administrator" wps "$name" "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')"
+	check "$d: TPM 2.0 present" wps "$name" "(Get-Tpm).TpmPresent"
+	check "$d: Secure Boot on" wps "$name" "Confirm-SecureBootUEFI"
+	check "$d: stop" vm stop "$name"
+	check "$d: start isolated" vm start "$name"
+	check_not "$d: isolated: no outbound TCP to the internet" reach_win "$name" 1.1.1.1 443
+	check_not "$d: isolated: no route to a host loopback service" reach_win "$name" 10.0.2.2 "$host_port"
+	check_not "$d: isolated: DNS does not resolve" wps "$name" "[bool](Resolve-DnsName example.com -ErrorAction SilentlyContinue)"
+	head -c 1048576 /dev/urandom >"$workdir/blob"
+	check "$d: put" vm put "$name" "$workdir/blob" blob
+	check "$d: get" vm get "$name" blob "$workdir/blob.back"
+	check "$d: copy round trip is identical" cmp "$workdir/blob" "$workdir/blob.back"
+	check "$d: stop" vm stop "$name"
+	check "$d: destroy" vm destroy "$name"
+	check_not "$d: destroy removed the VM directory" test -e "$HOME_DIR/vms/$name"
+}
+
 distros=("$@")
 if [ "${#distros[@]}" -eq 0 ]; then
 	mapfile -t distros < <(awk -F'|' '$0 !~ /^#/ && NF >= 4 { print $1 }' "$HERE/distros.conf")
@@ -106,8 +142,12 @@ fi
 
 first=1
 for d in "${distros[@]}"; do
-	test_distro "$d" "$first"
-	first=0
+	if [ "$d" = windows11 ]; then
+		test_windows
+	else
+		test_distro "$d" "$first"
+		first=0
+	fi
 done
 
 echo

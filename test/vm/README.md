@@ -37,6 +37,7 @@ Storage lives outside the repository, in `${SYX_VM_HOME:-~/.local/share/syntaxis
 | `vmctl.sh stop <vm>` | Power off through the guest, then kill QEMU if it does not stop. |
 | `vmctl.sh rebuild <vm>` | Stop, make a fresh overlay from the current base, boot. Everything in the guest is gone. |
 | `vmctl.sh destroy <vm>` | Stop and delete the VM. |
+| `vmctl.sh import-iso <file>` / `screenshot <vm> <png>` | Windows only: register the ISO; take a picture of the guest screen. |
 | `vmctl.sh list` | Images (versions, size) and VMs (state, port, disk use). |
 | `vmctl.sh prune` | Delete base images that neither `current` nor any VM overlay uses. Safe with running VMs. |
 | `vmctl.sh timer install\|remove` | Weekly `fetch` as a systemd user timer. |
@@ -61,8 +62,56 @@ test/vm/vmctl.sh destroy esc-1
 SSH and sudo, OS identity, network isolation (with a real listener on the host's
 loopback), file copy in and out, rebuild wiping the guest, stop and destroy. The
 first distro also checks that `nat` mode really differs from `isolated` and that
-`prune` keeps a base image a running VM uses. All five distros pass (105 checks,
-about 15 minutes). Run it after changing `vmctl.sh`.
+`prune` keeps a base image a running VM uses. All five Linux distros pass (105
+checks, about 15 minutes). Run it after changing `vmctl.sh`.
+
+`selftest.sh windows11` is opt-in: it needs the imported ISO and does a full
+unattended install (about 15 minutes), then checks Windows 11 Pro, the answer
+file has no product key, TPM 2.0 and Secure Boot, isolation after the first boot,
+and a file round trip.
+
+## Windows 11
+
+A Windows VM installs from the consumer Windows 11 ISO (Home/Pro multi-edition)
+with an unattended answer file. **We supply no product key, generic or otherwise**:
+the edition is chosen by name (`Windows 11 Pro`, override with `SYX_WIN_EDITION`).
+Nothing is cracked or bypassed: UEFI with Secure Boot (OVMF) and a software
+TPM 2.0 (`swtpm`) meet the Windows 11 requirements, and every VM gets its own
+random machine UUID. The disk is NVMe and the network card an e1000e, so no
+extra drivers are needed.
+
+Activation: Windows decides this by itself. Both VMs we installed reported
+"permanently activated" after their nat first boot, with no key from us and each
+with its own random machine UUID. We do not know why and make no use of it. Do not
+rely on that, or on the opposite, in any test.
+
+```sh
+sudo apt install swtpm genisoimage socat ovmf
+# Download the ISO in a browser from Microsoft (Windows 11, x64, multi-edition).
+# Microsoft's download service refuses scripted requests, so there is no fetch step.
+test/vm/vmctl.sh import-iso ~/Downloads/Win11_*.iso
+test/vm/vmctl.sh create win-1 windows11      # 4 cpus, 4096 MB, 64G by default
+test/vm/vmctl.sh start win-1                 # installs unattended, 15 to 40 minutes
+test/vm/vmctl.sh screenshot win-1 /tmp/win.png   # watch the install
+test/vm/vmctl.sh stop win-1
+test/vm/vmctl.sh start win-1                 # now isolated, like the Linux VMs
+test/vm/vmctl.sh ssh win-1 'ver'             # PowerShell over OpenSSH, user "tester"
+```
+
+- The ISO lives in `$SYX_VM_HOME/isos/windows11/`, outside the repository. The
+  browser download link Microsoft gives you expires, so import the file, not the link.
+- The first boot of a new Windows VM uses `nat` networking, because the answer file
+  installs the OpenSSH server from Windows Update. After the install, `stop` and
+  `start` boot it isolated. Treat that first boot as provisioning, not a test.
+- `tester` is a local administrator. Its autologon password is random per VM and
+  stored in the VM directory; SSH uses the key only.
+- `rebuild` on a Windows VM reinstalls it from the ISO (about 15 minutes), so keep
+  a Windows VM for a whole test session rather than rebuilding between steps.
+- A Windows VM needs about 4 GB of RAM and a 64 GB disk image (it uses about 15 GB once installed).
+- `put` and `get` use the legacy scp protocol for Windows guests: Win32-OpenSSH's SFTP server
+  truncates scp downloads at 200 KiB.
+- OpenSSH comes from Microsoft's Win32-OpenSSH release on GitHub; the Windows optional
+  feature (Windows Update) is the fallback, because it hung for over 30 minutes in testing.
 
 ## Networking
 
@@ -97,13 +146,8 @@ known gap; it is acceptable for disposable test guests.
 
 ## Other operating systems
 
-- **Windows 11**: not implemented yet. The plan is the consumer Windows 11 ISO
-  (Home/Pro) from Microsoft's own download page, installed without a product key
-  and left unactivated for the short test life of a VM. It needs a TPM 2.0
-  emulator (`swtpm`) and UEFI firmware (`ovmf`) on the host, a blank 64 GB disk
-  instead of a cloud image, and an unattended-install answer file, so it
-  needs its own `vmctl.sh` path. Windows 11 Enterprise Evaluation is too heavy.
-  ReactOS has no cloud image and is not a reliable stand-in for Windows.
+- **Windows 11**: see "Windows 11" below. ReactOS has no cloud image and is not
+  a reliable stand-in for Windows, so it is not used.
 - **macOS**: not supported. Apple does not license macOS for non-Apple hardware, so
   there is no legitimate KVM image path. Test macOS on real hardware or in a hosted
   macOS CI runner.
