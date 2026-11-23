@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- `test/vm/`: disposable QEMU/KVM test VMs (Debian 12 and 13, Ubuntu 24.04, Rocky 9, AlmaLinux 9) for escape and destructive tests. Base images are fetched and verified from the vendors, VMs are rebuilt in seconds, and the default network is fully isolated from the host and LAN. No images are stored in the repository.
+
 ## [0.1.2] - 2026-11-23
 
 ### Added
