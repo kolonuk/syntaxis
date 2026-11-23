@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-23
+
 ### Added
 - `SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD` lets the first admin made from the environment start with a 6-character password instead of 12. Off by default; the other password rules still apply.
 
