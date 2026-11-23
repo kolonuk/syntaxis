@@ -14,6 +14,7 @@ OVMF_CODE=${SYX_OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.ms.fd}
 OVMF_VARS=${SYX_OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.ms.fd}
 WIN_ISO_DIR=$HOME_DIR/isos/windows11
 WIN_EDITION=${SYX_WIN_EDITION:-Windows 11 Pro}
+WIN_TPL=$IMG_DIR/windows11
 WIN_INSTALL_WAIT=${SYX_WIN_INSTALL_WAIT:-3600}
 WIN_BOOT_WAIT=${SYX_WIN_BOOT_WAIT:-600}
 
@@ -70,10 +71,34 @@ win_create() {
 	[ ! -e "$dir" ] || die "VM '$vm' exists (use rebuild or destroy)"
 	iso=$(win_latest_iso)
 	[ -n "$iso" ] || die "no Windows ISO: download Windows 11 (x64) from Microsoft, then run 'vmctl.sh import-iso <file>'"
-	mkdir -p "$dir/tpm"
 	ensure_key
+	if win_have_template && [ "${SYX_WIN_FRESH:-0}" != 1 ]; then
+		win_from_template "$dir" "$size"
+		# Hold a lock while picking the port and writing vm.conf, so VMs created at
+		# the same time (suite.sh runs several) cannot take the same SSH port.
+		exec 8>"$HOME_DIR/alloc.lock"
+		flock 8
+		cat >"$dir/vm.conf" <<EOF
+distro=windows11
+kind=windows
+cpus=$cpus
+mem=$mem
+disk=$size
+port=$(alloc_port)
+installed=1
+uuid=$(cat /proc/sys/kernel/random/uuid)
+EOF
+		exec 8>&-
+		log "created $vm from the saved template (windows11, $cpus cpus, $mem MB): boots in about a minute"
+		return 0
+	fi
+	mkdir -p "$dir/tpm"
 	qemu-img create -q -f qcow2 "$dir/disk.qcow2" "$size"
 	cp "$OVMF_VARS" "$dir/OVMF_VARS.fd"
+	# Hold a lock while picking the port and writing vm.conf, so VMs created at
+	# the same time (suite.sh runs several) cannot take the same SSH port.
+	exec 8>"$HOME_DIR/alloc.lock"
+	flock 8
 	cat >"$dir/vm.conf" <<EOF
 distro=windows11
 kind=windows
@@ -84,8 +109,43 @@ port=$(alloc_port)
 installed=0
 uuid=$(cat /proc/sys/kernel/random/uuid)
 EOF
+	exec 8>&-
 	win_make_unattend "$vm" "$dir"
 	log "created $vm (windows11, $cpus cpus, $mem MB, disk $size, install from $(basename "$iso"))"
+}
+
+win_have_template() { [ -f "$WIN_TPL/template.qcow2" ] && [ -f "$WIN_TPL/template.VARS.fd" ] && [ -d "$WIN_TPL/template.tpm" ]; }
+
+# win_from_template <vm dir> <disk size>: overlay on the template, with its firmware
+# variables and TPM state, so the clone boots as the installed machine it was copied from.
+win_from_template() {
+	local dir=$1 size=$2
+	mkdir -p "$dir"
+	qemu-img create -q -f qcow2 -F qcow2 -b "$WIN_TPL/template.qcow2" "$dir/disk.qcow2" "$size"
+	cp "$WIN_TPL/template.VARS.fd" "$dir/OVMF_VARS.fd"
+	cp -a "$WIN_TPL/template.tpm" "$dir/tpm"
+}
+
+cmd_win_template() {
+	# win-template <vm>: save an installed Windows VM as the template new VMs start from.
+	local vm=$1
+	load_vm "$vm"
+	[ "${kind:-linux}" = windows ] || die "$vm is not a Windows VM"
+	[ "${installed:-0}" = 1 ] || die "$vm has not finished installing (start it and wait for SSH)"
+	cmd_stop "$vm"
+	log "saving $vm as the Windows template (this compresses the disk and takes a few minutes)"
+	mkdir -p "$WIN_TPL"
+	rm -rf "$WIN_TPL/template.new" "$WIN_TPL/template.tpm.new"
+	qemu-img convert -O qcow2 -c "$VM/disk.qcow2" "$WIN_TPL/template.qcow2.new"
+	cp "$VM/OVMF_VARS.fd" "$WIN_TPL/template.VARS.fd.new"
+	cp -a "$VM/tpm" "$WIN_TPL/template.tpm.new"
+	rm -rf "$WIN_TPL/template.tpm"
+	mv "$WIN_TPL/template.tpm.new" "$WIN_TPL/template.tpm"
+	mv "$WIN_TPL/template.VARS.fd.new" "$WIN_TPL/template.VARS.fd"
+	chmod 444 "$WIN_TPL/template.qcow2.new"
+	mv -f "$WIN_TPL/template.qcow2.new" "$WIN_TPL/template.qcow2"
+	printf 'saved %s from %s, ISO %s\n' "$(date -u +%FT%TZ)" "$vm" "$(basename "$(win_latest_iso)")" >"$WIN_TPL/template.info"
+	log "template saved ($(du -h "$WIN_TPL/template.qcow2" | cut -f1)); new Windows VMs now start from it"
 }
 
 win_send_keys() {
@@ -236,9 +296,16 @@ PY
 }
 
 win_rebuild() {
-	# Without a saved template a Windows rebuild is a fresh install (15 to 40 minutes).
+	# From the saved template this takes seconds; without one it is a fresh install.
 	local vm=$1 net=$2
 	rm -rf "$VM/tpm" "$VM/disk.qcow2" "$VM/OVMF_VARS.fd" "$VM/known_hosts" "$VM/win-password" "$VM/unattend.iso"
+	if win_have_template && [ "${SYX_WIN_FRESH:-0}" != 1 ]; then
+		win_from_template "$VM" "$disk"
+		sed -i 's/^installed=.*/installed=1/' "$VM/vm.conf"
+		log "rebuilt $vm from the saved template"
+		win_start "$vm" "--net=$net"
+		return
+	fi
 	mkdir -p "$VM/tpm"
 	qemu-img create -q -f qcow2 "$VM/disk.qcow2" "$disk"
 	cp "$OVMF_VARS" "$VM/OVMF_VARS.fd"

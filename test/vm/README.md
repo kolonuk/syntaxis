@@ -113,12 +113,48 @@ test/vm/vmctl.sh ssh win-1 'ver'             # PowerShell over OpenSSH, user "te
 - OpenSSH comes from Microsoft's Win32-OpenSSH release on GitHub; the Windows optional
   feature (Windows Update) is the fallback, because it hung for over 30 minutes in testing.
 
+### Windows template
+
+After the first install, `vmctl.sh win-template <vm>` saves that VM's disk (flattened
+and compressed), firmware variables and TPM state as the template in
+`$SYX_VM_HOME/images/windows11/`. From then on `create <vm> windows11` makes a
+copy-on-write clone of it that boots isolated in about a minute, and `rebuild` goes
+back to the template in seconds instead of reinstalling. `SYX_WIN_FRESH=1` forces a
+fresh install. `prune` never deletes the template. Delete `template.*` to rebuild it
+(for example after importing a newer ISO). `selftest.sh windows11` installs and saves
+the template on its first run, and clones it on every run after that.
+
+## Install and security suite
+
+`test/vm/suite.sh [--keep] [distro...]` is the real test the VMs exist for. For each
+distro, in its own fresh VM (two at a time by default):
+
+1. Boot on `nat` (provisioning), copy the working tree in, and run
+   `scripts/install.sh` as a user would: it installs Docker, nftables and gVisor,
+   starts the stack, installs the firewall units and prints the admin link. The
+   release images are pinned (`SYX_INSTALL_VERSION`, default `v0.1.2`); building them
+   is the same on every distro, while the package, repository and SELinux handling is
+   what differs.
+2. Verify the install as CI does (health, units, nft table, `.env`, `doctor`) and check
+   that re-running the installer keeps the master key.
+3. Copy the Go toolchain in and download modules (still `nat`).
+4. **Pass A, isolated:** reboot with no route out and run the sandbox, Docker proxy,
+   egress, safehttp, doctor and policy tests against the real Docker and gVisor.
+5. **Pass B, nat:** only `TestIntegrationEgressBlocksLANHostMetadataSMTP`, which needs
+   the internet to prove the firewall blocks LAN, host, metadata and SMTP while the
+   internet stays reachable. It probes addresses inside the VM and a private range.
+
+Results (logs, `go test -json`, skipped tests) go to
+`$SYX_VM_HOME/results/<timestamp>/<distro>/`. A VM is destroyed when everything
+passes and kept when something fails. The harness itself is not run in CI: it needs
+KVM, which only this host has.
+
 ## Networking
 
 | Mode | Guest can reach | Use for |
 |---|---|---|
 | `isolated` (default) | Nothing outside the guest. SSH is a forward from `127.0.0.1:<port>` on the host. | All escape and destructive tests. |
-| `nat` (`--net=nat`) | Internet, and the host's loopback services and LAN through QEMU's `10.0.2.2` gateway. | Provisioning only (installing packages). Start, install, stop, then boot isolated for tests. |
+| `nat` (`--net=nat`) | Internet, and the host's loopback services and LAN through QEMU's `10.0.2.2` gateway. | Provisioning (installing packages), and the one egress-firewall test in `suite.sh` that needs the internet. Start, install, stop, then boot isolated for tests. |
 
 Checked on this host: an isolated guest gets connection refused or timeouts to
 the host's Ollama and LiteLLM ports, to host SSH, to a LAN address and to the
@@ -148,9 +184,23 @@ known gap; it is acceptable for disposable test guests.
 
 - **Windows 11**: see "Windows 11" below. ReactOS has no cloud image and is not
   a reliable stand-in for Windows, so it is not used.
-- **macOS**: not supported. Apple does not license macOS for non-Apple hardware, so
-  there is no legitimate KVM image path. Test macOS on real hardware or in a hosted
-  macOS CI runner.
+- **macOS**: not possible on this host. Apple only licenses macOS in a VM on Apple
+  hardware, so a macOS guest under KVM on x86 is both unsupported and against the
+  licence. Routes that are allowed, easiest first:
+  1. **A Mac on the network as a second test host** (a used Apple-silicon Mac mini is
+     enough). macOS guests run on Apple's Virtualization framework, driven from the
+     command line by [Tart](https://tart.run) or UTM, with disposable clones of a
+     base image in seconds. Apple's licence allows two macOS VMs per Mac. A small
+     wrapper like `vmctl.sh`, run over SSH from this host, would give the same
+     create, start, rebuild and destroy commands.
+  2. **GitHub-hosted macOS runners** in CI (`runs-on: macos-latest`) for tests that do
+     not need the destructive isolation a throwaway VM gives.
+  3. **A rented Mac** (AWS EC2 Mac dedicated hosts have a 24-hour minimum; MacStadium
+     rents by the month) if no hardware is wanted.
+
+  What macOS testing would mean for Syntaxis: the server needs Linux and gVisor, so on a
+  Mac it would be the Go and web build, the CLI, and the Docker Desktop or Colima
+  route, not the sandbox escape tests.
 
 ## Rules for test code
 

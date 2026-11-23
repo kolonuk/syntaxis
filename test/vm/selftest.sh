@@ -106,23 +106,35 @@ reach_win() { # reach_win <vm> <host> <port>
 	wps "$1" "(New-Object Net.Sockets.TcpClient).ConnectAsync('$2', $3).Wait(5000)"
 }
 
-# Windows 11 is opt-in (windows11 as an argument): it needs the imported ISO and
-# a 15 to 40 minute unattended install. The first start is nat by design.
+# Windows 11 is opt-in (windows11 as an argument): it needs the imported ISO. With
+# no saved template it first does a full unattended install (about 15 minutes) and
+# saves the template; every run then clones the template, which takes minutes.
+# The first start of a fresh install is nat by design.
 test_windows() {
-	local name=selftest-windows11 d=windows11
+	local name=selftest-windows11 d=windows11 tpl="$HOME_DIR/images/windows11/template.qcow2"
 	echo "== $d"
-	check "$d: create" vm create "$name" windows11
-	check "$d: first start installs Windows (nat)" vm start "$name"
+	if [ ! -f "$tpl" ]; then
+		echo "-- no template yet: installing Windows from the ISO"
+		check "$d: create (fresh install)" vm create "$name" windows11
+		check "$d: first start installs Windows (nat)" vm start "$name"
+		check "$d: ssh runs a command" gx "$name" 'exit 0'
+		check "$d: OS is Windows 11" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Windows 11'"
+		check "$d: edition is Pro" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Pro'"
+		check_not "$d: the answer file carries no product key" grep -Eq '[A-Z0-9]{5}(-[A-Z0-9]{5}){4}' "$HERE/windows/autounattend.xml.in"
+		echo "INFO $d: Windows reports: $(gx "$name" 'cscript //nologo C:\Windows\System32\slmgr.vbs /xpr' 2>/dev/null | tr -d '\r' | grep -v '^$' | tr '\n' ' ')"
+		check "$d: save the template" vm win-template "$name"
+		check "$d: template files exist" test -f "$tpl"
+		check "$d: destroy the install VM" vm destroy "$name"
+	fi
+
+	check "$d: create from the template" vm create "$name" windows11
+	check "$d: clone boots isolated, without a reinstall" vm start "$name"
 	check "$d: ssh runs a command" gx "$name" 'exit 0'
 	check "$d: OS is Windows 11" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Windows 11'"
 	check "$d: edition is Pro" wps "$name" "(Get-CimInstance Win32_OperatingSystem).Caption -match 'Pro'"
-	check_not "$d: the answer file carries no product key" grep -Eq '[A-Z0-9]{5}(-[A-Z0-9]{5}){4}' "$HERE/windows/autounattend.xml.in"
-	echo "INFO $d: Windows reports: $(gx "$name" 'cscript //nologo C:\Windows\System32\slmgr.vbs /xpr' 2>/dev/null | tr -d '\r' | grep -v '^$' | tr '\n' ' ')"
 	check "$d: tester is an administrator" wps "$name" "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')"
 	check "$d: TPM 2.0 present" wps "$name" "(Get-Tpm).TpmPresent"
 	check "$d: Secure Boot on" wps "$name" "Confirm-SecureBootUEFI"
-	check "$d: stop" vm stop "$name"
-	check "$d: start isolated" vm start "$name"
 	check_not "$d: isolated: no outbound TCP to the internet" reach_win "$name" 1.1.1.1 443
 	check_not "$d: isolated: no route to a host loopback service" reach_win "$name" 10.0.2.2 "$host_port"
 	check_not "$d: isolated: DNS does not resolve" wps "$name" "[bool](Resolve-DnsName example.com -ErrorAction SilentlyContinue)"
@@ -130,9 +142,15 @@ test_windows() {
 	check "$d: put" vm put "$name" "$workdir/blob" blob
 	check "$d: get" vm get "$name" blob "$workdir/blob.back"
 	check "$d: copy round trip is identical" cmp "$workdir/blob" "$workdir/blob.back"
+
+	gx "$name" 'Set-Content C:\Users\tester\marker x' >/dev/null 2>&1
+	check "$d: rebuild (from the template)" vm rebuild "$name"
+	check_not "$d: rebuild wiped files written since" wps "$name" "Test-Path C:\Users\tester\marker"
+	check_not "$d: rebuild is still isolated" reach_win "$name" 10.0.2.2 "$host_port"
 	check "$d: stop" vm stop "$name"
 	check "$d: destroy" vm destroy "$name"
 	check_not "$d: destroy removed the VM directory" test -e "$HOME_DIR/vms/$name"
+	check "$d: the template survived destroy and prune" bash -c "'$VMCTL' prune >/dev/null; test -f '$tpl'"
 }
 
 distros=("$@")

@@ -8,6 +8,8 @@ Start-Transcript -Path C:\provision.log -Append
 # A test VM should never sleep or lock itself.
 powercfg /change standby-timeout-ac 0
 powercfg /change monitor-timeout-ac 0
+# No hibernation or fast startup: a clean shutdown is what a saved template needs.
+powercfg /hibernate off
 
 function Test-Sshd { [bool](Get-Service sshd -ErrorAction SilentlyContinue) }
 

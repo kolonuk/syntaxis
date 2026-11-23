@@ -42,6 +42,8 @@ usage: vmctl.sh <command> [args]
                                   (defaults: 4 cpus, 4096 MB, 64G)
   import-iso <file>               register a Windows 11 ISO for "create windows11"
   screenshot <vm> <out.png>       picture of a Windows VM's screen (install progress)
+  win-template <vm>               save an installed Windows VM as the template that
+                                  new Windows VMs (and rebuild) start from
   start <vm> [--net=nat]          boot VM; default is isolated networking
   stop <vm>                       ACPI-style poweroff, then kill after a timeout
   ssh <vm> [command...]           shell (or run command) as user "tester"
@@ -181,6 +183,7 @@ cmd_prune() {
 		for img in "$d"*.qcow2; do
 			[ -e "$img" ] && [ ! -L "$img" ] || continue
 			local b; b=$(basename "$img")
+			case $b in template*) continue ;; esac
 			if [ "$b" = "$cur" ] || grep -qxF "$b" "$used"; then continue; fi
 			log "prune $b"
 			rm -f "$img"
@@ -199,6 +202,7 @@ load_vm() {
 	# shellcheck disable=SC1091
 	. "$VM/vm.conf"
 	SSH=(ssh -i "$KEY" -p "$port" -o BatchMode=yes -o ConnectTimeout=5
+		-o ServerAliveInterval=30 -o ServerAliveCountMax=40
 		-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$VM/known_hosts"
 		-o LogLevel=ERROR "$SSH_USER@127.0.0.1")
 	SCP=(scp -i "$KEY" -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new
@@ -270,6 +274,10 @@ cmd_create() {
 	mkdir -p "$dir"
 	ensure_key
 	make_disk "$dir" "$distro" "$size"
+	# Hold a lock while picking the port and writing vm.conf, so VMs created at
+	# the same time (suite.sh runs several) cannot take the same SSH port.
+	exec 8>"$HOME_DIR/alloc.lock"
+	flock 8
 	cat >"$dir/vm.conf" <<EOF
 distro=$distro
 cpus=$cpus
@@ -277,6 +285,7 @@ mem=$mem
 disk=$size
 port=$(alloc_port)
 EOF
+	exec 8>&-
 	make_seed "$vm" "$dir"
 	log "created $vm ($distro, ${cpus} cpus, ${mem} MB, disk $size)"
 }
@@ -468,6 +477,7 @@ case $cmd in
 	rebuild) need_tools; [ $# -ge 1 ] || die "usage: rebuild <vm>"; cmd_rebuild "$@" ;;
 	destroy) [ $# -eq 1 ] || die "usage: destroy <vm>"; cmd_destroy "$1" ;;
 	prune) cmd_prune ;;
+	win-template) [ $# -eq 1 ] || die "usage: win-template <vm>"; cmd_win_template "$1" ;;
 	import-iso) [ $# -eq 1 ] || die "usage: import-iso <windows11.iso>"; cmd_import_iso "$1" ;;
 	screenshot) [ $# -eq 2 ] || die "usage: screenshot <vm> <out.png>"; cmd_screenshot "$1" "$2" ;;
 	timer) cmd_timer "$@" ;;
