@@ -41,6 +41,7 @@ func TestSendAttachmentsAreChecked(t *testing.T) {
 	if code, _, _ := u.do("POST", base+"/messages", map[string]any{"text": "hello"}); code != 202 {
 		t.Fatalf("%d", code)
 	}
+	waitFor(t, func() bool { return got.n() >= 1 }) // the run starts on another goroutine
 	if got.n() != 1 || strings.Contains(got.at(0), "<attachments>") {
 		t.Fatalf("%q", got.all())
 	}
