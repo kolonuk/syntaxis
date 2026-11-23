@@ -144,6 +144,17 @@ distro, in its own fresh VM (two at a time by default):
    the internet to prove the firewall blocks LAN, host, metadata and SMTP while the
    internet stays reachable. It probes addresses inside the VM and a private range.
 
+Last run: all five distros pass all 33 steps (install, install verification, 80 tests
+isolated with 4 skipped, and the egress firewall test). The 4 skips are the opt-in live
+model test and a test that needs minutes of real load.
+
+Timing: the suite waits for the guest to settle (boot finished, stack healthy, egress
+rules loaded, plus 30 seconds) before verifying or testing. Without that wait,
+`syntaxis doctor` reported "the egress firewall is not loaded" and the egress test
+reported the host, LAN and metadata as reachable on a guest less than a minute old,
+even though probes by hand were blocked and both pass once it has settled. The
+probes read a failed or slow connection from a sandbox as "reached the host".
+
 Results (logs, `go test -json`, skipped tests) go to
 `$SYX_VM_HOME/results/<timestamp>/<distro>/`. A VM is destroyed when everything
 passes and kept when something fails. The harness itself is not run in CI: it needs

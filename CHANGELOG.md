@@ -13,7 +13,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - `SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD` lets the first admin made from the environment start with a 6-character password instead of 12. Off by default; the other password rules still apply.
 
 ### Added
-- `test/vm/`: disposable QEMU/KVM test VMs (Debian 12 and 13, Ubuntu 24.04, Rocky 9, AlmaLinux 9) for escape and destructive tests. Base images are fetched and verified from the vendors, VMs are rebuilt in seconds, and the default network is fully isolated from the host and LAN. Windows 11 installs unattended from a Microsoft ISO (UEFI, Secure Boot, software TPM; no product key). No images or ISOs are stored in the repository.
+- `test/vm/`: disposable QEMU/KVM test VMs (Debian 12 and 13, Ubuntu 24.04, Rocky 9, AlmaLinux 9) for escape and destructive tests. Base images are fetched and verified from the vendors, VMs are rebuilt in seconds, and the default network is fully isolated from the host and LAN. Windows 11 installs unattended from a Microsoft ISO (UEFI, Secure Boot, software TPM; no product key). `vmctl.sh win-template` saves an installed Windows VM so new ones start from it in about a minute. `suite.sh` installs Syntaxis with `scripts/install.sh` on every distro and runs the sandbox, Docker proxy, egress and doctor tests against real Docker and gVisor. No images or ISOs are stored in the repository.
 
 ## [0.1.2] - 2026-11-23
 

@@ -156,8 +156,8 @@ done
 echo
 echo "SUMMARY"
 for d in "${distros[@]}"; do
-	p=$(grep -c '^PASS' "$RESULTS/$d/steps.txt" 2>/dev/null || echo 0)
-	f=$(grep -c '^FAIL' "$RESULTS/$d/steps.txt" 2>/dev/null || echo 0)
+	p=$(grep -c '^PASS' "$RESULTS/$d/steps.txt" 2>/dev/null || true)
+	f=$(grep -c '^FAIL' "$RESULTS/$d/steps.txt" 2>/dev/null || true)
 	printf '  %-12s %3s passed %3s failed\n' "$d" "$p" "$f"
 done
 echo "suite: $fails distro(s) failed"
