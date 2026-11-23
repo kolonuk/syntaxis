@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # selftest.sh [distro...] - exercise vmctl.sh against real VMs.
 #
 # For each distro: create, boot, SSH and sudo, OS identity, network isolation

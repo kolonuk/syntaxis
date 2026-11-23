@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # vmctl.sh - disposable test VMs for Syntaxis escape and destructive tests.
 #
 # QEMU/KVM runs upstream minimal cloud images. Each test VM is a qcow2 overlay
@@ -103,8 +104,10 @@ ensure_key() {
 # ---- images ---------------------------------------------------------------
 
 fetch_one() {
-	local name url sums base hash ver dest tmp actual sumcmd sums_txt
-	IFS='|' read -r name url sums base <<<"$(distro_line "$1")"
+	local name dir url sums base hash ver dest tmp actual sumcmd sums_txt
+	IFS="|" read -r name dir base sums <<<"$(distro_line "$1")"
+	url=$dir/$base
+	sums=$dir/$sums
 	mkdir -p "$IMG_DIR/$name"
 
 	sums_txt=$(curl -fsSL --retry 3 "$sums") || die "$name: cannot fetch checksums from $sums"
