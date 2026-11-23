@@ -43,9 +43,21 @@ func (a *App) adminMCPSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, e := range entries {
-		var pk []pkgReview
+		pk := []pkgReview{} // never null: the admin app maps over these lists
 		for i, p := range e.Packages {
 			rv, _ := mcp.Summarise(e, i)
+			if p.Env == nil {
+				p.Env = []mcp.EnvVar{}
+			}
+			if rv.Capabilities == nil {
+				rv.Capabilities = []string{}
+			}
+			if rv.Warnings == nil {
+				rv.Warnings = []string{}
+			}
+			if rv.NeedsCredential == nil {
+				rv.NeedsCredential = []string{}
+			}
 			pk = append(pk, pkgReview{i, p, rv})
 		}
 		out = append(out, map[string]any{"name": e.Name, "title": e.Title, "description": e.Description, "version": e.Version, "repository": e.Repository, "status": e.Status, "remote_only": len(e.Packages) == 0 && len(e.Remotes) > 0, "packages": pk})

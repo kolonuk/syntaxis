@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- The admin app went blank when you pressed Review on an MCP server with no environment variables (many in the registry): the catalogue search sent `null` where the page expected a list. The search now always sends lists and the page copes with either.
+
 ## [0.1.3] - 2026-11-23
 
 ### Added

@@ -1404,7 +1404,7 @@ function McpTab() {
             {r.remote_only ? (
               <Badge tone="warn">remote only: cannot run in a sandbox</Badge>
             ) : (
-              r.packages.map((p) => (
+              (r.packages ?? []).map((p) => (
                 <Button
                   key={p.index}
                   onClick={() => {
@@ -1446,16 +1446,16 @@ function McpTab() {
             {review.pkg.package.version}. {review.server.repository}
           </p>
           <ul>
-            {review.pkg.review.capabilities.map((c) => (
+            {(review.pkg.review.capabilities ?? []).map((c) => (
               <li key={c}>{c}</li>
             ))}
           </ul>
-          {review.pkg.review.warnings.map((w) => (
+          {(review.pkg.review.warnings ?? []).map((w) => (
             <Banner key={w} tone="warn">
               {w}
             </Banner>
           ))}
-          {review.pkg.package.env.map((ev) => (
+          {(review.pkg.package.env ?? []).map((ev) => (
             <Select
               key={ev.name}
               label={`${ev.name}${ev.required ? " (required)" : ""}`}
