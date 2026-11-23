@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-23
+
 ### Added
 - `SYNTAXIS_BOOTSTRAP_PROVIDER_URL` (with `_NAME`, `_KIND`, `_CONCURRENCY`, `_ENABLE_MODELS`) adds a model provider on a brand-new instance and switches on its discovered chat models, so a rebuilt host comes up ready to use. It never touches an instance that already has a provider.
 
