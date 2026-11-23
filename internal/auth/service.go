@@ -78,7 +78,18 @@ func (s *Service) now() time.Time { return s.Now().UTC() }
 
 // CreateAdmin creates an admin account. Intended for the CLI and first boot.
 func (s *Service) CreateAdmin(ctx context.Context, email, name, password string) (int64, error) {
-	if err := CheckPasswordPolicy(password, email, name); err != nil {
+	return s.CreateBootstrapAdmin(ctx, email, name, password, false)
+}
+
+// CreateBootstrapAdmin is CreateAdmin for the first admin made from the environment. With
+// allowShort the length rule drops to MinBootstrapPasswordLen so an operator can reuse a password
+// they already have; every other rule (common passwords, containing the name) still applies.
+func (s *Service) CreateBootstrapAdmin(ctx context.Context, email, name, password string, allowShort bool) (int64, error) {
+	minLen := MinPasswordLen
+	if allowShort {
+		minLen = MinBootstrapPasswordLen
+	}
+	if err := checkPasswordPolicy(password, email, name, minLen); err != nil {
 		return 0, err
 	}
 	h, err := HashPassword(password)

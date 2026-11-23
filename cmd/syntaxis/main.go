@@ -578,7 +578,7 @@ func bootstrapAdmin(ctx context.Context, cfg *config.Config, as *auth.Service, s
 	if n, _ := st.CountAccounts(ctx, store.KindAdmin); n > 0 {
 		return
 	}
-	if _, err := as.CreateAdmin(ctx, cfg.BootstrapAdminEmail, "Administrator", cfg.BootstrapAdminPassword); err != nil {
+	if _, err := as.CreateBootstrapAdmin(ctx, cfg.BootstrapAdminEmail, "Administrator", cfg.BootstrapAdminPassword, cfg.BootstrapAdminAllowShort); err != nil {
 		log.Error("bootstrap admin failed", "err", err)
 		return
 	}

@@ -53,6 +53,9 @@ type Config struct {
 
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
+	// BootstrapAdminAllowShort lets the first admin start with a password of 6 or more characters
+	// instead of 12, for an operator reusing a password they already have.
+	BootstrapAdminAllowShort bool
 	// BootstrapProvider adds a model provider on a brand-new instance (no provider yet).
 	BootstrapProvider BootstrapProvider
 
@@ -118,8 +121,9 @@ func LoadFrom(get Getenv) (*Config, error) {
 		VAPIDPublic:             get("SYNTAXIS_VAPID_PUBLIC"),
 		VAPIDPrivate:            get("SYNTAXIS_VAPID_PRIVATE"),
 
-		BootstrapAdminEmail:    get("SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL"),
-		BootstrapAdminPassword: get("SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD"),
+		BootstrapAdminEmail:      get("SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL"),
+		BootstrapAdminPassword:   get("SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD"),
+		BootstrapAdminAllowShort: boolean(get, "SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD", false),
 		BootstrapProvider: BootstrapProvider{
 			URL:          get("SYNTAXIS_BOOTSTRAP_PROVIDER_URL"),
 			Name:         str(get, "SYNTAXIS_BOOTSTRAP_PROVIDER_NAME", "local-llm"),

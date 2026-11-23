@@ -92,8 +92,16 @@ func init() {
 
 // CheckPasswordPolicy validates length, common-password list and personal data.
 func CheckPasswordPolicy(pw, email, name string) error {
-	if utf8.RuneCountInString(pw) < MinPasswordLen {
-		return fmt.Errorf("%w: must be at least %d characters", ErrWeakPassword, MinPasswordLen)
+	return checkPasswordPolicy(pw, email, name, MinPasswordLen)
+}
+
+// MinBootstrapPasswordLen is the shortest password the first admin may start with when the
+// operator explicitly allows a short one (SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD).
+const MinBootstrapPasswordLen = 6
+
+func checkPasswordPolicy(pw, email, name string, minLen int) error {
+	if utf8.RuneCountInString(pw) < minLen {
+		return fmt.Errorf("%w: must be at least %d characters", ErrWeakPassword, minLen)
 	}
 	if len(pw) > 256 {
 		return fmt.Errorf("%w: too long", ErrWeakPassword)

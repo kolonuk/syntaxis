@@ -31,6 +31,7 @@ Everything environment-specific is configuration. Defaults are safe-by-default. 
 | `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
 | `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |
 | `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`; remove after use |
+| `SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD` | `false` | Let the first admin created from the environment start with a password of 6 or more characters instead of 12 (common passwords and your own name are still refused). For an operator reusing a password they already have on a LAN-only admin app; admin 2FA is still mandatory, and it applies to nothing but this one account creation |
 | `SYNTAXIS_BOOTSTRAP_PROVIDER_URL` | – | Add a model provider at this address when the instance has none (so a rebuilt host is ready to use). Also `_NAME` (default `local-llm`), `_KIND` (`ollama` by default, or `llamacpp`, `litellm`, `openai`), `_CONCURRENCY` (default 1) and `_ENABLE_MODELS`: `all` switches on every discovered chat model (embedding models stay off), a comma-separated list switches on those names, empty leaves them for the admin. Models are discovered with retries while the model server starts. Never changes an instance that already has a provider |
 
 ## Levels, groups and per-user settings

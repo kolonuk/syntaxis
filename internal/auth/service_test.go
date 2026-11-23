@@ -615,6 +615,28 @@ func TestCreateAdminPolicyAndAudit(t *testing.T) {
 	}
 }
 
+func TestBootstrapAdminMayStartWithAShortPasswordOnlyWhenAllowed(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.s.CreateBootstrapAdmin(ctx, "a@example.com", "A", "hunter22", false); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("a short password was accepted without the switch: %v", err)
+	}
+	// still a floor, and the other rules still apply
+	if _, err := f.s.CreateBootstrapAdmin(ctx, "a@example.com", "A", "abc12", true); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("a 5-character password was accepted: %v", err)
+	}
+	if _, err := f.s.CreateBootstrapAdmin(ctx, "a@example.com", "A", "password", true); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("a common password was accepted: %v", err)
+	}
+	id, err := f.s.CreateBootstrapAdmin(ctx, "boss@example.com", "Boss", "x7Kq9z", true)
+	if err != nil || id == 0 {
+		t.Fatalf("an allowed short password was refused: %v", err)
+	}
+	// and it works to sign in
+	if _, err := f.s.Login(ctx, store.KindAdmin, "boss@example.com", "x7Kq9z", "1.1.1.1"); err != nil {
+		t.Fatalf("login with the bootstrap password: %v", err)
+	}
+}
+
 func TestNoSelfRegistrationAPI(t *testing.T) {
 	// The service exposes no method that creates a chat user without an admin
 	// actor id. InviteUser requires an admin; there is no Register function.
