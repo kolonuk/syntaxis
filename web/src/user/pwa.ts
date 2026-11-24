@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Service worker registration, update prompt and (optional) Web Push.
+// Service worker registration and the update prompt. There are no push notifications.
 
 export function registerPWA(): void {
   if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
@@ -37,14 +37,4 @@ function showUpdate(reg: ServiceWorkerRegistration): void {
   };
   bar.append(t, b);
   document.body.append(bar);
-}
-
-/** Subscribes the browser to Web Push with the server's VAPID public key. iOS requires the app to be installed to the home screen. */
-export async function subscribePush(vapidPublicKey: string): Promise<PushSubscription | null> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
-  const reg = await navigator.serviceWorker.ready;
-  const key = Uint8Array.from(atob(vapidPublicKey.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
-    c.charCodeAt(0),
-  );
-  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
 }

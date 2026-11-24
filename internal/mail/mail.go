@@ -47,6 +47,22 @@ type SMTP struct {
 	Port                       int
 }
 
+// Live sends through whatever mail settings are in effect at the moment of each message, so a
+// change made in the admin app applies at once. Get returns the settings and whether a mail server
+// is configured; with none, the message is only logged, as in dev mode.
+type Live struct {
+	Get func(ctx context.Context) (SMTP, bool)
+	Log *slog.Logger
+}
+
+// Send delivers or logs the message.
+func (l Live) Send(ctx context.Context, m Message) error {
+	if s, ok := l.Get(ctx); ok {
+		return s.Send(ctx, m)
+	}
+	return Console{Log: l.Log}.Send(ctx, m)
+}
+
 // ErrHeaderInjection is returned when a header value contains CR/LF.
 var ErrHeaderInjection = fmt.Errorf("mail: header injection attempt")
 

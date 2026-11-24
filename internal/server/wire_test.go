@@ -45,7 +45,7 @@ func TestLiveAgentRunEndToEnd(t *testing.T) {
 	if h := l.history(u, id); strings.Contains(h, "tok-very-secret") {
 		t.Fatalf("the secret is in the conversation: %s", h)
 	}
-	// usage recorded against the user, session idle again, user notified
+	// usage recorded against the user, session idle again
 	_, usage, _ := u.do("GET", "/api/usage", nil)
 	if d := usage["daily"].(map[string]any); d["Used"].(float64) <= 0 {
 		t.Fatalf("usage %v", d)
@@ -53,12 +53,6 @@ func TestLiveAgentRunEndToEnd(t *testing.T) {
 	_, got, _ := u.do("GET", "/api/sessions/"+id, nil)
 	if got["state"] != "idle" || got["tokens_in"].(float64) <= 0 {
 		t.Fatalf("%v", got)
-	}
-	l.mu.Lock()
-	n := len(l.notified)
-	l.mu.Unlock()
-	if n != 1 {
-		t.Fatalf("notified %d times", n)
 	}
 	// a follow-up resumes with the stored history in the same sandbox
 	l.send(u, id, "Without running anything, what file did you create in my first message? Answer with its name only.")

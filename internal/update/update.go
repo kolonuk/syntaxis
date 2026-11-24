@@ -159,9 +159,64 @@ var tagRe = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
 // ValidTag reports whether s looks like a version tag. Anything else is never passed to the host.
 func ValidTag(s string) bool { return len(s) <= 40 && tagRe.MatchString(s) }
 
-// ValidTarget accepts what an admin may ask the host to update to: the latest release, the main
-// branch, or one version tag.
-func ValidTarget(s string) bool { return s == "latest" || s == "edge" || ValidTag(s) }
+// The release streams. A stream is what an install follows: stable is the newest published release
+// that is not marked a pre-release, preview is the newest published release of any kind (release
+// candidates and betas included), and edge is the main branch built from source on the host.
+const (
+	StreamStable  = "stable"
+	StreamPreview = "preview"
+	StreamEdge    = "edge"
+)
+
+// Streams lists them in the order the admin app shows them, the safest first.
+var Streams = []string{StreamStable, StreamPreview, StreamEdge}
+
+// ValidStream reports whether s names a stream.
+func ValidStream(s string) bool { return s == StreamStable || s == StreamPreview || s == StreamEdge }
+
+// ValidTarget accepts what an admin may ask the host to update to: a stream (or "latest", the old
+// name for stable) or one version tag.
+func ValidTarget(s string) bool { return s == "latest" || ValidStream(s) || ValidTag(s) }
+
+// LatestIn returns the newest release a stream would install: stable skips pre-releases, preview
+// takes the newest of all. Edge has no releases.
+func LatestIn(rs []Release, stream string) (Release, bool) {
+	var best Release
+	found := false
+	for _, r := range rs {
+		if stream == StreamStable && r.Prerelease {
+			continue
+		}
+		if stream == StreamEdge {
+			return Release{}, false
+		}
+		if !found || Newer(r.Tag, best.Tag) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// StreamOf says which stream an install is on. The host records it as SYNTAXIS_CHANNEL when it
+// updates ("release", the old name, means stable). An install that never recorded one is judged by
+// what it runs: a pre-release tag is preview, any other tag is stable, anything else is edge.
+func StreamOf(version, channel string) string {
+	switch channel {
+	case StreamStable, "release":
+		return StreamStable
+	case StreamPreview:
+		return StreamPreview
+	case StreamEdge:
+		return StreamEdge
+	}
+	if ValidTag(version) {
+		if strings.Contains(version, "-") {
+			return StreamPreview
+		}
+		return StreamStable
+	}
+	return StreamEdge
+}
 
 // Latest returns the newest stable release (a prerelease only if there is nothing else).
 func Latest(rs []Release) (Release, bool) {

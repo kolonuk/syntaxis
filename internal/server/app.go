@@ -86,6 +86,12 @@ type App struct {
 
 	mu         sync.Mutex
 	healthSnap []health.Finding
+	// RefreshHealth, when set, re-runs the health checks. Changes that the findings depend on (the
+	// configuration, the admin accounts) call it so Health is not stale until the next scheduled run.
+	RefreshHealth func()
+
+	restartMu   sync.Mutex
+	restartKeys map[string]time.Time // options saved since start that need a restart to take effect
 }
 
 // New builds an App; callers set optional fields afterwards.
@@ -415,7 +421,12 @@ func (a *App) handle2FABegin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"secret": s.Secret, "url": s.URL})
+	resp := map[string]string{"secret": s.Secret, "url": s.URL}
+	// the QR code saves typing the key; if it cannot be drawn the key and link still work
+	if img, err := qrDataURL(s.URL); err == nil {
+		resp["qr"] = img
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (a *App) handle2FAConfirm(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +441,7 @@ func (a *App) handle2FAConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.refreshHealth() // an admin finishing 2FA clears the "no 2FA" finding at once
 	writeJSON(w, http.StatusOK, map[string]any{"recovery_codes": codes})
 }
 

@@ -213,7 +213,7 @@ func checkResidency(s *State, t Thresholds) []Finding {
 			for _, m := range rs.Models {
 				if !loaded[m] {
 					out = append(out, Finding{CheckID: CheckResidency, Severity: Warning, Subject: p.Name + "/" + m,
-						Message: "The helper model is not loaded right now, so cheap jobs (titles, summaries) use the session's own model instead. Syntaxis never loads or swaps a model mid-session.",
+						Message: "The helper model is not loaded right now, so cheap jobs (titles, summaries) use the session's own model instead. Syntaxis does not ask the server to load the helper just for these jobs.",
 						Fix:     "Load the helper model alongside the main one (check that they fit in memory together), or choose no helper for this provider."})
 				}
 			}
@@ -316,15 +316,21 @@ func checkSandbox(s *State, _ Thresholds) []Finding {
 func checkSecurity(s *State, _ Thresholds) []Finding {
 	var out []Finding
 	sc := s.Security
-	if sc.AdminCount > 0 && sc.AdminsWith2FA < sc.AdminCount {
-		out = append(out, Finding{CheckID: CheckAdmin2FA, Severity: Error, Detail: d("without_2fa", fmt.Sprint(sc.AdminCount-sc.AdminsWith2FA)),
-			Message: "Some admin accounts have not enabled 2FA, which is mandatory.", Fix: "Those admins must complete 2FA setup at next login."})
+	if len(sc.AdminsNo2FA) > 0 {
+		out = append(out, Finding{CheckID: CheckAdmin2FA, Severity: Error, Subject: "no 2FA", Detail: d("accounts", strings.Join(sc.AdminsNo2FA, ", ")),
+			Message: "These admin accounts have a password but no two-factor authentication, which is mandatory: " + strings.Join(sc.AdminsNo2FA, ", ") + ".",
+			Fix:     "Each one must sign in to the admin app and finish 2FA setup. If you do not recognise an account, disable or remove it under Admins."})
+	}
+	if len(sc.AdminsPending) > 0 {
+		out = append(out, Finding{CheckID: CheckAdmin2FA, Severity: Warning, Subject: "invited", Detail: d("accounts", strings.Join(sc.AdminsPending, ", ")),
+			Message: "These admin accounts were created but nobody has opened the setup link yet, so they cannot sign in and have no 2FA: " + strings.Join(sc.AdminsPending, ", ") + ".",
+			Fix:     "Open the setup link (Admins → New link) and finish setup, or remove the account under Admins if it is not needed."})
 	}
 	if sc.RotationDays == 0 {
 		out = append(out, Finding{CheckID: CheckRotation, Severity: Warning, Message: "Password rotation for users without 2FA is switched off.", Fix: "Set a rotation interval (default 30 days) or require 2FA."})
 	}
 	if !sc.SMTPConfigured {
-		out = append(out, Finding{CheckID: CheckSMTP, Severity: Warning, Message: "SMTP is not configured: invite and reset emails are only written to the log.", Fix: "Set SYNTAXIS_SMTP_HOST and friends (see docs/configuration.md)."})
+		out = append(out, Finding{CheckID: CheckSMTP, Severity: Warning, Message: "SMTP is not configured: invite and reset emails are only written to the log.", Fix: "Enter a mail server under Settings → Email in the admin app, or set SYNTAXIS_SMTP_HOST in the environment (see docs/configuration.md)."})
 	}
 	if !sc.MasterKeySet {
 		out = append(out, Finding{CheckID: CheckMasterKey, Severity: Error, Message: "No master key is set, so the secrets vault and 2FA secrets cannot be encrypted.", Fix: "Generate one with `syntaxis keygen` and set SYNTAXIS_MASTER_KEY or SYNTAXIS_MASTER_KEY_FILE."})
@@ -370,11 +376,6 @@ func checkHousekeeping(s *State, t Thresholds) []Finding {
 	if h.ClockChecked && h.ClockSkew > t.MaxClockSkew {
 		out = append(out, Finding{CheckID: CheckClockSkew, Severity: Error, Message: fmt.Sprintf("The server clock is off by about %s; TOTP codes will fail and tokens may expire early.", h.ClockSkew.Round(time.Second)),
 			Fix: "Enable NTP on the host.", UserMessage: "Two-factor codes may be rejected right now."})
-	}
-	if h.PushEnabled && !h.VAPIDSet {
-		out = append(out, Finding{CheckID: CheckVAPID, Severity: Warning, Message: "Web Push is enabled but no VAPID keys are set.", Fix: "Generate keys with `syntaxis keygen --vapid`."})
-	} else if !h.PushEnabled && !h.VAPIDSet {
-		out = append(out, Finding{CheckID: CheckVAPID, Severity: Info, Message: "No VAPID keys are set, so push notifications are unavailable.", Fix: "Generate keys with `syntaxis keygen --vapid`."})
 	}
 	return out
 }

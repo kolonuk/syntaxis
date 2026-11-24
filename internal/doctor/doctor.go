@@ -23,6 +23,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/health"
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
+	"github.com/kolonuk/syntaxis/internal/settings"
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
@@ -217,6 +218,10 @@ func collectSecurity(ctx context.Context, d Deps, s *health.State) {
 	}
 	c := d.Cfg
 	sc.SMTPConfigured = c.SMTP.Host != ""
+	if d.Store != nil {
+		// a mail server saved in the admin app counts, even though the environment names none
+		sc.SMTPConfigured = settings.Effective(ctx, d.Store, os.Getenv, "smtp_host") != ""
+	}
 	sc.MasterKeySet = len(c.MasterKey) == 32
 	if kf := os.Getenv("SYNTAXIS_MASTER_KEY_FILE"); kf != "" {
 		sc.MasterKeyInDataDir = within(kf, c.DataDir)
@@ -238,10 +243,18 @@ func collectSecurity(ctx context.Context, d Deps, s *health.State) {
 	}
 	if d.Store != nil {
 		admins, _ := d.Store.ListAccounts(ctx, store.KindAdmin)
-		sc.AdminCount = len(admins)
 		for _, a := range admins {
-			if a.TOTPEnabled {
+			if a.Disabled {
+				continue // a disabled admin cannot sign in, so it is not a risk
+			}
+			sc.AdminCount++
+			switch {
+			case a.TOTPEnabled:
 				sc.AdminsWith2FA++
+			case a.PasswordHash == "":
+				sc.AdminsPending = append(sc.AdminsPending, a.Email)
+			default:
+				sc.AdminsNo2FA = append(sc.AdminsNo2FA, a.Email)
 			}
 		}
 		days, _ := d.Store.GetSetting(ctx, "password_rotation_days", "30")
@@ -261,9 +274,7 @@ func collectSecurity(ctx context.Context, d Deps, s *health.State) {
 func collectHousekeeping(ctx context.Context, d Deps, s *health.State) {
 	h := &s.Housekeeping
 	if d.Cfg != nil {
-		h.VAPIDSet = d.Cfg.VAPIDPublic != "" && d.Cfg.VAPIDPrivate != ""
 		h.RetentionSet = d.Cfg.IdleTimeout > 0 && d.Cfg.SandboxMaxAge > 0
-		h.PushEnabled = d.Cfg.VAPIDPublic != ""
 	}
 	if d.Store != nil {
 		if v, _ := d.Store.GetSetting(ctx, "last_backup_unix", ""); v != "" {

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
@@ -82,6 +84,53 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog", { name: "Confirm" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("always has a visible way to dismiss it, not only Escape or a click outside", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Read only" onClose={onClose}>
+        <p>details</p>
+      </Modal>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the actions it is given instead of the default Close", () => {
+    render(
+      <Modal title="Ask" onClose={() => undefined} actions={<button type="button">Do it</button>}>
+        <p>x</p>
+      </Modal>,
+    );
+    expect(screen.getByRole("button", { name: "Do it" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+});
+
+describe("every dialog in the app can be cancelled with a button", () => {
+  // Reads the source: a Modal that passes its own actions must offer one of these ways out.
+  const ways = /(Cancel|Close|Done|Deny|Remind me next time)/;
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      const p = join(dir, n);
+      if (statSync(p).isDirectory()) return walk(p);
+      return /\.tsx$/.test(n) && !/\.test\.tsx$/.test(n) ? [p] : [];
+    });
+  it("has a cancel, close or equivalent in every Modal that sets actions", () => {
+    const bad: string[] = [];
+    for (const f of walk(join(__dirname, ".."))) {
+      const src = readFileSync(f, "utf8");
+      for (const m of src.matchAll(/<Modal\b([\s\S]*?)>\s*\n/g)) {
+        const open = m[1]!;
+        if (!/actions=/.test(open)) continue; // no actions: the default Close button is shown
+        const from = m.index! + m[0].length;
+        const body = src.slice(m.index!, from + 1200);
+        const actionsPart = body.slice(body.indexOf("actions="), body.indexOf("actions=") + 700);
+        if (!ways.test(actionsPart)) bad.push(f.replace(__dirname, "") + ": " + open.slice(0, 80));
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });
 

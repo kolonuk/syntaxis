@@ -108,6 +108,15 @@ func (s *Service) CreateBootstrapAdmin(ctx context.Context, email, name, passwor
 // never set a password) and returns a single-use token to choose it. The token is
 // shown once to whoever runs the command; it is never emailed.
 func (s *Service) AdminSetupLink(ctx context.Context, email, name string, ttl time.Duration) (int64, string, error) {
+	return s.adminSetupLink(ctx, "cli", email, name, ttl)
+}
+
+// InviteAdmin is AdminSetupLink for a signed-in admin adding another admin from the admin app.
+func (s *Service) InviteAdmin(ctx context.Context, actorAdminID int64, email, name string, ttl time.Duration) (int64, string, error) {
+	return s.adminSetupLink(ctx, fmt.Sprintf("admin:%d", actorAdminID), email, name, ttl)
+}
+
+func (s *Service) adminSetupLink(ctx context.Context, actor, email, name string, ttl time.Duration) (int64, string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !strings.Contains(email, "@") || strings.ContainsAny(email, " \r\n") {
 		return 0, "", errors.New("invalid email")
@@ -115,7 +124,7 @@ func (s *Service) AdminSetupLink(ctx context.Context, email, name string, ttl ti
 	var id int64
 	if a, err := s.Store.GetAccountByEmail(ctx, store.KindAdmin, email); err == nil {
 		if a.PasswordHash != "" {
-			return 0, "", errors.New("that admin has already set a password; use the password reset in the admin app or `syntaxis admin create` for a new admin")
+			return 0, "", errors.New("that admin has already set a password; use Admins → Reset in the admin app, or `syntaxis admin create` for a new admin")
 		}
 		id = a.ID
 	} else {
@@ -124,15 +133,49 @@ func (s *Service) AdminSetupLink(ctx context.Context, email, name string, ttl ti
 			return 0, "", err
 		}
 	}
-	tok, hash, err := NewToken()
+	tok, err := s.putAdminSetupToken(ctx, id, ttl)
 	if err != nil {
 		return 0, "", err
 	}
-	if err := s.Store.PutToken(ctx, store.Token{Hash: hash, Kind: TokenAdminSetup, UserID: id, ExpiresAt: s.now().Add(ttl)}); err != nil {
-		return 0, "", err
-	}
-	_, _ = s.Store.AppendAudit(ctx, "cli", "admin.setup-link", fmt.Sprintf("admin:%d", id), email)
+	_, _ = s.Store.AppendAudit(ctx, actor, "admin.setup-link", fmt.Sprintf("admin:%d", id), email)
 	return id, tok, nil
+}
+
+func (s *Service) putAdminSetupToken(ctx context.Context, id int64, ttl time.Duration) (string, error) {
+	tok, hash, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	if err := s.Store.PutToken(ctx, store.Token{Hash: hash, Kind: TokenAdminSetup, UserID: id, ExpiresAt: s.now().Add(ttl)}); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
+// ResetAdmin takes another admin's access away and returns a single-use link to start again: the
+// password and 2FA are cleared, every session ends and old recovery codes stop working. An admin
+// cannot reset themself (they use the password and 2FA settings, so they cannot lock themselves out).
+func (s *Service) ResetAdmin(ctx context.Context, actorAdminID, targetID int64, ttl time.Duration) (string, error) {
+	if actorAdminID == targetID {
+		return "", fmt.Errorf("%w: you cannot reset your own account here", ErrForbidden)
+	}
+	a, err := s.Store.GetAccount(ctx, store.KindAdmin, targetID)
+	if err != nil {
+		return "", err
+	}
+	a.PasswordHash, a.TOTPEnabled, a.TOTPSecret = "", false, nil
+	if err := s.Store.UpdateAccount(ctx, *a); err != nil {
+		return "", err
+	}
+	_ = s.Store.ReplaceRecoveryCodes(ctx, store.KindAdmin, a.ID, nil)
+	_ = s.Store.DeleteAuthSessionsFor(ctx, store.KindAdmin, a.ID)
+	_ = s.Store.ClearAttempt(ctx, attemptKeyAccount(store.KindAdmin, a.Email))
+	tok, err := s.putAdminSetupToken(ctx, a.ID, ttl)
+	if err != nil {
+		return "", err
+	}
+	_, _ = s.Store.AppendAudit(ctx, fmt.Sprintf("admin:%d", actorAdminID), "admin.reset", fmt.Sprintf("admin:%d", a.ID), a.Email)
+	return tok, nil
 }
 
 // ---- invite / reset ----

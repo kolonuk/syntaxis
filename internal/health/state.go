@@ -86,8 +86,10 @@ type SandboxState struct {
 
 // SecurityState is the security posture snapshot.
 type SecurityState struct {
-	AdminCount         int
-	AdminsWith2FA      int
+	AdminCount         int      // enabled admin accounts
+	AdminsWith2FA      int      // of those, how many have 2FA on
+	AdminsNo2FA        []string // enabled admins who have a password but no 2FA (emails)
+	AdminsPending      []string // admins invited but not yet signed in to choose a password (emails)
 	RotationDays       int
 	SMTPConfigured     bool
 	MasterKeySet       bool
@@ -109,6 +111,4 @@ type HousekeepingState struct {
 	LogDirBytes  int64
 	ClockSkew    time.Duration // absolute offset against a reference; 0 unknown
 	ClockChecked bool
-	VAPIDSet     bool
-	PushEnabled  bool
 }

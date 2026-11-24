@@ -289,6 +289,34 @@ func (s *SQLite) GetAccount(ctx context.Context, kind string, id int64) (*Accoun
 	return s.scanAccount(kind, s.db.QueryRowContext(ctx, `SELECT `+acctCols(kind)+` FROM `+t+` WHERE id = ?`, id))
 }
 
+// DeleteAccount removes an admin account together with everything that could still be used to
+// sign in as it: its sessions, recovery codes and unused setup links. Chat users are not deleted
+// this way (they are disabled, so their sessions and workspaces stay accounted for).
+func (s *SQLite) DeleteAccount(ctx context.Context, kind string, id int64) error {
+	if kind != KindAdmin {
+		return fmt.Errorf("store: only admin accounts can be deleted")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `DELETE FROM admins WHERE id=?`, id)
+	if err := affected(res, err); err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`DELETE FROM auth_sessions WHERE kind='admin' AND owner_id=?`,
+		`DELETE FROM recovery_codes WHERE owner_kind='admin' AND owner_id=?`,
+		`DELETE FROM tokens WHERE kind='admin_setup' AND user_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // UpdateAccount updates mutable account fields.
 func (s *SQLite) UpdateAccount(ctx context.Context, a Account) error {
 	t, err := table(a.Kind)
@@ -1149,6 +1177,12 @@ func (s *SQLite) GetSetting(ctx context.Context, key, def string) (string, error
 // SetSetting upserts a setting.
 func (s *SQLite) SetSetting(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+// DeleteSetting removes a saved value, if there is one.
+func (s *SQLite) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, key)
 	return err
 }
 

@@ -73,7 +73,6 @@ const (
 	CheckRetention       = "housekeeping.retention"
 	CheckLogGrowth       = "housekeeping.log-growth"
 	CheckClockSkew       = "housekeeping.clock-skew"
-	CheckVAPID           = "housekeeping.vapid"
 )
 
 // Finding is one problem or note.

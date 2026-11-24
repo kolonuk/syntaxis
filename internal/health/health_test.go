@@ -18,7 +18,7 @@ func healthy() *State {
 			Models: []ModelState{{Name: "m", Enabled: true, ContextAdvert: 32768, ContextLoaded: 32768, ContextUsed: 32768, ContextSource: "api", ToolsSupported: bp(true)}}}},
 		Sandbox:      SandboxState{DockerReachable: true, RunscRegistered: true, SocketProxyUsed: true, SocketProxyReachable: true, NetworkRulesApplied: true, ImagePresent: true, DiskFreePct: 60},
 		Security:     SecurityState{AdminCount: 1, AdminsWith2FA: 1, RotationDays: 30, SMTPConfigured: true, MasterKeySet: true, HTTPSDetected: true, DefaultQuotasSet: true, ScanMode: "block", EgressMode: "allowlist"},
-		Housekeeping: HousekeepingState{LastBackup: time.Now(), RetentionSet: true, VAPIDSet: true, PushEnabled: true},
+		Housekeeping: HousekeepingState{LastBackup: time.Now(), RetentionSet: true},
 	}
 }
 
@@ -319,7 +319,8 @@ func TestSecurityChecks(t *testing.T) {
 		id   string
 		sev  Severity
 	}{
-		{"admin2fa", func(s *SecurityState) { s.AdminsWith2FA = 0 }, CheckAdmin2FA, Error},
+		{"admin2fa", func(s *SecurityState) { s.AdminsNo2FA = []string{"boss@example.com"} }, CheckAdmin2FA, Error},
+		{"admin invited", func(s *SecurityState) { s.AdminsPending = []string{"new@example.com"} }, CheckAdmin2FA, Warning},
 		{"rotation", func(s *SecurityState) { s.RotationDays = 0 }, CheckRotation, Warning},
 		{"smtp", func(s *SecurityState) { s.SMTPConfigured = false }, CheckSMTP, Warning},
 		{"nokey", func(s *SecurityState) { s.MasterKeySet = false }, CheckMasterKey, Error},
@@ -362,9 +363,8 @@ func TestHousekeeping(t *testing.T) {
 	s.Housekeeping.RetentionSet = false
 	s.Housekeeping.LogDirBytes = 5 << 30
 	s.Housekeeping.ClockChecked, s.Housekeeping.ClockSkew = true, 2*time.Minute
-	s.Housekeeping.VAPIDSet = false
 	fs := run(s)
-	for _, id := range []string{CheckRetention, CheckLogGrowth, CheckClockSkew, CheckVAPID} {
+	for _, id := range []string{CheckRetention, CheckLogGrowth, CheckClockSkew} {
 		if find(fs, id) == nil {
 			t.Errorf("missing %s", id)
 		}

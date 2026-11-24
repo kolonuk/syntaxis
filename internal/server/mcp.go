@@ -16,6 +16,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/agent"
 	"github.com/kolonuk/syntaxis/internal/mcp"
 	"github.com/kolonuk/syntaxis/internal/secrets"
+	"github.com/kolonuk/syntaxis/internal/settings"
 )
 
 func (a *App) mcpApprovals() *mcp.Approvals { return &mcp.Approvals{Store: a.Store, Now: a.Now} }
@@ -40,6 +41,8 @@ func (a *App) adminMCPSearch(w http.ResponseWriter, r *http.Request) {
 		Index  int         `json:"index"`
 		Pkg    mcp.Package `json:"package"`
 		Review mcp.Review  `json:"review"`
+		// ImagePresent is set for a container image: whether it is on the Docker host yet.
+		ImagePresent *bool `json:"image_present,omitempty"`
 	}
 	out := []map[string]any{}
 	for _, e := range entries {
@@ -58,11 +61,28 @@ func (a *App) adminMCPSearch(w http.ResponseWriter, r *http.Request) {
 			if rv.NeedsCredential == nil {
 				rv.NeedsCredential = []string{}
 			}
-			pk = append(pk, pkgReview{i, p, rv})
+			pr := pkgReview{Index: i, Pkg: p, Review: rv}
+			if p.RegistryType == "oci" {
+				if present, ok := a.imageOnHost(ctx, p.Identifier); ok {
+					pr.ImagePresent = &present
+				}
+			}
+			pk = append(pk, pr)
 		}
 		out = append(out, map[string]any{"name": e.Name, "title": e.Title, "description": e.Description, "version": e.Version, "repository": e.Repository, "status": e.Status, "remote_only": len(e.Packages) == 0 && len(e.Remotes) > 0, "packages": pk})
 	}
 	writeJSON(w, 200, map[string]any{"servers": out, "next": next})
+}
+
+// imageOnHost reports whether a container image is already on the Docker host. ok is false when
+// that cannot be checked (no Docker connection). Syntaxis cannot download images itself, so a
+// server shipped as an image only runs once an admin has pulled it there.
+func (a *App) imageOnHost(ctx context.Context, image string) (present, ok bool) {
+	if a.Sandbox == nil {
+		return false, false
+	}
+	present, err := a.Sandbox.RT.ImagePresent(ctx, image)
+	return present, err == nil
 }
 
 // adminMCPApprove approves a server. The server details are re-fetched from the
@@ -113,8 +133,19 @@ func (a *App) adminMCPApprove(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
+		if settings.ReservedSecret(sn) {
+			writeErr(w, http.StatusBadRequest, sn+" is reserved for Syntaxis's own settings and cannot be given to a server")
+			return
+		}
 		if _, err := a.Secrets.Get(ctx, secrets.ScopeInstance, 0, sn); err != nil {
 			writeErr(w, http.StatusBadRequest, "instance secret "+sn+" does not exist; add it first")
+			return
+		}
+	}
+	if b.Package >= 0 && b.Package < len(found.Packages) && found.Packages[b.Package].RegistryType == "oci" {
+		img := found.Packages[b.Package].Identifier
+		if present, ok := a.imageOnHost(ctx, img); ok && !present {
+			writeErr(w, http.StatusConflict, "this server is a container image and it is not on the Docker host yet. Run this on the host, then approve again: docker pull "+img)
 			return
 		}
 	}
@@ -133,7 +164,7 @@ func (a *App) adminMCPApproved(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, ap := range l {
-		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Identifier + "@" + ap.Package.Version, "type": ap.Package.RegistryType, "env_secrets": ap.EnvSecrets, "approved_by": ap.ApprovedBy, "at": ap.At})
+		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "type": ap.Package.RegistryType, "env_secrets": ap.EnvSecrets, "approved_by": ap.ApprovedBy, "at": ap.At})
 	}
 	writeJSON(w, 200, out)
 }
@@ -149,9 +180,12 @@ func (a *App) adminMCPRevoke(w http.ResponseWriter, r *http.Request) {
 
 // instance secrets (admin-owned: provider keys, MCP credentials). Names only.
 func (a *App) adminSecretNames(w http.ResponseWriter, r *http.Request) {
-	n, _ := a.Secrets.Names(r.Context(), secrets.ScopeInstance, 0)
-	if n == nil {
-		n = []string{}
+	all, _ := a.Secrets.Names(r.Context(), secrets.ScopeInstance, 0)
+	n := []string{}
+	for _, name := range all {
+		if !settings.ReservedSecret(name) { // the mail password and the like belong to Syntaxis, not to a server
+			n = append(n, name)
+		}
 	}
 	writeJSON(w, 200, n)
 }
@@ -163,6 +197,10 @@ func (a *App) adminSecretPut(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b) || b.Value == "" {
 		return
 	}
+	if settings.ReservedSecret(chi.URLParam(r, "name")) {
+		writeErr(w, 400, "that name is reserved for Syntaxis's own settings")
+		return
+	}
 	if err := a.Secrets.Put(r.Context(), secrets.ScopeInstance, 0, chi.URLParam(r, "name"), b.Value); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -171,6 +209,10 @@ func (a *App) adminSecretPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) adminSecretDelete(w http.ResponseWriter, r *http.Request) {
+	if settings.ReservedSecret(chi.URLParam(r, "name")) {
+		writeErr(w, 400, "that name is reserved for Syntaxis's own settings")
+		return
+	}
 	if err := a.Secrets.Delete(r.Context(), secrets.ScopeInstance, 0, chi.URLParam(r, "name")); err != nil {
 		writeErr(w, 404, "not found")
 		return
@@ -206,8 +248,8 @@ func (a *App) adminMCPSuggestions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_credentials": creds,
 		"suggestions": []map[string]any{
-			{"title": "GitHub (official)", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": mcpUserPrefix + "GITHUB_TOKEN"}},
-			{"title": "Microsoft Azure (official)", "search": "com.microsoft/azure", "env_secrets": map[string]string{
+			{"title": "GitHub (official)", "description": "Read and work with repositories, issues and pull requests as each user.", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": mcpUserPrefix + "GITHUB_TOKEN"}},
+			{"title": "Microsoft Azure (official)", "description": "Look at and manage Azure resources with each user's own service principal.", "search": "com.microsoft/azure", "env_secrets": map[string]string{
 				"AZURE_TENANT_ID": mcpUserPrefix + "AZURE_TENANT_ID", "AZURE_CLIENT_ID": mcpUserPrefix + "AZURE_CLIENT_ID",
 				"AZURE_CLIENT_SECRET": mcpUserPrefix + "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID": mcpUserPrefix + "AZURE_SUBSCRIPTION_ID"}},
 		},
@@ -251,7 +293,7 @@ func (a *App) handleMyMCP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		missing := a.missingCredentials(r.Context(), u.ID, ap)
-		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Identifier + "@" + ap.Package.Version, "enabled": on[ap.Name], "missing": missing, "ready": len(missing) == 0})
+		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "enabled": on[ap.Name], "missing": missing, "ready": len(missing) == 0})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

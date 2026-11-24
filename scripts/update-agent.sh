@@ -8,8 +8,9 @@
 # The same service builds and removes the example environments the admin chooses (Environments in
 # the admin app): scripts/build-templates.sh, one image at a time.
 #
-# Syntaxis never sends the host a command. The only things accepted are "latest", "edge" or a
-# version number, and the name of an example environment that has a Dockerfile in images/templates;
+# Syntaxis never sends the host a command. The only things accepted are a release stream ("stable",
+# "preview" or "edge", "latest" being the old name for stable) or a version number, with an optional
+# stream after it, and the name of an example environment that has a Dockerfile in images/templates;
 # the command is built here from those, and anything else is ignored.
 #
 #   update-agent.sh            loop forever
@@ -33,20 +34,25 @@ INTERVAL=${UPDATE_INTERVAL:-10}
 ONCE=0; [ "${1:-}" = "--once" ] && ONCE=1
 [ -n "$TOKEN" ] || { echo "no SYNTAXIS_FIREWALL_TOKEN in .env" >&2; exit 1; }
 
-call() { curl -fsS -m 20 -H "Authorization: Bearer $TOKEN" "$@"; }
+# the protocol header tells the server which request format this service understands (2: a stream may follow the target)
+call() { curl -fsS -m 20 -H "Authorization: Bearer $TOKEN" -H "X-Syntaxis-Agent: 2" "$@"; }
 report() { printf '%s' "$1" | call -X POST --data-binary @- "$URL/internal/update/status" >/dev/null 2>&1 || true; }
 
+# "<target> [stream]": a version or a stream name, and the stream an install follows from now on
 run_update() {
-  target=$1
+  target=$1 stream=${2:-}
+  case "$stream" in ''|stable|preview|edge) ;; *) report "failed refused an unknown stream"; return ;; esac
   case "$target" in
     edge) set -- --edge ;;
-    latest) set -- --release ;;
+    latest) set -- --stream "${stream:-stable}" ;;
+    stable|preview) set -- --stream "$target" ;;
     v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*)
       case "$target" in *[!0-9A-Za-z.-]*) report "failed refused a malformed version"; return ;; esac
-      set -- --release "$target" ;;
+      if [ -n "$stream" ]; then set -- --release "$target" --stream "$stream"; else set -- --release "$target"; fi ;;
     *) report "failed refused an unknown target"; return ;;
   esac
   report "running starting the update to $target"
+  RELOAD=1
   # shellcheck disable=SC2086 # UPDATE_EXTRA_ARGS is a list of flags, for tests
   if out=$(sh "$ROOT/scripts/update.sh" ${UPDATE_EXTRA_ARGS:-} "$@" 2>&1); then
     report "done $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"
@@ -76,8 +82,10 @@ report_env() { printf '%s' "$1" | call -X POST --data-binary @- "$URL/internal/e
 
 while :; do
   if reply=$(call "$URL/internal/update" 2>/dev/null); then
+    # the words are split on purpose: a target and an optional stream; run_update checks both
+    # shellcheck disable=SC2086
     case "$reply" in
-      "request "*) run_update "${reply#request }" ;;
+      "request "*) run_update ${reply#request } ;;
     esac
   fi
   if reply=$(call "$URL/internal/environments" 2>/dev/null); then
@@ -87,6 +95,9 @@ while :; do
     esac
   fi
   [ "$ONCE" = 1 ] && exit 0
+  # an update replaces this script with the new version's: start again from the file so the next
+  # request is read by the version that is running (a loop already in memory would keep the old one)
+  [ -n "${RELOAD:-}" ] && { RELOAD=""; exec sh "$ROOT/scripts/update-agent.sh"; }
   sleep "$INTERVAL"
 done
 }

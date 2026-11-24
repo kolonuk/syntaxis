@@ -65,6 +65,7 @@ func TestRedirectsToPrivateAddressesAreRefused(t *testing.T) {
 func fires(t *testing.T, kind string, cfg Config, old string, want func(*Event) bool) {
 	t.Helper()
 	st, ev, err := Check(ctx, kind, cfg, "", Deps{})
+	skipIfLimited(t, err)
 	if err != nil || ev != nil || st == "" {
 		t.Fatalf("first check: %q %v %v", st, ev, err)
 	}
@@ -77,6 +78,19 @@ func fires(t *testing.T, kind string, cfg Config, old string, want func(*Event) 
 	}
 	if want != nil && !want(ev) {
 		t.Fatalf("unexpected event %+v", ev)
+	}
+}
+
+// skipIfLimited marks the test as not run when the real service refuses this address for asking
+// too often (GitHub allows 60 unauthenticated requests an hour per address, and a busy CI runner
+// shares its address). That says nothing about this code, so it must not fail the build.
+func skipIfLimited(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if msg := err.Error(); strings.Contains(msg, "HTTP 403") || strings.Contains(msg, "HTTP 429") || strings.Contains(msg, "rate limit") {
+		testenv.NotTested(t, "the real service is limiting requests from this address: "+msg)
 	}
 }
 

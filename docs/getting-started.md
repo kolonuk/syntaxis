@@ -59,23 +59,36 @@ docker compose exec syntaxis syntaxis doctor
 
 ## Updating
 
-In the admin app, **Updates** shows what is running and what is available, and a banner and an **Update available** button in the header appear when a new release is out. From there you can:
+In the admin app, **Updates** shows what is running, which **release stream** you follow, and what each stream would install now. A banner and an **Update available** button in the header appear when a newer release is out.
 
-- **update to the latest release**, or **switch to any other release** (including an older one);
-- **follow the development branch (edge)**, which builds the newest code from the main branch on your host. It has the newest fixes and the newest mistakes, so use it if you want to try things before they are released.
+A stream is how soon you want changes:
+
+| Stream | What it follows | Use it for |
+| --- | --- | --- |
+| **Stable** (the default) | The newest published release that is not a pre-release. | An instance other people depend on. |
+| **Preview** | The newest published release of any kind, release candidates and betas included. When a final release catches up, preview moves to it. | Getting changes sooner and helping find problems. |
+| **Edge** | The main branch, built from source on your host. | Trying things before they are released: newest fixes, newest mistakes. |
+
+You can switch stream at any time, update to the newest version in your stream, or pin one exact version (a pre-release puts you on Preview). Switching to an older version is allowed and the page warns you, because a newer version may have changed the database in a way an older one cannot open. The weekly automatic update, if you installed it (`--auto-update`), stays inside your stream and never goes backwards.
 
 Syntaxis backs up its database, installs the version, restarts (running sessions stop, workspaces are kept) and waits for it to report healthy. If it does not, the old version and its data are put back automatically.
 
-The installer sets up a small service on the Docker host that does this (`syntaxis-update-agent`), because only the host can pull images and restart containers. Syntaxis never sends it a command: it only accepts "latest", "edge" or a version number. If the service is not running the page says so; start it with `sudo systemctl start syntaxis-update-agent`, or update by hand:
+The installer sets up a small service on the Docker host that does this (`syntaxis-update-agent`), because only the host can pull images and restart containers. Syntaxis never sends it a command: it only accepts a stream, a version number, or an example environment to build. If the service is not running the page says so; start it with `sudo systemctl start syntaxis-update-agent`, or update by hand:
 
 ```sh
-sudo sh scripts/update.sh                    # update within the current channel
-sudo sh scripts/update.sh --release v1.4.0   # switch to a release (latest if no version is given)
-sudo sh scripts/update.sh --edge             # follow the main branch
-sudo sh scripts/update.sh --dry-run --edge   # say what it would do, change nothing
+sudo sh scripts/update.sh                       # update within the stream you follow
+sudo sh scripts/update.sh --stream stable       # follow the newest stable release
+sudo sh scripts/update.sh --stream preview      # follow the newest release, pre-releases included
+sudo sh scripts/update.sh --stream edge         # follow the main branch
+sudo sh scripts/update.sh --release v1.4.0      # one version (a pre-release tag puts you on preview)
+sudo sh scripts/update.sh --dry-run --stream preview   # say what it would do, change nothing
 ```
 
-The running version is shown in the apps, at `/api/version` and by `syntaxis version`. To check for releases Syntaxis asks GitHub's public API for the project's releases and branch (at most once an hour); nothing else is sent.
+The stream is recorded as `SYNTAXIS_CHANNEL` in `.env`. The running version is shown in the apps, at `/api/version` and by `syntaxis version`. To check for releases Syntaxis asks GitHub's public API for the project's releases and branch (at most once an hour); nothing else is sent.
+
+### When something else deploys Syntaxis
+
+If you run Syntaxis from your own compose stack or another deployment tool, the in-app update button does not apply: there is no `syntaxis-update-agent` and no checkout for it to work from. Update there instead (change the image versions and redeploy; the database is migrated on start, so take a backup first with `syntaxis backup`). The Updates page still shows what is available. Building the example environments from the admin app needs the same host service; without it, build an image yourself on the host and add it under **Environments → Add or replace an environment**. A deployment tool that wants to offer both can run `scripts/update-agent.sh` as a service on the Docker host, from a directory holding the project's `scripts/` and `images/templates/` and a `.env` with `SYNTAXIS_FIREWALL_TOKEN`, `SYNTAXIS_ADMIN_BIND` and `SYNTAXIS_ADMIN_PORT`.
 
 ## Installing by hand
 

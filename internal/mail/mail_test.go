@@ -104,3 +104,23 @@ func TestRecorderAndConsole(t *testing.T) {
 func TestSMTPAuthAndStartTLS(t *testing.T) {
 	testenv.NotTested(t, "SMTP login and STARTTLS against a real mail relay (needs an account on one)")
 }
+
+// Live looks the settings up for every message, so a change applies at once; with no server it logs.
+func TestLiveUsesTheSettingsInEffectForEachMessage(t *testing.T) {
+	var asked int
+	configured := false
+	l := Live{Get: func(context.Context) (SMTP, bool) {
+		asked++
+		return SMTP{Host: "127.0.0.1", Port: 1, From: "a@example.com"}, configured // port 1: nothing listens
+	}}
+	if err := l.Send(context.Background(), Message{To: "b@example.com", Subject: "s", Body: "b"}); err != nil {
+		t.Fatalf("with no mail server the message is only logged: %v", err)
+	}
+	configured = true
+	if err := l.Send(context.Background(), Message{To: "b@example.com", Subject: "s", Body: "b"}); err == nil {
+		t.Fatal("with a server configured the message must be sent to it (and fail here, nothing listens)")
+	}
+	if asked != 2 {
+		t.Fatalf("the settings were read %d times for 2 messages", asked)
+	}
+}

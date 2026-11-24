@@ -10,6 +10,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"github.com/kolonuk/syntaxis/internal/uploadcheck"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/provider"
 	"github.com/kolonuk/syntaxis/internal/queue"
 	"github.com/kolonuk/syntaxis/internal/sandbox"
+	"github.com/kolonuk/syntaxis/internal/settings"
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
@@ -70,6 +72,12 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/password/change", a.handleChangePassword)
 			r.Post("/2fa/begin", a.handle2FABegin)
 			r.Post("/2fa/confirm", a.handle2FAConfirm)
+
+			r.Get("/admins", a.adminAccounts)
+			r.Post("/admins", a.adminAccountInvite)
+			r.Post("/admins/{id}/reset", a.adminAccountReset)
+			r.Patch("/admins/{id}", a.adminAccountPatch)
+			r.Delete("/admins/{id}", a.adminAccountDelete)
 
 			r.Get("/users", a.adminUsers)
 			r.Post("/users", a.adminInvite)
@@ -126,6 +134,7 @@ func (a *App) AdminHandler() http.Handler {
 			r.Get("/sessions", a.adminSessions)
 			r.Get("/sessions/{id}/messages", a.adminMessages)
 			r.Get("/audit", a.adminAudit)
+			r.Get("/audit/export", a.adminAuditExport)
 			r.Get("/egress", a.adminEgress)
 			r.Get("/health", a.adminHealth)
 			r.Post("/health/snooze", a.adminSnooze)
@@ -133,6 +142,9 @@ func (a *App) AdminHandler() http.Handler {
 			r.Post("/kill/release", a.adminKillRelease)
 			r.Get("/settings", a.adminSettingsGet)
 			r.Put("/settings", a.adminSettingsPut)
+			r.Get("/config", a.adminConfigGet)
+			r.Put("/config", a.adminConfigPut)
+			r.Delete("/config/{key}", a.adminConfigReset)
 			r.Post("/mail/test", a.adminMailTest)
 		})
 	})
@@ -533,10 +545,27 @@ func (a *App) adminAudit(w http.ResponseWriter, r *http.Request) {
 		es = []audit.Entry{}
 	}
 	bad := audit.Verify(es)
+	head := audit.HeadOf(es)
+	total := len(es)
 	if lim := 500; len(es) > lim {
 		es = es[len(es)-lim:]
 	}
-	writeJSON(w, 200, map[string]any{"entries": es, "chain_ok": bad == -1, "first_bad": bad})
+	// head is the whole chain in one value: keep it somewhere else and a rewrite of the log, or
+	// entries cut off its end, shows up as a different head later.
+	writeJSON(w, 200, map[string]any{"entries": es, "chain_ok": bad == -1, "first_bad": bad, "head": head, "total": total, "genesis": audit.GenesisHash})
+}
+
+// adminAuditExport sends the whole log as JSON Lines so it can be checked on another machine with
+// `syntaxis audit verify`, without trusting this server's own verdict.
+func (a *App) adminAuditExport(w http.ResponseWriter, r *http.Request) {
+	es, err := a.Store.ListAudit(r.Context(), 0)
+	if err != nil {
+		writeErr(w, 500, "could not load audit log")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Disposition", `attachment; filename="syntaxis-audit.jsonl"`)
+	_ = audit.WriteLines(w, es)
 }
 
 func (a *App) adminEgress(w http.ResponseWriter, r *http.Request) {
@@ -623,6 +652,12 @@ func (a *App) adminKillRelease(w http.ResponseWriter, r *http.Request) {
 func (a *App) adminSettingsGet(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
 	for k, def := range settingDefaults {
+		// an option the environment can also set shows the value in effect (saved, else environment,
+		// else default), not the built-in default: otherwise the form lies about what is running
+		if _, ok := settings.ByKey(k); ok {
+			out[k] = settings.Effective(r.Context(), a.Store, os.Getenv, k)
+			continue
+		}
 		v, _ := a.Store.GetSetting(r.Context(), k, def)
 		out[k] = v
 	}
@@ -680,12 +715,25 @@ func (a *App) adminSettingsPut(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminMailTest(w http.ResponseWriter, r *http.Request) {
 	acc := principal(r).Account
-	err := a.Mail.Send(r.Context(), mail.Message{To: acc.Email, Subject: "Syntaxis test email", Body: "If you can read this, outbound email works."})
+	// an unreachable mail server must not hang the button: give it half a minute
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- a.Mail.Send(ctx, mail.Message{To: acc.Email, Subject: "Syntaxis test email", Body: "If you can read this, outbound email works."})
+	}()
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		err = errors.New("the mail server did not answer within 30 seconds")
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "sending failed: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	host, _, _, _, _ := settings.SMTPFrom(r.Context(), a.Store, a.settingSecrets(), os.Getenv)
+	writeJSON(w, 200, map[string]any{"ok": true, "to": acc.Email, "sent": host != ""})
 }
 
 func (a *App) adminModelRecommended(w http.ResponseWriter, r *http.Request) {

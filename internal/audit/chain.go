@@ -6,7 +6,9 @@ package audit
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -51,4 +53,48 @@ func Verify(entries []Entry) int {
 		prev = e.Hash
 	}
 	return -1
+}
+
+// Head describes the end of a chain: how many entries it holds and the hash of the last one.
+// Anyone holding the head hash can later tell whether the log was rewritten behind it, because
+// every earlier entry is bound into that single value.
+type Head struct {
+	Count int    `json:"count"`
+	Seq   int64  `json:"seq"`
+	Hash  string `json:"hash"`
+}
+
+// HeadOf returns the head of a chain; an empty chain's head is the genesis hash.
+func HeadOf(entries []Entry) Head {
+	if len(entries) == 0 {
+		return Head{Hash: GenesisHash}
+	}
+	last := entries[len(entries)-1]
+	return Head{Count: len(entries), Seq: last.Seq, Hash: last.Hash}
+}
+
+// WriteLines writes the chain as JSON Lines, one entry per line, the format Syntaxis exports and
+// `syntaxis audit verify` reads.
+func WriteLines(w io.Writer, entries []Entry) error {
+	enc := json.NewEncoder(w)
+	for _, e := range entries {
+		if err := enc.Encode(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadLines reads a chain written by WriteLines.
+func ReadLines(r io.Reader) ([]Entry, error) {
+	var out []Entry
+	dec := json.NewDecoder(r)
+	for dec.More() {
+		var e Entry
+		if err := dec.Decode(&e); err != nil {
+			return nil, fmt.Errorf("entry %d: %w", len(out)+1, err)
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }

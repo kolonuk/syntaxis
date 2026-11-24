@@ -204,7 +204,8 @@ export function Modal({
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <h2>{title}</h2>
         {children}
-        {actions && <div className="actions">{actions}</div>}
+        {/* Every dialog can be dismissed with a visible button, not only by Escape or a click outside. */}
+        <div className="actions">{actions ?? <Button onClick={onClose}>Close</Button>}</div>
       </div>
     </div>
   );

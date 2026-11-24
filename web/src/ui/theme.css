@@ -1312,3 +1312,27 @@ a.btn {
   overflow: auto;
   tab-size: 4;
 }
+.qr {
+  display: block;
+  margin: var(--s3) auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: var(--s2);
+  image-rendering: pixelated;
+}
+.config-item {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--s3);
+}
+.config-row {
+  align-items: baseline;
+}
+.stream {
+  border-top: 1px solid var(--border);
+  padding-top: var(--s3);
+  margin-top: var(--s3);
+}
+.stream h3 {
+  margin: 0;
+}

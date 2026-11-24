@@ -18,10 +18,33 @@ It is **not** built for hostile users or the open internet. [gVisor](https://gvi
 - **Secrets and connections:** encrypted at rest (AES-256-GCM), never shown again, never sent to the model, removed from output. They are read fresh for every command.
 - **Approvals:** risky commands (destructive git, deploys, cloud changes, `sudo` and so on) wait for the user. This is code, not a prompt, and nothing the model reads can change it. Commands aimed at your local network are blocked outright.
 - **Admins can read everything users have set up.** The machine is the admin's: they can read every session's messages and see and change each user's notes, commands, hooks, connections, MCP choices, automations and API tokens, and every such read or change is in the audit log. People you invite should know this. The one thing nobody sees is a stored credential's value: it is encrypted with the master key and shown nowhere, to admins either.
-- **Audit log:** tamper-evident.
+- **Audit log:** tamper-evident; see [the audit log](#audit-log) for exactly what that means and how to check it.
+- **Admin accounts** are kept in the admin app (see [admin accounts](#admin-accounts)).
 - **Uploads are off until an admin turns them on** (Policies → Allow file uploads). Then only pictures, PDFs, office documents (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`) and plain text (`txt`, `md`, `csv`, `tsv`, `json`, `log`) are accepted, up to a size the admin sets, and the content must really be what the name says. Programs, scripts, archives, old Office files, macros, embedded objects, appended data after a picture, long base64 or hex runs in text, and PDFs with scripts, launch actions, embedded files, encryption or encodings that hide content are refused, and every refusal is audited. The check reads bytes only; it never opens a file with another program. It is a filter, not proof of safety: a file it accepts can still be a bad document, so keep sandboxes and egress limits in place.
 - **API tokens** are per user, hashed, scoped (`read` or `run`), expiring and revocable. A token can never touch secrets, connections, settings, hooks, the terminal or other tokens. See the [API](api.md).
 - **Repository hooks need your trust.** A repository's `.syntaxis/hooks.json` runs commands around every tool call, so it does not run until you have read the commands and trusted that exact file for that repository; any change to the file asks again. Hooks together get 5 minutes in each run, and the time they use shows on the Resources tab.
+
+## Audit log
+
+Every sensitive action is written to a log: who did it (an admin, a user, the host's services), what, to what, and when. Each entry stores a SHA-256 fingerprint of its own content **and of the previous entry's fingerprint**, so the log is a chain. Change, delete or insert an entry anywhere and every fingerprint after it stops matching.
+
+"Audit chain verified" in the admin app means Syntaxis recomputed every fingerprint from the first entry and all of them matched. The **Audit** tab shows how many entries were checked and the fingerprint of the newest one, and lets you download the whole log.
+
+To check it somewhere that does not have to trust the server's answer, download the log (Audit → Download the log) and run:
+
+```sh
+docker compose exec -T syntaxis syntaxis audit verify - < syntaxis-audit.jsonl
+```
+
+It prints the number of entries and the latest fingerprint, or says which entry no longer matches. `syntaxis audit verify` with no file checks the live database.
+
+What the chain does **not** do: it cannot, by itself, tell that entries were cut off the end of the log, or that someone with write access to the database rewrote the whole log from some point on with fresh fingerprints, because that is a valid chain too. The defence is the fingerprint of the newest entry: copy it somewhere else (a note, a ticket, another machine). If a later check shows a different fingerprint at the same entry number, or fewer entries, the log was rewritten. Back up the database, and the log with it.
+
+## Admin accounts
+
+Admins are separate from chat users: they sign in to the admin app only, always with two-factor authentication. The **Admins** tab lists them with their state (2FA on, no 2FA, invited and not yet set up, disabled) and lets an admin add another, give someone who is locked out a new single-use link (which clears their password and 2FA and ends their sessions), disable, enable or remove an account. You cannot reset, disable or remove your own account there, so you cannot lock yourself out. Every change is audited. The link is never emailed; it is shown to the admin who asked, once. `syntaxis admin create` and `syntaxis admin setup-link` do the same from the command line, for the very first admin or if no admin can sign in.
+
+The health finding "admin accounts have no 2FA" names the accounts: an account with a password but no 2FA is an error, one that was created but whose setup link was never opened is a warning, and a disabled account is not counted.
 
 ## Network
 

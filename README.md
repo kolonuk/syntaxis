@@ -16,7 +16,7 @@ Syntaxis is a self-hosted web app. You point it at an LLM server you already run
 
 - **A chat app for coding agents.** Describe a task; watch every command and its output live; approve or refuse risky steps. It works well on a phone.
 - **Safe by default.** The agent's commands run in a disposable sandbox with no route to your LAN or your LLM server. Risky actions wait for a person. Everything important is audited.
-- **Built for one shared GPU.** Per-user quotas and a fair queue, so one person cannot use all of the model's capacity. It copes with weaker local models and never loads or swaps models behind your back.
+- **Built for one shared GPU.** Per-user quotas and a fair queue, so one person cannot use all of the model's capacity. It copes with weaker local models. It never downloads or deletes models on your server, and it only asks the server to load a model when a session asks for it by name.
 - **For a small trusted group**: a team, a lab, a household of developers. Not a hosted service, and not for the open internet (an admin creates every account).
 
 ## Quick start

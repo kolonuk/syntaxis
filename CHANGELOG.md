@@ -4,7 +4,31 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **Release streams.** Updates now has three streams: **stable** (the newest release that is not a pre-release, the default), **preview** (the newest release of any kind, release candidates and betas included) and **edge** (the main branch built from source). The admin app shows which one you follow and what each would install, and switching warns when it would go to an older version. `scripts/update.sh` takes `--stream stable|preview|edge`; the stream is kept as `SYNTAXIS_CHANNEL` in `.env`, and the weekly automatic update stays inside it and never goes backwards.
+- **Configuration** screen in the admin app: every option Syntaxis has, including email (SMTP, with a test button), addresses, sandbox lifetimes, egress defaults, reverse-proxy sign-in and logging. Each option says whether its value comes from **Docker**, was **saved here** (a saved value replaces the environment's) or is the **default**, whether it applies at once or after a restart, and can go back to the Docker value. Options that belong to the deployment are shown but not edited, and secrets are never shown. The mail password is kept encrypted under a reserved name that is never offered to MCP servers.
+- **Admins** screen: list the admin accounts with their state (2FA on, no 2FA, invited, disabled), add another admin, give a locked-out one a new single-use link, disable, enable or remove an account. You cannot reset, disable or remove yourself. The health finding "admin accounts have no 2FA" now names the accounts and tells a missing 2FA from an unopened invitation, and Health refreshes when accounts or settings change instead of up to five minutes later.
+- **Audit log proof.** The Audit tab explains what "verified" means, shows how many entries were checked and the fingerprint of the newest one, links to the documentation, and downloads the whole log. `syntaxis audit verify` checks a download (or the live database) on another machine. The documentation says plainly what the chain cannot detect and how to cover it.
+- **QR code for two-factor setup**, drawn by the server (nothing is sent to a third party), with the typed key kept for when scanning is not possible.
+- MCP servers shipped as container images (the official GitHub server is one) can now be approved: they are pinned by the exact version in the image tag, the review shows the `docker pull` command, and approval waits until the image is on the Docker host. The review warns that a tag is weaker than a digest.
+- Example text on the admin forms (environments, providers, invites, quotas, credentials).
+- `syntaxis audit verify`, and the VM test suite (`test/vm/suite.sh`) that installs Syntaxis with the installer on Debian 12 and 13, Ubuntu 24.04, Rocky 9 and AlmaLinux 9 and runs the sandbox, proxy, egress and doctor tests; `vmctl.sh win-template` for Windows test VMs.
+
+### Changed
+- The admin menu is in a sensible order (Health, people, models, workspace, policy and security, system, Kill switch last). The Policies screen keeps the policies that are only set there; options that can also be set in Docker moved to Configuration.
+- The **MCP servers** screen is a guided page: what MCP servers are and three steps, then what is approved now, then adding one (recommended or searched), then shared credentials. You can make a shared credential while approving.
+- Every dialog has a visible Cancel or Close button, not only Escape or a click outside.
+- The Policies and Configuration forms show the value in effect (saved, or from Docker) instead of the built-in default.
+- The update service reloads itself after an update, so the next request is read by the version that is running. A request names the stream only when the target does not already imply it, so an older service keeps working.
+- The test email button gives up after 30 seconds and says whether the mail was sent or only logged.
+- The Environments, Updates and Providers screens say what is needed when no host update service runs (for example under another deployment tool), and the wording about models is accurate: Syntaxis never downloads or deletes models, and asks the server to load one only when a session asks for it by name.
+
+### Removed
+- Push notifications and VAPID keys: `SYNTAXIS_VAPID_PUBLIC` and `_PRIVATE` are ignored, `syntaxis keygen --vapid` is gone, the unused `push_subscriptions` table is dropped, and so are the browser push code and the "no VAPID keys" health note. Nothing ever sent a push.
+
 ### Fixed
+- The official GitHub MCP server, the first recommended one, could never be approved: it is a container image and its version is in the tag, which was read as "not pinned".
+- A real-GitHub test (`TestGitHubReleases`) failed the build whenever GitHub rate-limited the CI runner; it now reports "not tested" like the others.
 - The admin app went blank when you pressed Review on an MCP server with no environment variables (many in the registry): the catalogue search sent `null` where the page expected a list. The search now always sends lists and the page copes with either.
 
 ## [0.1.3] - 2026-11-23

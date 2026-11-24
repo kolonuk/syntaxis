@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { _setFetch } from "../lib/api";
-import { Login, SetPassword } from "./Auth";
+import { Login, SetPassword, TwoFactorSetup } from "./Auth";
 
 afterEach(cleanup);
 
@@ -101,5 +101,31 @@ describe("SetPassword", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save password" }));
     await screen.findByText("Password saved");
     expect(seen[1]!.url).toBe("/api/password/reset");
+  });
+});
+
+describe("TwoFactorSetup", () => {
+  const qr = "data:image/svg+xml;base64,PHN2Zy8+";
+  it("shows a QR code to scan, with the typed key kept for when scanning is not possible", async () => {
+    respond({
+      "/api/2fa/begin": {
+        body: { secret: "ABCDEFGH", url: "otpauth://totp/x?secret=ABCDEFGH", qr },
+      },
+    });
+    render(<TwoFactorSetup onDone={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+    const img = await screen.findByRole("img", { name: /QR code/ });
+    expect(img).toHaveAttribute("src", qr);
+    expect(screen.getByText(/Cannot scan it/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Setup key")).toHaveTextContent("ABCDEFGH");
+  });
+  it("still works with the typed key when the server sent no picture", async () => {
+    respond({
+      "/api/2fa/begin": { body: { secret: "ABCDEFGH", url: "otpauth://totp/x?secret=ABCDEFGH" } },
+    });
+    render(<TwoFactorSetup onDone={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+    expect(await screen.findByLabelText("Setup key")).toHaveTextContent("ABCDEFGH");
+    expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
   });
 });

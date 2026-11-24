@@ -976,20 +976,23 @@ export function Chat({
           title="The agent has a question"
           onClose={() => setQuestion("")}
           actions={
-            <Button
-              variant="primary"
-              onClick={async () => {
-                try {
-                  await post(`/sessions/${session.id}/answer`, { text: answer });
-                  setQuestion("");
-                  setAnswer("");
-                } catch (x) {
-                  toast(errText(x), "error");
-                }
-              }}
-            >
-              Answer
-            </Button>
+            <>
+              <Button onClick={() => setQuestion("")}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  try {
+                    await post(`/sessions/${session.id}/answer`, { text: answer });
+                    setQuestion("");
+                    setAnswer("");
+                  } catch (x) {
+                    toast(errText(x), "error");
+                  }
+                }}
+              >
+                Answer
+              </Button>
+            </>
           }
         >
           <p>{question}</p>

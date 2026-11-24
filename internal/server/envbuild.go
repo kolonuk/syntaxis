@@ -168,7 +168,7 @@ func (a *App) handleEnvPoll(w http.ResponseWriter, r *http.Request) {
 	if !a.hostAuth(w, r) {
 		return
 	}
-	a.updAgent.touch(a.Now())
+	a.updAgent.touch(a.Now(), hostProtocol(r))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	ctx := r.Context()
@@ -197,7 +197,7 @@ func (a *App) handleEnvStatus(w http.ResponseWriter, r *http.Request) {
 	if !a.hostAuth(w, r) {
 		return
 	}
-	a.updAgent.touch(a.Now())
+	a.updAgent.touch(a.Now(), hostProtocol(r))
 	b, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 	f := strings.SplitN(strings.TrimSpace(string(b)), " ", 4)
 	if len(f) < 3 || (f[0] != "build" && f[0] != "remove") || (f[2] != "running" && f[2] != "done" && f[2] != "failed") {

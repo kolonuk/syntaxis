@@ -48,8 +48,6 @@ type Config struct {
 	DNSFallback             string // resolver sandboxes use if the Syntaxis resolver cannot run (default 1.1.1.1)
 	DNSUpstream             string // upstream resolver host:port (default: first nameserver in /etc/resolv.conf)
 	ProxyAuth               ProxyAuth
-	VAPIDPublic             string
-	VAPIDPrivate            string
 
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
@@ -118,8 +116,6 @@ func LoadFrom(get Getenv) (*Config, error) {
 		DNSFallback:             str(get, "SYNTAXIS_DNS_FALLBACK", "1.1.1.1"),
 		FirewallToken:           get("SYNTAXIS_FIREWALL_TOKEN"),
 		AdminURL:                get("SYNTAXIS_ADMIN_URL"),
-		VAPIDPublic:             get("SYNTAXIS_VAPID_PUBLIC"),
-		VAPIDPrivate:            get("SYNTAXIS_VAPID_PRIVATE"),
 
 		BootstrapAdminEmail:      get("SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapAdminPassword:   get("SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD"),

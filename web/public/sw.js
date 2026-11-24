@@ -58,20 +58,3 @@ self.addEventListener("sync", (event) => {
     event.waitUntil(self.clients.matchAll().then((cs) => cs.forEach((c) => c.postMessage({ type: "FLUSH_OUTBOX" }))));
   }
 });
-
-self.addEventListener("push", (event) => {
-  let data = { title: "Syntaxis", body: "" };
-  try {
-    data = { ...data, ...event.data.json() };
-  } catch {
-    /* plain text or empty */
-  }
-  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: "/icon-192.png", badge: "/icon-192.png", tag: "syntaxis" }));
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((cs) => (cs[0] ? cs[0].focus() : self.clients.openWindow("/"))),
-  );
-});

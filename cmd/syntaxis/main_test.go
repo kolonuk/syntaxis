@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kolonuk/syntaxis/internal/audit"
 )
 
 func TestKeygen(t *testing.T) {
@@ -20,9 +23,10 @@ func TestKeygen(t *testing.T) {
 	if err != nil || len(k) != 32 {
 		t.Fatalf("%q %v", out.String(), err)
 	}
+	// The VAPID flag went away with push notifications: asking for it is an error, not a silent key.
 	out.Reset()
-	if err := run([]string{"keygen", "--vapid"}, &out, &out); err != nil || !strings.Contains(out.String(), "SYNTAXIS_VAPID_PUBLIC=") || !strings.Contains(out.String(), "SYNTAXIS_VAPID_PRIVATE=") {
-		t.Fatalf("%q %v", out.String(), err)
+	if err := run([]string{"keygen", "--vapid"}, &out, &out); err == nil {
+		t.Fatalf("keygen --vapid still accepted: %q", out.String())
 	}
 }
 
@@ -141,5 +145,50 @@ func TestEgressRulesCommand(t *testing.T) {
 	t.Setenv("SYNTAXIS_EGRESS_ALLOWLIST", "")
 	if err := run([]string{"egress-rules", "172.30.0.0/24"}, &out, &out); err == nil {
 		t.Fatal("allowlist mode with an empty list must fail")
+	}
+}
+
+func TestAuditVerifyCommand(t *testing.T) {
+	var log bytes.Buffer
+	prev := audit.GenesisHash
+	var es []audit.Entry
+	for i := 1; i <= 3; i++ {
+		e := audit.Seal(audit.Entry{Seq: int64(i), Time: time.Unix(int64(i), 0), Actor: "admin:1", Action: "a", Target: "t"}, prev)
+		es = append(es, e)
+		prev = e.Hash
+	}
+	_ = audit.WriteLines(&log, es)
+	file := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(file, log.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := cmdAudit([]string{"verify", file}, nil, &out); err != nil {
+		t.Fatalf("an intact export failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "3 entries") || !strings.Contains(out.String(), es[2].Hash) {
+		t.Fatalf("the output must give the length and the head hash: %q", out.String())
+	}
+	// stdin works too
+	out.Reset()
+	if err := cmdAudit([]string{"verify", "-"}, bytes.NewReader(log.Bytes()), &out); err != nil || !strings.Contains(out.String(), "3 entries") {
+		t.Fatalf("stdin: %v %q", err, out.String())
+	}
+
+	// a changed entry is reported with where
+	bad := strings.Replace(log.String(), `"action":"a"`, `"action":"b"`, 1)
+	if err := os.WriteFile(file, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdAudit([]string{"verify", file}, nil, &out)
+	if err == nil || !strings.Contains(err.Error(), "NOT intact") || !strings.Contains(err.Error(), "entry 1") {
+		t.Fatalf("a changed log must fail and say where: %v", err)
+	}
+	if err := cmdAudit([]string{"verify", filepath.Join(t.TempDir(), "missing")}, nil, &out); err == nil {
+		t.Fatal("a missing file passed")
+	}
+	if err := cmdAudit([]string{"explode"}, nil, &out); err == nil {
+		t.Fatal("an unknown subcommand passed")
 	}
 }

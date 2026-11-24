@@ -6,8 +6,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/ecdh"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -25,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kolonuk/syntaxis/internal/audit"
 	"github.com/kolonuk/syntaxis/internal/auth"
 	"github.com/kolonuk/syntaxis/internal/buildinfo"
 	"github.com/kolonuk/syntaxis/internal/config"
@@ -39,6 +38,7 @@ import (
 	"github.com/kolonuk/syntaxis/internal/sandbox"
 	"github.com/kolonuk/syntaxis/internal/secrets"
 	"github.com/kolonuk/syntaxis/internal/server"
+	"github.com/kolonuk/syntaxis/internal/settings"
 	"github.com/kolonuk/syntaxis/internal/signing"
 	"github.com/kolonuk/syntaxis/internal/store"
 	"github.com/kolonuk/syntaxis/internal/vault"
@@ -55,6 +55,7 @@ Usage:
   syntaxis admin create <email> <name> create the first/another admin (password from SYNTAXIS_NEW_ADMIN_PASSWORD or stdin)
   syntaxis admin setup-link <email> <name>   create an admin and print a single-use link to choose the password
   syntaxis keygen                      print a new master key
+  syntaxis audit verify [file|-]       check the audit log's hash chain: an export from the admin app (or - for stdin), or the live database when no file is given
   syntaxis doctor                      check Docker, gVisor, providers, SMTP and configuration
   syntaxis backup <dest.db>            write a consistent database backup
   syntaxis rotate-key <old-key-file> <new-key-file>   re-encrypt all secrets under a new master key
@@ -88,6 +89,8 @@ func run(args []string, out, errw io.Writer) error {
 		return cmdServe()
 	case "admin":
 		return cmdAdmin(args[1:], out)
+	case "audit":
+		return cmdAudit(args[1:], os.Stdin, out)
 	case "doctor":
 		return cmdDoctor(out)
 	case "backup":
@@ -105,18 +108,8 @@ func run(args []string, out, errw io.Writer) error {
 
 func cmdKeygen(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("keygen", flag.ContinueOnError)
-	vapid := fs.Bool("vapid", false, "generate a VAPID key pair for Web Push")
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-	if *vapid {
-		priv, err := ecdh.P256().GenerateKey(rand.Reader)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "SYNTAXIS_VAPID_PUBLIC=%s\nSYNTAXIS_VAPID_PRIVATE=%s\n",
-			base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes()), base64.RawURLEncoding.EncodeToString(priv.Bytes()))
-		return nil
 	}
 	k, err := vault.GenerateKey()
 	if err != nil {
@@ -141,13 +134,6 @@ func newLogger(cfg *config.Config) *slog.Logger {
 		return slog.New(slog.NewTextHandler(os.Stderr, opts))
 	}
 	return slog.New(slog.NewJSONHandler(os.Stderr, opts))
-}
-
-func mailer(cfg *config.Config, log *slog.Logger) mail.Mailer {
-	if cfg.DevMailMode() {
-		return mail.Console{Log: log}
-	}
-	return &mail.SMTP{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, User: cfg.SMTP.User, Password: cfg.SMTP.Password, From: cfg.SMTP.From}
 }
 
 func readPassword() (string, error) {
@@ -206,6 +192,48 @@ func cmdAdmin(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "created admin %d. Sign in on the admin address; 2FA setup is mandatory at first login.\n", id)
+	return nil
+}
+
+// cmdAudit checks the audit log's hash chain and prints how long it is and its head hash.
+// A file or - (stdin) is an export from the admin app, which needs no master key, no database
+// and no trust in the server that produced it. With no file it reads the live database.
+func cmdAudit(args []string, in io.Reader, out io.Writer) error {
+	if len(args) == 0 || args[0] != "verify" || len(args) > 2 {
+		return errors.New("usage: syntaxis audit verify [file|-]")
+	}
+	var entries []audit.Entry
+	var err error
+	switch {
+	case len(args) == 2 && args[1] == "-":
+		entries, err = audit.ReadLines(in)
+	case len(args) == 2:
+		f, ferr := os.Open(args[1])
+		if ferr != nil {
+			return ferr
+		}
+		defer f.Close()
+		entries, err = audit.ReadLines(f)
+	default:
+		cfg, cerr := config.Load()
+		if cerr != nil {
+			return cerr
+		}
+		st, serr := openStore(cfg)
+		if serr != nil {
+			return serr
+		}
+		defer st.Close()
+		entries, err = st.ListAudit(context.Background(), 0)
+	}
+	if err != nil {
+		return err
+	}
+	if bad := audit.Verify(entries); bad != -1 {
+		return fmt.Errorf("the audit log is NOT intact: entry %d (seq %d) does not match the hash chain, so the log was changed at or before it", bad+1, entries[bad].Seq)
+	}
+	h := audit.HeadOf(entries)
+	fmt.Fprintf(out, "OK: %d entries form an unbroken hash chain.\nhead: seq %d, hash %s\nKeep that head somewhere else; if it ever differs from a later check, entries were removed or the log was rewritten.\n", h.Count, h.Seq, h.Hash)
 	return nil
 }
 
@@ -444,7 +472,6 @@ func cmdServe() error {
 	if err != nil {
 		return err
 	}
-	log := newLogger(cfg)
 	if len(cfg.MasterKey) != 32 {
 		return errors.New("a master key is required (SYNTAXIS_MASTER_KEY or SYNTAXIS_MASTER_KEY_FILE); generate one with `syntaxis keygen`")
 	}
@@ -457,7 +484,15 @@ func cmdServe() error {
 	if err != nil {
 		return err
 	}
-	ml := mailer(cfg, log)
+	sec := &secrets.Service{Store: st, Vault: v}
+	// values saved in the admin app replace the environment's, so they are applied before anything is
+	// built from the configuration (the logger, the listeners, the limits)
+	warnings := settings.ApplyToConfig(context.Background(), cfg, st, server.SettingsSecrets{Svc: sec})
+	log := newLogger(cfg)
+	for _, w := range warnings {
+		log.Warn("saved setting not applied", "err", w)
+	}
+	ml := mail.Console{Log: log} // replaced below by one that follows the mail settings in effect
 	as := auth.NewService(st, v, ml, cfg.BaseURL)
 	as.Rotation = func(ctx context.Context) int {
 		s, _ := st.GetSetting(ctx, server.SettingRotationDays, strconv.Itoa(cfg.PasswordRotationDays))
@@ -475,8 +510,10 @@ func cmdServe() error {
 		m, _ := strconv.ParseInt(mm, 10, 64)
 		return quota.Defaults{DailyTokens: d, MonthlyTokens: m, MaxSessions: 3, RequestsPerMinute: 60, MaxParallelRequests: 2, SandboxSecondsDaily: 8 * 3600, CPUSecondsDaily: int64(cfg.CPUMinutesDaily) * 60, MaxSessionWallClock: 4 * time.Hour}
 	})
-	sec := &secrets.Service{Store: st, Vault: v}
 	app := server.New(cfg, st, as, q, sec, ml, log)
+	// mail follows the settings in effect for each message, so a change in the admin app applies at once
+	app.Mail = server.MailFromSettings(app)
+	as.Mail = app.Mail
 	app.Signing = &signing.Service{Store: st, Vault: v}
 	app.Web, app.AdminWeb = webui.Handler("user"), webui.Handler("admin")
 
@@ -504,7 +541,9 @@ func cmdServe() error {
 	bootstrapAdmin(ctx, cfg, as, st, log)
 	go app.BootstrapProvider(ctx, cfg.BootstrapProvider, log)
 
-	go loop(ctx, 5*time.Minute, func() { app.SetHealth(collectHealth(ctx, cfg, st, rt, app.Sandbox, app.FirewallSyncAge)) })
+	refresh := func() { app.SetHealth(collectHealth(ctx, cfg, st, rt, app.Sandbox, app.FirewallSyncAge)) }
+	app.RefreshHealth = refresh
+	go loop(ctx, 5*time.Minute, refresh)
 	if app.Sandbox != nil {
 		go loop(ctx, 10*time.Minute, func() { reap(ctx, app, st, cfg, log) })
 		go func() { // on boot: clean up orphans (Docker may still be starting; the periodic loop retries)

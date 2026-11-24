@@ -189,3 +189,71 @@ func TestContainerSpecRejectsInjectionAndUnpinned(t *testing.T) {
 		}
 	}
 }
+
+// A container image says its version in the tag of its reference and leaves the registry's version
+// field empty. The official GitHub server is published that way, so it could never be approved.
+func TestImageServerIsPinnedByTheVersionInItsTag(t *testing.T) {
+	oci := func(ident, version string) Entry {
+		return Entry{Name: "io.github.example/img", Repository: "https://example.com/r", Packages: []Package{{RegistryType: "oci", Identifier: ident, Version: version, Transport: "stdio"}}}
+	}
+	for _, tc := range []struct {
+		ident, version string
+		pinned         bool
+	}{
+		{"ghcr.io/github/github-mcp-server:2.2.0", "", true},
+		{"ghcr.io/example/app:v1.4.0-rc.1", "", true},
+		{"registry.example.com:5000/team/app:3.1.4", "", true}, // a port in the host is not a tag
+		{"ghcr.io/example/app@sha256:" + strings.Repeat("a", 64), "", true},
+		{"ghcr.io/example/app:latest", "", false},
+		{"ghcr.io/example/app:1", "", false},
+		{"ghcr.io/example/app", "", false},
+		{"registry.example.com:5000/team/app", "", false},
+		{"ghcr.io/example/app:latest", "2.0.0", true}, // an explicit exact version still counts
+	} {
+		rv, err := Summarise(oci(tc.ident, tc.version), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rv.Pinnable != tc.pinned {
+			t.Errorf("%s (version %q): pinnable %v, want %v", tc.ident, tc.version, rv.Pinnable, tc.pinned)
+		}
+		if rv.PullCommand != "docker pull "+tc.ident {
+			t.Errorf("a container image needs the command that puts it on the host: %q", rv.PullCommand)
+		}
+	}
+	rv, _ := Summarise(oci("ghcr.io/github/github-mcp-server:2.2.0", ""), 0)
+	if !strings.Contains(strings.Join(rv.Warnings, "|"), "tag") || !strings.Contains(strings.Join(rv.Capabilities, "|"), "Docker host") {
+		t.Fatalf("a tag pin is weaker than a digest and the image must be on the host; the review must say both: %+v", rv)
+	}
+	rv, _ = Summarise(oci("ghcr.io/example/app@sha256:"+strings.Repeat("b", 64), ""), 0)
+	if strings.Contains(strings.Join(rv.Warnings, "|"), "tag") {
+		t.Fatalf("a digest pin needs no warning about tags: %+v", rv)
+	}
+	if rv, _ := Summarise(oci("ghcr.io/example/app:latest", ""), 0); !strings.Contains(strings.Join(rv.Warnings, "|"), "pinned") {
+		t.Fatalf("an unpinned image must be warned about: %+v", rv)
+	}
+}
+
+func TestImageServerCanBeApprovedAndRunsFromItsTag(t *testing.T) {
+	a := newApprovals(t)
+	e := Entry{Name: "io.github.example/img", Packages: []Package{{RegistryType: "oci", Identifier: "ghcr.io/example/app:1.2.3", Transport: "stdio"}}}
+	if err := a.Approve(ctx, "admin:1", e, 0, nil); err != nil {
+		t.Fatalf("an image pinned by tag must be approvable: %v", err)
+	}
+	list, _ := a.List(ctx)
+	if len(list) != 1 || list[0].Package.Version != "1.2.3" || list[0].Package.Ref() != "ghcr.io/example/app:1.2.3" {
+		t.Fatalf("%+v", list)
+	}
+	spec, err := ContainerSpec(sandbox.DefaultConfig(), list[0], nil, Owner{UserID: 910001})
+	if err != nil || spec.Image != "ghcr.io/example/app:1.2.3" {
+		t.Fatalf("the container runs the image the admin approved: %v %+v", err, spec.Image)
+	}
+	// an image on a moving tag is refused at approval and again at run time
+	moving := Entry{Name: "io.github.example/moving", Packages: []Package{{RegistryType: "oci", Identifier: "ghcr.io/example/app:latest", Transport: "stdio"}}}
+	if err := a.Approve(ctx, "admin:1", moving, 0, nil); !errors.Is(err, ErrNotApprovable) {
+		t.Fatalf("a moving tag was approved: %v", err)
+	}
+	if _, err := ContainerSpec(sandbox.DefaultConfig(), Approval{Name: "x", Package: moving.Packages[0]}, nil, Owner{UserID: 910001}); !errors.Is(err, ErrNotApprovable) {
+		t.Fatalf("a moving tag was run: %v", err)
+	}
+}

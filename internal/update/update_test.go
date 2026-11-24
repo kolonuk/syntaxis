@@ -27,12 +27,12 @@ func TestVersionOrdering(t *testing.T) {
 }
 
 func TestOnlyTagsAndKeywordsAreTargets(t *testing.T) {
-	for _, ok := range []string{"latest", "edge", "v1.2.3", "1.2.3", "v1.2.3-rc.1"} {
+	for _, ok := range []string{"latest", "stable", "preview", "edge", "v1.2.3", "1.2.3", "v1.2.3-rc.1"} {
 		if !ValidTarget(ok) {
 			t.Errorf("%q refused", ok)
 		}
 	}
-	for _, bad := range []string{"", "main", "v1.2", "v1.2.3; rm -rf /", "$(id)", "v1.2.3 --edge", "../v1.0.0", "v1.2.3\nedge", "-v1.2.3"} {
+	for _, bad := range []string{"", "main", "beta", "Stable", "v1.2", "v1.2.3; rm -rf /", "$(id)", "v1.2.3 --edge", "../v1.0.0", "v1.2.3\nedge", "-v1.2.3"} {
 		if ValidTarget(bad) {
 			t.Errorf("%q accepted", bad)
 		}
@@ -100,5 +100,52 @@ func skipIfGitHubUnavailable(t *testing.T, err error) {
 	}
 	if msg := err.Error(); strings.Contains(msg, "HTTP 5") || strings.Contains(msg, "limiting") || strings.Contains(msg, "rate limit") {
 		testenv.NotTested(t, "the real GitHub API is not answering normally: "+msg)
+	}
+}
+
+func TestStreamsPickTheRightRelease(t *testing.T) {
+	rs := []Release{
+		{Tag: "v0.3.0-rc.2", Prerelease: true}, {Tag: "v0.3.0-rc.1", Prerelease: true},
+		{Tag: "v0.2.1"}, {Tag: "v0.2.0"}, {Tag: "v0.1.9"},
+	}
+	if r, ok := LatestIn(rs, StreamStable); !ok || r.Tag != "v0.2.1" {
+		t.Fatalf("stable must skip pre-releases: %+v", r)
+	}
+	if r, ok := LatestIn(rs, StreamPreview); !ok || r.Tag != "v0.3.0-rc.2" {
+		t.Fatalf("preview takes the newest of all: %+v", r)
+	}
+	// once the final release is out, preview moves to it rather than staying on the candidate
+	rs = append([]Release{{Tag: "v0.3.0"}}, rs...)
+	if r, _ := LatestIn(rs, StreamPreview); r.Tag != "v0.3.0" {
+		t.Fatalf("a final release outranks its own candidates: %+v", r)
+	}
+	if _, ok := LatestIn(rs, StreamEdge); ok {
+		t.Fatal("edge has no releases")
+	}
+	if _, ok := LatestIn([]Release{{Tag: "v1.0.0-rc.1", Prerelease: true}}, StreamStable); ok {
+		t.Fatal("stable must not fall back to a pre-release")
+	}
+	if _, ok := LatestIn(nil, StreamPreview); ok {
+		t.Fatal("no releases")
+	}
+}
+
+func TestStreamOfAnInstall(t *testing.T) {
+	for _, tc := range []struct{ version, channel, want string }{
+		{"v0.2.1", "", StreamStable}, {"v0.3.0-rc.1", "", StreamPreview}, {"dev", "", StreamEdge}, {"abc1234", "", StreamEdge},
+		{"v0.2.1", "release", StreamStable}, {"v0.2.1", "stable", StreamStable}, {"v0.3.0-rc.1", "preview", StreamPreview},
+		{"v0.2.1", "edge", StreamEdge}, {"v0.2.1", "nonsense", StreamStable},
+	} {
+		if got := StreamOf(tc.version, tc.channel); got != tc.want {
+			t.Errorf("StreamOf(%q, %q) = %q, want %q", tc.version, tc.channel, got, tc.want)
+		}
+	}
+	for _, s := range Streams {
+		if !ValidStream(s) {
+			t.Errorf("%s is not valid", s)
+		}
+	}
+	if ValidStream("latest") || ValidStream("") {
+		t.Fatal("only the three streams are streams")
 	}
 }

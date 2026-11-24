@@ -70,13 +70,9 @@ func (q *Queues) Snapshots() map[int64][]queue.Entry {
 	return out
 }
 
-// Pusher delivers a notification to a user (Web Push / email). Optional.
-type Pusher func(ctx context.Context, userID int64, title, body string)
-
 // Wiring carries the extra production dependencies for the agent run.
 type Wiring struct {
 	Queues     *Queues
-	Notify     Pusher
 	MaxTurns   int
 	Window     func(m store.Model) int // effective real context window for a model
 	ToolOutput int
@@ -459,16 +455,6 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 	a.setState(bg, s.ID, state, res.PromptTokens, res.CompletionTokens)
 	if state != "error" && res.Status != agent.StatusStopped {
 		a.titleSession(*s, *u)
-	}
-	if w.Notify != nil && res.Status != agent.StatusStopped {
-		title := "Your session finished"
-		if res.Status == agent.StatusNeedsInput {
-			title = "Your session needs input"
-		}
-		if res.Status == agent.StatusPlan {
-			title = "A plan is ready for you to review"
-		}
-		w.Notify(bg, u.ID, title, s.Title)
 	}
 }
 

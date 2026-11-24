@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -22,9 +21,6 @@ import (
 type live struct {
 	*env
 	model string // "local/<name>"
-
-	mu       sync.Mutex
-	notified []string
 }
 
 func liveEnv(t *testing.T) *live {
@@ -57,11 +53,7 @@ func liveEnv(t *testing.T) *live {
 	mid, _ := e.st.UpsertModel(ctx, store.Model{ProviderID: pid, Name: name, ToolsSupported: 1})
 	_ = e.st.SetModelEnabled(ctx, mid, true)
 	l := &live{env: e, model: "local/" + name}
-	e.app.RunAgent = e.app.RunAgentFunc(Wiring{Notify: func(_ context.Context, _ int64, title, _ string) {
-		l.mu.Lock()
-		l.notified = append(l.notified, title)
-		l.mu.Unlock()
-	}})
+	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
 	return l
 }
 

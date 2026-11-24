@@ -351,6 +351,8 @@ type Store interface {
 	GetAccount(ctx context.Context, kind string, id int64) (*Account, error)
 	UpdateAccount(ctx context.Context, a Account) error
 	CountAccounts(ctx context.Context, kind string) (int, error)
+	// DeleteAccount removes an admin account with its sessions, recovery codes and setup links.
+	DeleteAccount(ctx context.Context, kind string, id int64) error
 	ListAccounts(ctx context.Context, kind string) ([]Account, error)
 
 	// chat-user policy
@@ -486,4 +488,6 @@ type Store interface {
 	// settings
 	GetSetting(ctx context.Context, key, def string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
+	// DeleteSetting removes a saved value so the environment's (or the default) applies again.
+	DeleteSetting(ctx context.Context, key string) error
 }

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 // Package provider adapts LLM servers (Ollama, llama.cpp, LiteLLM, generic
-// OpenAI-compatible) behind one read-only interface. Syntaxis never pulls,
-// loads or deletes models on the server.
+// OpenAI-compatible) behind one read-only interface. Syntaxis never downloads or
+// deletes models on the server. It can make the server load a model, but only by
+// asking for it by name when a session or a probe uses it.
 package provider
 
 import (

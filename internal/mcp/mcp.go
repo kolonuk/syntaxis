@@ -48,6 +48,45 @@ type Package struct {
 	Env          []EnvVar `json:"env"`
 }
 
+// ociTag returns the tag of an image reference such as ghcr.io/org/app:1.2.3, or "" when it has
+// none (or is pinned by digest).
+func ociTag(identifier string) string {
+	if strings.Contains(identifier, "@") {
+		return ""
+	}
+	last := identifier[strings.LastIndex(identifier, "/")+1:]
+	if i := strings.LastIndex(last, ":"); i >= 0 {
+		return last[i+1:]
+	}
+	return ""
+}
+
+// PinVersion is the version that pins this package. A container image says its version in the tag
+// of its reference (ghcr.io/org/app:1.2.3) and the registry leaves the version field empty.
+func (p Package) PinVersion() string {
+	if p.Version != "" {
+		return p.Version
+	}
+	if p.RegistryType == "oci" {
+		return ociTag(p.Identifier)
+	}
+	return ""
+}
+
+// Pinned reports whether the package is fixed to one exact version (or image digest), so what
+// runs cannot change without the admin approving again. A tag such as "latest" or "1" is not one.
+func (p Package) Pinned() bool {
+	return exactVersion.MatchString(p.PinVersion()) || strings.Contains(p.Identifier, "@sha256:")
+}
+
+// Ref names the package for people: image references already carry their version.
+func (p Package) Ref() string {
+	if p.RegistryType == "oci" || p.Version == "" {
+		return p.Identifier
+	}
+	return p.Identifier + "@" + p.Version
+}
+
 // Entry is a catalogue entry normalised from any source.
 type Entry struct {
 	Name        string    `json:"name"`
@@ -215,6 +254,9 @@ type Review struct {
 	Capabilities    []string `json:"capabilities"`
 	Warnings        []string `json:"warnings"`
 	Pinnable        bool     `json:"pinnable"`
+	// PullCommand is set for a container image: Syntaxis cannot download images, so the image has
+	// to be on the Docker host before the server can run.
+	PullCommand string `json:"pull_command,omitempty"`
 }
 
 var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+([\-+][\w.\-+]+)?$`)
@@ -229,8 +271,8 @@ func Summarise(e Entry, pkg int) (Review, error) {
 		return Review{}, errors.New("mcp: no such package")
 	}
 	p := e.Packages[pkg]
-	r := Review{Name: e.Name, Source: e.Repository, Version: p.Version, Pinnable: exactVersion.MatchString(p.Version) || strings.Contains(p.Identifier, "@sha256:")}
-	r.RunsAs = fmt.Sprintf("%s package %s@%s over %s", p.RegistryType, p.Identifier, p.Version, p.Transport)
+	r := Review{Name: e.Name, Source: e.Repository, Version: p.PinVersion(), Pinnable: p.Pinned()}
+	r.RunsAs = fmt.Sprintf("%s package %s over %s", p.RegistryType, p.Ref(), p.Transport)
 	for _, ev := range p.Env {
 		if ev.Required || ev.Secret {
 			r.NeedsCredential = append(r.NeedsCredential, ev.Name)
@@ -252,7 +294,13 @@ func Summarise(e Entry, pkg int) (Review, error) {
 		r.Warnings = append(r.Warnings, "the registry marks this server as "+e.Status)
 	}
 	switch p.RegistryType {
-	case "npm", "pypi", "oci":
+	case "npm", "pypi":
+	case "oci":
+		r.PullCommand = "docker pull " + p.Identifier
+		r.Capabilities = append(r.Capabilities, "runs as a container image that must already be on the Docker host")
+		if !strings.Contains(p.Identifier, "@sha256:") && r.Pinnable {
+			r.Warnings = append(r.Warnings, "the image is fixed by its version tag, not by a digest: its publisher could move that tag. Pull it yourself and check it first.")
+		}
 	default:
 		r.Warnings = append(r.Warnings, "package type "+p.RegistryType+" is not supported")
 	}
@@ -321,11 +369,12 @@ func (a *Approvals) Approve(ctx context.Context, admin string, e Entry, pkg int,
 	if a.Now != nil {
 		now = a.Now()
 	}
+	p.Version = p.PinVersion() // what an image's tag says is its version is kept as the version
 	m[e.Name] = Approval{Name: e.Name, Package: p, EnvSecrets: envSecrets, ApprovedBy: admin, At: now, Enabled: true}
 	if err := a.save(ctx, m); err != nil {
 		return err
 	}
-	_, _ = a.Store.AppendAudit(ctx, admin, "mcp.approve", e.Name, p.Identifier+"@"+p.Version)
+	_, _ = a.Store.AppendAudit(ctx, admin, "mcp.approve", e.Name, p.Ref())
 	return nil
 }
 
@@ -372,16 +421,16 @@ type Owner struct {
 // to it, the sandbox network under its owner's egress policy, pinned version.
 func ContainerSpec(cfg sandbox.Config, ap Approval, secretValues map[string]string, owner Owner) (sandbox.Spec, error) {
 	p := ap.Package
-	if !safeIdent.MatchString(p.Identifier) || !exactVersion.MatchString(p.Version) && !strings.Contains(p.Identifier, "@sha256:") {
+	if !safeIdent.MatchString(p.Identifier) || !p.Pinned() {
 		return sandbox.Spec{}, fmt.Errorf("%w: unsafe or unpinned package", ErrNotApprovable)
 	}
 	var cmd []string
 	image := cfg.Image
 	switch p.RegistryType {
 	case "npm":
-		cmd = []string{"npx", "--yes", p.Identifier + "@" + p.Version}
+		cmd = []string{"npx", "--yes", p.Identifier + "@" + p.PinVersion()}
 	case "pypi":
-		cmd = []string{"uvx", p.Identifier + "==" + p.Version}
+		cmd = []string{"uvx", p.Identifier + "==" + p.PinVersion()}
 	case "oci":
 		image, cmd = p.Identifier, nil
 	default:

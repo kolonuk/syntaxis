@@ -895,6 +895,13 @@ func (a *App) healthFindings(_ context.Context) []health.Finding {
 	return append([]health.Finding{}, a.healthSnap...)
 }
 
+// refreshHealth re-runs the health checks in the background after a change that affects them.
+func (a *App) refreshHealth() {
+	if a.RefreshHealth != nil {
+		go a.RefreshHealth()
+	}
+}
+
 // SetHealth stores the latest findings (called by the health collector).
 func (a *App) SetHealth(fs []health.Finding) {
 	a.mu.Lock()

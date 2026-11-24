@@ -232,3 +232,60 @@ func TestAdminExposureUsesThePublishedBind(t *testing.T) {
 		}
 	}
 }
+
+// The admin 2FA finding names the accounts, tells a pending invitation from a missing 2FA, and
+// ignores an account that is disabled (it cannot sign in, so it is no risk).
+func TestAdminAccountStatesInTheSecurityFinding(t *testing.T) {
+	st, _ := store.OpenSQLite(filepath.Join(t.TempDir(), "d.db"))
+	defer st.Close()
+	ctx := context.Background()
+	mk := func(email, hash string, totp, disabled bool) {
+		t.Helper()
+		if _, err := st.CreateAccount(ctx, store.Account{Kind: store.KindAdmin, Email: email, Name: email, PasswordHash: hash, TOTPEnabled: totp, Disabled: disabled}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("secure@example.com", "h", true, false)
+	mk("nofa@example.com", "h", false, false)
+	mk("invited@example.com", "", false, false)
+	mk("gone@example.com", "h", false, true)
+	sc := Collect(ctx, Deps{Cfg: &config.Config{}, Store: st}).Security
+	if sc.AdminCount != 3 || sc.AdminsWith2FA != 1 {
+		t.Fatalf("counts: %d admins, %d with 2FA", sc.AdminCount, sc.AdminsWith2FA)
+	}
+	if len(sc.AdminsNo2FA) != 1 || sc.AdminsNo2FA[0] != "nofa@example.com" {
+		t.Fatalf("no 2FA: %v", sc.AdminsNo2FA)
+	}
+	if len(sc.AdminsPending) != 1 || sc.AdminsPending[0] != "invited@example.com" {
+		t.Fatalf("pending: %v", sc.AdminsPending)
+	}
+	var sev = map[string]health.Severity{}
+	var msg string
+	for _, f := range health.NewEngine(health.DefaultThresholds()).Run(Collect(ctx, Deps{Cfg: &config.Config{}, Store: st})) {
+		if f.CheckID == health.CheckAdmin2FA {
+			sev[f.Subject] = f.Severity
+			msg += f.Message
+		}
+	}
+	if sev["no 2FA"] != health.Error || sev["invited"] != health.Warning {
+		t.Fatalf("severities: %v", sev)
+	}
+	if !strings.Contains(msg, "nofa@example.com") || !strings.Contains(msg, "invited@example.com") || strings.Contains(msg, "gone@example.com") {
+		t.Fatalf("the finding must name the right accounts: %s", msg)
+	}
+}
+
+// A mail server saved in the admin app counts as configured, even when the environment names none.
+func TestMailServerSavedInTheAppCountsAsConfigured(t *testing.T) {
+	st, _ := store.OpenSQLite(filepath.Join(t.TempDir(), "d.db"))
+	defer st.Close()
+	ctx := context.Background()
+	d := Deps{Cfg: &config.Config{}, Store: st}
+	if Collect(ctx, d).Security.SMTPConfigured {
+		t.Fatal("no mail server anywhere, yet it reads as configured")
+	}
+	_ = st.SetSetting(ctx, "smtp_host", "mail.example.com")
+	if !Collect(ctx, d).Security.SMTPConfigured {
+		t.Fatal("a saved mail server was not seen")
+	}
+}

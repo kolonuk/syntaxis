@@ -17,10 +17,15 @@ import {
   Toggle,
   VersionLabel,
   useToast,
-  type Tone,
 } from "../ui/ui";
 import { AuthFrame, Login, SetPassword, TwoFactorSetup } from "../user/Auth";
 import { useMe } from "../user/hooks";
+import { AdminsTab } from "./AdminsTab";
+import { AuditTab } from "./AuditTab";
+import { ConfigTab } from "./ConfigTab";
+import { McpTab } from "./McpTab";
+import { Table, tone, useLoad } from "./shared";
+import { UpdatesTab, type UpdateInfo } from "./UpdatesTab";
 import { SessionMessagesDialog, UserSettingsDialog } from "./UserSettings";
 
 interface Finding {
@@ -81,21 +86,15 @@ interface Prov {
   helper_assert: boolean;
 }
 
-const tone = (s: string): Tone => (s === "error" ? "danger" : s === "warning" ? "warn" : "info");
+/** A finding the admin can act on in another tab: where, and what to call the button. */
+const FIX_TABS: Record<string, { tab: string; label: string }> = {
+  "security.admin-2fa": { tab: "admins", label: "Open Admins" },
+  "security.smtp": { tab: "config", label: "Open Configuration" },
+  "security.default-quotas": { tab: "settings", label: "Open Policies" },
+  "security.egress-open": { tab: "settings", label: "Open Policies" },
+};
 
-function useLoad<T>(path: string) {
-  const [data, setData] = useState<T | null>(null);
-  const [err, setErr] = useState("");
-  const reload = useCallback(() => {
-    get<T>(path)
-      .then(setData)
-      .catch((e) => setErr(errText(e)));
-  }, [path]);
-  useEffect(reload, [reload]);
-  return { data, err, reload };
-}
-
-function HealthTab() {
+function HealthTab({ go }: { go: (tab: string) => void }) {
   const toast = useToast();
   const { data, err, reload } = useLoad<Health>("/health");
   if (err) return <Banner tone="danger">{err}</Banner>;
@@ -111,6 +110,11 @@ function HealthTab() {
               {f.check_id} {f.subject && <span className="muted">· {f.subject}</span>}
             </strong>
             {f.snoozed && <Badge>snoozed</Badge>}
+            {FIX_TABS[f.check_id] && (
+              <Button onClick={() => go(FIX_TABS[f.check_id]!.tab)}>
+                {FIX_TABS[f.check_id]!.label}
+              </Button>
+            )}
             {f.severity !== "error" && !f.snoozed && (
               <Button
                 onClick={async () => {
@@ -261,20 +265,35 @@ function UsersTab() {
         </Modal>
       )}
       {adding && (
-        <Modal title="Invite user" onClose={() => setAdding(false)}>
-          <form onSubmit={invite}>
-            <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Modal
+          title="Invite user"
+          onClose={() => setAdding(false)}
+          actions={
+            <>
+              <Button onClick={() => setAdding(false)}>Cancel</Button>
+              <Button variant="primary" type="submit" form="invite-form">
+                Invite
+              </Button>
+            </>
+          }
+        >
+          <form id="invite-form" onSubmit={invite}>
+            <Input
+              label="Name"
+              placeholder="Alex Developer"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
             <Input
               label="Email"
+              placeholder="alex@example.com"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               hint="They receive a single-use link to set their own password."
             />
-            <Button variant="primary" type="submit">
-              Invite
-            </Button>
           </form>
         </Modal>
       )}
@@ -360,17 +379,20 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
       />
       <Input
         label="Daily token quota"
+        placeholder="500000"
         hint="0 = default, -1 = unlimited"
         value={daily}
         onChange={(e) => setDaily(e.target.value)}
       />
       <Input
         label="Monthly token quota"
+        placeholder="10000000"
         value={monthly}
         onChange={(e) => setMonthly(e.target.value)}
       />
       <Input
         label="Daily compute minutes"
+        placeholder="240"
         hint="0 = from the group, level or default; -1 = unlimited"
         value={cpu}
         onChange={(e) => setCpu(e.target.value)}
@@ -388,6 +410,7 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
       />
       <Input
         label="Allowed models"
+        placeholder="local/small, local/large"
         hint="Comma-separated provider/model ids. Empty = all enabled models."
         value={models}
         onChange={(e) => setModels(e.target.value)}
@@ -477,7 +500,8 @@ function ProvidersTab() {
     <div className="stack">
       <div className="row">
         <p className="muted grow">
-          Syntaxis only reads from your LLM server: it never pulls, loads or deletes models.
+          Syntaxis never downloads or deletes models on your LLM server. It can make the server load
+          a model, simply by asking for it by name when a session, probe or benchmark uses it.
         </p>
         <Button variant="primary" onClick={() => setAdding(true)}>
           Add provider
@@ -516,8 +540,9 @@ function ProvidersTab() {
             ]}
           />
           <p className="muted">
-            Used only while the server reports it is already loaded; Syntaxis never loads or swaps a
-            model. If it is not loaded, or fails, the session&apos;s own model does the job.
+            Used only while the server reports it is already loaded: Syntaxis does not ask the
+            server to load the helper just for these jobs. If it is not loaded, or fails, the
+            session&apos;s own model does the job.
           </p>
           <div className="row">
             <Button
@@ -658,10 +683,22 @@ function ProvidersTab() {
         </Card>
       ))}
       {adding && (
-        <Modal title="Add provider" onClose={() => setAdding(false)}>
-          <form onSubmit={add}>
+        <Modal
+          title="Add provider"
+          onClose={() => setAdding(false)}
+          actions={
+            <>
+              <Button onClick={() => setAdding(false)}>Cancel</Button>
+              <Button variant="primary" type="submit" form="provider-form">
+                Add
+              </Button>
+            </>
+          }
+        >
+          <form id="provider-form" onSubmit={add}>
             <Input
               label="Name"
+              placeholder="workstation-ollama"
               value={f.name}
               onChange={(e) => setF({ ...f, name: e.target.value })}
               required
@@ -692,13 +729,11 @@ function ProvidersTab() {
             />
             <Input
               label="Concurrency"
+              placeholder="2"
               hint="Match your server's parallel setting; Syntaxis never exceeds it."
               value={f.concurrency}
               onChange={(e) => setF({ ...f, concurrency: e.target.value })}
             />
-            <Button variant="primary" type="submit">
-              Add
-            </Button>
           </form>
         </Modal>
       )}
@@ -780,9 +815,18 @@ function EnvironmentCatalog({ onChange }: { onChange: () => void }) {
       </p>
       {!cat.agent_running && (
         <Banner tone="warn">
-          The update service on the Docker host is not running, so images cannot be built from here.
-          Start it with <code>sudo systemctl start syntaxis-update-agent</code>, or build one by
-          hand with <code>{cat.manual}</code>.
+          <p>
+            Images are built by the update service on the Docker host, and it is not running, so
+            nothing can be built from here. Start it with{" "}
+            <code>sudo systemctl start syntaxis-update-agent</code>, or build one by hand on the
+            host with <code>{cat.manual}</code>.
+          </p>
+          <p>
+            If Syntaxis is deployed by another tool, that tool has to provide the service (it needs
+            the project&apos;s <code>scripts/</code> and <code>images/templates/</code> and access
+            to the host&apos;s Docker). Otherwise build the image yourself and add it under
+            &quot;Add or replace an environment&quot; below.
+          </p>
         </Banner>
       )}
       <div className="table-wrap" tabIndex={0} role="region" aria-label="Example environments">
@@ -854,6 +898,7 @@ function EnvironmentCatalog({ onChange }: { onChange: () => void }) {
       <div className="row">
         <Input
           label="Remove built environments unused for this many days (0 keeps them)"
+          placeholder="30"
           type="number"
           min={0}
           value={days}
@@ -946,19 +991,34 @@ function EnvironmentsTab() {
         </Card>
       ))}
       <Card title="Add or replace an environment">
-        <Input label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <p className="muted">
+          For an image you built or pulled on the Docker host yourself, for example one with your
+          team&apos;s tools. Syntaxis does not build it from here.
+        </p>
+        <Input
+          label="Name"
+          placeholder="rust-nightly"
+          hint="Lowercase letters, digits and dashes. Users see this name."
+          value={f.name}
+          onChange={(e) => setF({ ...f, name: e.target.value })}
+        />
         <Input
           label="Image on the Docker host"
+          placeholder="registry.example.com/team/dev-rust:2"
+          hint="As docker images lists it, with its tag. An image made from the examples above is named syntaxis-env-<name>:1."
           value={f.image}
           onChange={(e) => setF({ ...f, image: e.target.value })}
         />
         <Input
           label="Description (shown to users)"
+          placeholder="Rust nightly with cargo-nextest and clippy"
+          hint="One short line, up to 200 characters."
           value={f.description}
           onChange={(e) => setF({ ...f, description: e.target.value })}
         />
         <TextArea
           label="devcontainer.json images that map to it (one per line, tags ignored)"
+          placeholder={"mcr.microsoft.com/devcontainers/rust\nghcr.io/example/devcontainers/rust"}
           value={f.matches}
           onChange={(e) => setF({ ...f, matches: e.target.value })}
         />
@@ -967,190 +1027,6 @@ function EnvironmentsTab() {
         </Button>
       </Card>
     </>
-  );
-}
-
-interface UpdateInfo {
-  current: { version: string; commit: string; date: string };
-  mode: "release" | "edge";
-  releases: { tag: string; name: string; published: string; url: string; prerelease: boolean }[];
-  latest?: { tag: string; published: string; url: string };
-  release_available?: boolean;
-  edge?: { sha: string; date: string; subject: string; newer: boolean };
-  check_error?: string;
-  agent: { running: boolean; manual: string };
-  status: { state?: string; target?: string; message?: string; at?: string };
-}
-
-function UpdatesTab() {
-  const toast = useToast();
-  const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const [lost, setLost] = useState(false);
-  const [pick, setPick] = useState("");
-  const [confirm, setConfirm] = useState<{ target: string; label: string } | null>(null);
-  const load = useCallback(async (refresh = false) => {
-    try {
-      setInfo(await get<UpdateInfo>("/update" + (refresh ? "?refresh=1" : "")));
-      setLost(false);
-    } catch {
-      setLost(true); // the server restarts while it updates
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  const busy = info?.status.state === "requested" || info?.status.state === "running";
-  useEffect(() => {
-    if (!busy && !lost) return;
-    const t = setInterval(() => void load(), 5000);
-    return () => clearInterval(t);
-  }, [busy, lost, load]);
-  async function start() {
-    if (!confirm) return;
-    try {
-      await post("/update", { target: confirm.target });
-      toast("Update requested.", "success");
-      setConfirm(null);
-      void load();
-    } catch (x) {
-      toast(errText(x), "error");
-      setConfirm(null);
-    }
-  }
-  if (!info) return lost ? <Banner tone="warn">Reconnecting…</Banner> : <Skeleton />;
-  const cur = info.current;
-  return (
-    <div className="stack">
-      {(busy || lost) && (
-        <Banner tone="info">
-          {busy ? `Updating to ${info.status.target}. ` : ""}Syntaxis restarts during an update;
-          this page reconnects by itself and sessions that are running will be stopped.
-        </Banner>
-      )}
-      {info.status.state === "failed" && (
-        <Banner tone="danger">
-          The last update to {info.status.target} failed and was rolled back. {info.status.message}
-        </Banner>
-      )}
-      {info.status.state === "done" && (
-        <Banner>
-          Updated to {info.status.target}. {info.status.message}
-        </Banner>
-      )}
-      {!info.agent.running && (
-        <Banner tone="warn">
-          The update service on the Docker host is not running, so updates cannot be started from
-          here. Start it with <code>sudo systemctl start syntaxis-update-agent</code>, or update by
-          hand with <code>{info.agent.manual}</code>.
-        </Banner>
-      )}
-      <Card title="Running now">
-        <p>
-          <strong>{cur.version}</strong> {cur.commit && <code>{cur.commit.slice(0, 8)}</code>}{" "}
-          <Badge>{info.mode === "release" ? "published release" : "development branch"}</Badge>
-        </p>
-        {cur.date && <p className="muted">Built {new Date(cur.date).toLocaleString()}</p>}
-      </Card>
-      <Card title="Releases">
-        {info.check_error && <Banner tone="warn">{info.check_error}</Banner>}
-        {info.releases.length === 0 && !info.check_error && (
-          <p className="muted">No release has been published yet.</p>
-        )}
-        {info.latest && (
-          <p>
-            Latest: <strong>{info.latest.tag}</strong>{" "}
-            <span className="muted">
-              {new Date(info.latest.published).toLocaleDateString()} ·{" "}
-              <a href={info.latest.url} target="_blank" rel="noreferrer">
-                release notes
-              </a>
-            </span>{" "}
-            {info.release_available ? <Badge tone="warn">new</Badge> : <Badge>up to date</Badge>}
-          </p>
-        )}
-        {info.release_available && info.latest && (
-          <Button
-            variant="primary"
-            disabled={busy || !info.agent.running}
-            onClick={() =>
-              setConfirm({ target: info.latest!.tag, label: `Update to ${info.latest!.tag}` })
-            }
-          >
-            Update to {info.latest.tag}
-          </Button>
-        )}
-        {info.releases.length > 0 && (
-          <div className="row">
-            <Select
-              label="Switch to another release"
-              value={pick}
-              onChange={(e) => setPick(e.target.value)}
-              options={[
-                { value: "", label: "Choose a version" },
-                ...info.releases.map((r) => ({
-                  value: r.tag,
-                  label:
-                    r.tag +
-                    (r.prerelease ? " (pre-release)" : "") +
-                    (r.tag === cur.version ? " — running" : ""),
-                })),
-              ]}
-            />
-            <Button
-              disabled={!pick || busy || !info.agent.running || pick === cur.version}
-              onClick={() => setConfirm({ target: pick, label: `Switch to ${pick}` })}
-            >
-              Switch
-            </Button>
-          </div>
-        )}
-      </Card>
-      <Card title="Development branch (edge)">
-        <p className="muted">
-          Builds the newest code on the main branch on this host. It has the latest changes and
-          fixes, and also the newest mistakes; it is not what releases are tested as.
-        </p>
-        {info.edge && (
-          <p>
-            Newest commit: <code>{info.edge.sha.slice(0, 8)}</code> {info.edge.subject}{" "}
-            {info.edge.newer ? (
-              <Badge tone="warn">different from what is running</Badge>
-            ) : (
-              <Badge>running</Badge>
-            )}
-          </p>
-        )}
-        <Button
-          disabled={busy || !info.agent.running}
-          onClick={() => setConfirm({ target: "edge", label: "Follow the development branch" })}
-        >
-          {info.mode === "edge"
-            ? "Update to the newest commit"
-            : "Switch to the development branch"}
-        </Button>
-      </Card>
-      <Button onClick={() => void load(true)}>Check again</Button>
-      {confirm && (
-        <Modal
-          title={confirm.label}
-          onClose={() => setConfirm(null)}
-          actions={
-            <>
-              <Button onClick={() => setConfirm(null)}>Cancel</Button>
-              <Button variant="primary" onClick={() => void start()}>
-                Update now
-              </Button>
-            </>
-          }
-        >
-          <p>
-            Syntaxis backs up its database, installs the new version and restarts. Running sessions
-            are stopped, and the work in their workspaces is kept. If the new version does not start
-            properly, the old one and its data are put back automatically.
-          </p>
-        </Modal>
-      )}
-    </div>
   );
 }
 
@@ -1195,323 +1071,6 @@ function BenchmarksTab() {
   );
 }
 
-interface McpPkg {
-  index: number;
-  package: {
-    registryType: string;
-    identifier: string;
-    version: string;
-    env: { name: string; required: boolean; secret: boolean; description: string }[];
-  };
-  review: {
-    capabilities: string[];
-    warnings: string[];
-    needs_credentials: string[];
-    pinnable: boolean;
-  };
-}
-interface McpServerEntry {
-  name: string;
-  title: string;
-  description: string;
-  repository: string;
-  status: string;
-  remote_only: boolean;
-  packages: McpPkg[];
-}
-interface McpApproved {
-  name: string;
-  package: string;
-  type: string;
-  env_secrets: Record<string, string>;
-  approved_by: string;
-}
-
-function McpTab() {
-  const toast = useToast();
-  const approved = useLoad<McpApproved[]>("/mcp/approved");
-  const secrets = useLoad<string[]>("/secrets");
-  const sugg = useLoad<{
-    user_credentials: string[];
-    suggestions: { title: string; search: string; env_secrets: Record<string, string> }[];
-  }>("/mcp/suggestions");
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<McpServerEntry[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [review, setReview] = useState<{ server: McpServerEntry; pkg: McpPkg } | null>(null);
-  const [map, setMap] = useState<Record<string, string>>({});
-  const [newName, setNewName] = useState("");
-  const [newValue, setNewValue] = useState("");
-  async function search(e?: FormEvent) {
-    e?.preventDefault();
-    setBusy(true);
-    try {
-      setResults(
-        (await get<{ servers: McpServerEntry[] }>(`/mcp/search?q=${encodeURIComponent(q)}`))
-          .servers,
-      );
-    } catch (x) {
-      toast(errText(x), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function approve() {
-    if (!review) return;
-    try {
-      await post("/mcp/approve", {
-        name: review.server.name,
-        package: review.pkg.index,
-        env_secrets: map,
-      });
-      toast("Approved.", "success");
-      setReview(null);
-      setMap({});
-      approved.reload();
-    } catch (x) {
-      toast(errText(x), "error");
-    }
-  }
-  return (
-    <div className="stack">
-      <Banner>
-        MCP servers are third-party code. Each approved server runs in its own gVisor container with
-        only the credentials you map to it; its output is treated as untrusted and state-changing
-        tools ask the user first.
-      </Banner>
-      <Card title="Approved servers">
-        {!approved.data ? (
-          <Skeleton lines={2} />
-        ) : approved.data.length === 0 ? (
-          <p className="muted">None yet.</p>
-        ) : (
-          <ul>
-            {approved.data.map((a) => (
-              <li key={a.name} className="row">
-                <strong>{a.name}</strong>
-                <span className="muted grow">{a.package}</span>
-                <Button
-                  variant="danger"
-                  onClick={async () => {
-                    await del(`/mcp/approved?name=${encodeURIComponent(a.name)}`);
-                    approved.reload();
-                  }}
-                >
-                  Revoke
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-      <Card title="Credentials for servers (instance secrets)">
-        <p className="muted">
-          Names only are shown. Map these to a server's variables when approving it.
-        </p>
-        <ul>
-          {(secrets.data ?? []).map((n) => (
-            <li key={n} className="row">
-              <code className="grow">{n}</code>
-              <Button
-                variant="danger"
-                onClick={async () => {
-                  await del(`/secrets/${n}`);
-                  secrets.reload();
-                }}
-              >
-                Delete
-              </Button>
-            </li>
-          ))}
-        </ul>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            try {
-              await put(`/secrets/${newName}`, { value: newValue });
-              setNewName("");
-              setNewValue("");
-              secrets.reload();
-            } catch (x) {
-              toast(errText(x), "error");
-            }
-          }}
-        >
-          <Input
-            label="Name"
-            hint="UPPER_SNAKE_CASE"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value.toUpperCase())}
-            required
-          />
-          <Input
-            label="Value"
-            type="password"
-            autoComplete="off"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            required
-          />
-          <Button type="submit">Save credential</Button>
-        </form>
-      </Card>
-      <Card title="Suggested servers">
-        <p className="muted">
-          First-party servers that run as a local program, set up so each user connects with their
-          own credentials (Settings, Connections). GitLab and Cloudflare publish only hosted
-          servers, which Syntaxis does not run.
-        </p>
-        {(sugg.data?.suggestions ?? []).map((s) => (
-          <div key={s.search} className="row">
-            <strong className="grow">{s.title}</strong>
-            <Button
-              onClick={() => {
-                setQ(s.search);
-                setMap(s.env_secrets);
-                void (async () => {
-                  const r = await get<{ servers: McpServerEntry[] }>(
-                    `/mcp/search?q=${encodeURIComponent(s.search)}`,
-                  );
-                  setResults(r.servers.filter((x) => x.name === s.search));
-                })();
-              }}
-            >
-              Find and review
-            </Button>
-          </div>
-        ))}
-      </Card>
-      <Card title="Browse the MCP registry">
-        <form className="row" onSubmit={search}>
-          <div className="grow">
-            <Input
-              label="Search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="e.g. filesystem, github, docs"
-            />
-          </div>
-          <Button variant="primary" type="submit" loading={busy}>
-            Search
-          </Button>
-        </form>
-        {results && results.length === 0 && <p className="muted">No servers found.</p>}
-        {results?.map((r) => (
-          <div key={r.name} className="step" style={{ padding: 12 }}>
-            <strong>{r.title || r.name}</strong> <span className="muted">{r.name}</span>{" "}
-            {r.status && r.status !== "active" && <Badge tone="warn">{r.status}</Badge>}
-            <p>{r.description}</p>
-            {r.remote_only ? (
-              <Badge tone="warn">remote only: cannot run in a sandbox</Badge>
-            ) : (
-              (r.packages ?? []).map((p) => (
-                <Button
-                  key={p.index}
-                  onClick={() => {
-                    setReview({ server: r, pkg: p });
-                  }}
-                >
-                  Review {p.package.registryType}: {p.package.identifier}@{p.package.version}
-                </Button>
-              ))
-            )}
-          </div>
-        ))}
-      </Card>
-      {review && (
-        <Modal
-          title={`Approve ${review.server.name}?`}
-          onClose={() => {
-            setReview(null);
-            setMap({});
-          }}
-          actions={
-            <>
-              <Button
-                onClick={() => {
-                  setReview(null);
-                  setMap({});
-                }}
-              >
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={approve} disabled={!review.pkg.review.pinnable}>
-                Approve
-              </Button>
-            </>
-          }
-        >
-          <p className="muted">
-            {review.pkg.package.registryType} package {review.pkg.package.identifier}@
-            {review.pkg.package.version}. {review.server.repository}
-          </p>
-          <ul>
-            {(review.pkg.review.capabilities ?? []).map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-          {(review.pkg.review.warnings ?? []).map((w) => (
-            <Banner key={w} tone="warn">
-              {w}
-            </Banner>
-          ))}
-          {(review.pkg.package.env ?? []).map((ev) => (
-            <Select
-              key={ev.name}
-              label={`${ev.name}${ev.required ? " (required)" : ""}`}
-              value={map[ev.name] ?? ""}
-              onChange={(e) => setMap({ ...map, [ev.name]: e.target.value })}
-              options={[
-                { value: "", label: ev.required ? "Choose a credential…" : "Not set" },
-                ...(sugg.data?.user_credentials ?? []).map((n) => ({
-                  value: "user:" + n,
-                  label: `Each user's own ${n}`,
-                })),
-                ...(secrets.data ?? []).map((n) => ({ value: n, label: `Shared: ${n}` })),
-              ]}
-            />
-          ))}
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function Table({
-  rows,
-  cols,
-  action,
-}: {
-  rows: Record<string, unknown>[];
-  cols: string[];
-  action?: (row: Record<string, unknown>) => React.ReactNode;
-}) {
-  return (
-    <div className="table-wrap" tabIndex={0} role="region" aria-label="Table">
-      <table>
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th key={c}>{c}</th>
-            ))}
-            {action && <th aria-label="Actions" />}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              {cols.map((c) => (
-                <td key={c}>{String(r[c] ?? "")}</td>
-              ))}
-              {action && <td>{action(r)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function SessionsTab() {
   const { data } = useLoad<Record<string, unknown>[]>("/sessions");
   const [open, setOpen] = useState("");
@@ -1527,22 +1086,6 @@ function SessionsTab() {
         action={(r) => <Button onClick={() => setOpen(String(r.id))}>Read</Button>}
       />
       {open && <SessionMessagesDialog id={open} onClose={() => setOpen("")} />}
-    </>
-  );
-}
-
-function AuditTab() {
-  const { data } = useLoad<{ entries: Record<string, unknown>[]; chain_ok: boolean }>("/audit");
-  if (!data) return <Skeleton />;
-  return (
-    <>
-      <Banner tone={data.chain_ok ? "info" : "danger"}>
-        {data.chain_ok ? "Audit chain verified." : "AUDIT CHAIN BROKEN: the log was modified."}
-      </Banner>
-      <Table
-        rows={[...data.entries].reverse()}
-        cols={["seq", "time", "actor", "action", "target", "detail"]}
-      />
     </>
   );
 }
@@ -1577,45 +1120,33 @@ function SettingsTab() {
   if (!data) return <Skeleton />;
   return (
     <div className="stack" style={{ maxWidth: 520 }}>
-      <Input
-        label="Password rotation (days, users without 2FA)"
-        hint="0 disables rotation"
-        value={s.password_rotation_days ?? ""}
-        onChange={(e) => setS({ ...s, password_rotation_days: e.target.value })}
-      />
-      <Select
-        label="Secret scanner"
-        value={s.secret_scan_mode ?? "warn"}
-        onChange={(e) => setS({ ...s, secret_scan_mode: e.target.value })}
-        options={[
-          { value: "off", label: "Off" },
-          { value: "warn", label: "Warn" },
-          { value: "block", label: "Block pushes" },
-        ]}
-      />
-      <Toggle
-        label="Users may override a scanner block"
-        checked={s.secret_scan_allow_user_override === "true"}
-        onChange={(v) => setS({ ...s, secret_scan_allow_user_override: String(v) })}
-      />
+      <p className="muted">
+        Password rotation, the secret scanner, email, sandbox lifetimes and the other options that
+        can also be set in Docker are under Configuration. These are the policies that are only set
+        here.
+      </p>
       <Input
         label="Default daily tokens (0 = none)"
+        placeholder="500000"
         value={s.default_daily_tokens ?? ""}
         onChange={(e) => setS({ ...s, default_daily_tokens: e.target.value })}
       />
       <Input
         label="Default monthly tokens (0 = none)"
+        placeholder="10000000"
         value={s.default_monthly_tokens ?? ""}
         onChange={(e) => setS({ ...s, default_monthly_tokens: e.target.value })}
       />
       <Input
         label="Web search server (SearXNG address)"
+        placeholder="https://search.example.com"
         hint="For example https://search.example.com. Leave empty to turn web search off. The server needs the json format enabled (search.formats in its settings). A server on the local network also needs SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE."
         value={s.search_url ?? ""}
         onChange={(e) => setS({ ...s, search_url: e.target.value })}
       />
       <Input
         label="Models that accept pictures"
+        placeholder="example-vision:7b, example-vision:13b"
         hint="Model names, separated by commas. Ollama reports this itself; list models here for servers that do not (OpenAI-compatible ones). Other models read pictures as text with OCR."
         value={s.vision_models ?? ""}
         onChange={(e) => setS({ ...s, vision_models: e.target.value })}
@@ -1627,11 +1158,13 @@ function SettingsTab() {
       />
       <Input
         label="Largest upload (MB, 1 to 100)"
+        placeholder="10"
         value={s.upload_max_mb ?? ""}
         onChange={(e) => setS({ ...s, upload_max_mb: e.target.value })}
       />
       <Input
         label="Kinds of file users may upload"
+        placeholder="images,pdf,documents,text"
         hint="Any of: images, pdf, documents (docx, xlsx, pptx, odt, ods, odp), text (txt, md, csv, tsv, json, log). Every upload is also checked by content: programs, scripts, archives, macros, embedded files and encoded data are always refused."
         value={s.upload_kinds ?? ""}
         onChange={(e) => setS({ ...s, upload_kinds: e.target.value })}
@@ -1641,7 +1174,21 @@ function SettingsTab() {
           variant="primary"
           onClick={async () => {
             try {
-              await put("/settings", s);
+              // only what this tab shows: sending the rest would turn the Docker values of options on
+              // the Configuration tab into saved ones
+              const own = [
+                "default_daily_tokens",
+                "default_monthly_tokens",
+                "search_url",
+                "vision_models",
+                "uploads_enabled",
+                "upload_max_mb",
+                "upload_kinds",
+              ];
+              await put(
+                "/settings",
+                Object.fromEntries(own.filter((k) => k in s).map((k) => [k, s[k]])),
+              );
               toast("Saved.", "success");
               reload();
             } catch (x) {
@@ -1650,18 +1197,6 @@ function SettingsTab() {
           }}
         >
           Save
-        </Button>
-        <Button
-          onClick={async () => {
-            try {
-              await post("/mail/test");
-              toast("Test email sent to you.", "success");
-            } catch (x) {
-              toast(errText(x), "error");
-            }
-          }}
-        >
-          Send test email
         </Button>
       </div>
     </div>
@@ -1733,21 +1268,25 @@ function PolicyFields({
       </p>
       <Input
         label="Daily token quota"
+        placeholder="500000"
         value={num("daily_tokens")}
         onChange={(e) => set("daily_tokens", e.target.value)}
       />
       <Input
         label="Monthly token quota"
+        placeholder="10000000"
         value={num("monthly_tokens")}
         onChange={(e) => set("monthly_tokens", e.target.value)}
       />
       <Input
         label="Concurrent sessions"
+        placeholder="3"
         value={num("max_sessions")}
         onChange={(e) => set("max_sessions", e.target.value)}
       />
       <Input
         label="Daily compute minutes"
+        placeholder="240"
         value={num("cpu_minutes")}
         onChange={(e) => set("cpu_minutes", e.target.value)}
       />
@@ -1764,6 +1303,7 @@ function PolicyFields({
       />
       <Input
         label="Allowed models"
+        placeholder="local/small, local/large"
         hint="Comma-separated provider/model ids. Empty = not set here."
         value={(value.allowed_models ?? []).join(", ")}
         onChange={(e) =>
@@ -1896,6 +1436,7 @@ function GroupsTab() {
           {edit.kind === "group" && (
             <Input
               label="Group name"
+              placeholder="Platform team"
               value={edit.name}
               onChange={(e) => setEdit({ ...edit, name: e.target.value })}
             />
@@ -1965,21 +1506,24 @@ function Console({
             { id: "health", label: "Health" },
             { id: "users", label: "Users" },
             { id: "groups", label: "Levels & groups" },
+            { id: "admins", label: "Admins" },
             { id: "providers", label: "Providers & models" },
-            { id: "envs", label: "Environments" },
-            { id: "updates", label: upd?.release_available ? "Updates ●" : "Updates" },
             { id: "bench", label: "Benchmarks" },
+            { id: "envs", label: "Environments" },
             { id: "mcp", label: "MCP servers" },
+            { id: "settings", label: "Policies" },
+            { id: "egress", label: "Egress" },
             { id: "sessions", label: "Sessions" },
             { id: "audit", label: "Audit" },
-            { id: "egress", label: "Egress" },
-            { id: "settings", label: "Policies" },
+            { id: "config", label: "Configuration" },
+            { id: "updates", label: upd?.release_available ? "Updates ●" : "Updates" },
             { id: "kill", label: "Kill switch" },
           ]}
         />
-        {tab === "health" && <HealthTab />}
+        {tab === "health" && <HealthTab go={setTab} />}
         {tab === "users" && <UsersTab />}
         {tab === "groups" && <GroupsTab />}
+        {tab === "admins" && <AdminsTab />}
         {tab === "providers" && <ProvidersTab />}
         {tab === "envs" && <EnvironmentsTab />}
         {tab === "updates" && <UpdatesTab />}
@@ -1989,6 +1533,7 @@ function Console({
         {tab === "audit" && <AuditTab />}
         {tab === "egress" && <EgressTab />}
         {tab === "settings" && <SettingsTab />}
+        {tab === "config" && <ConfigTab />}
         {tab === "kill" && <KillTab />}
       </main>
     </div>

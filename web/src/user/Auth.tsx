@@ -279,7 +279,7 @@ export function ChangePassword({ onDone, forced }: { onDone: () => void; forced?
 }
 
 export function TwoFactorSetup({ onDone, mandatory }: { onDone: () => void; mandatory?: boolean }) {
-  const [setup, setSetup] = useState<{ secret: string; url: string } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; url: string; qr?: string } | null>(null);
   const [code, setCode] = useState("");
   const [codes, setCodes] = useState<string[] | null>(null);
   const [err, setErr] = useState("");
@@ -332,16 +332,42 @@ export function TwoFactorSetup({ onDone, mandatory }: { onDone: () => void; mand
         </Button>
       ) : (
         <form onSubmit={confirm}>
-          <p>
-            Add this account to your authenticator app using the key below (or the otpauth link),
-            then enter the 6-digit code.
-          </p>
-          <p>
-            <code aria-label="Setup key">{setup.secret}</code>
-          </p>
-          <p>
-            <a href={setup.url}>Open in authenticator app</a>
-          </p>
+          {setup.qr ? (
+            <>
+              <p>
+                Scan this QR code with your authenticator app, then enter the 6-digit code it shows.
+              </p>
+              <img
+                className="qr"
+                src={setup.qr}
+                width={220}
+                height={220}
+                alt="QR code to add this account to your authenticator app"
+              />
+              <details>
+                <summary>Cannot scan it? Enter the key by hand</summary>
+                <p>
+                  <code aria-label="Setup key">{setup.secret}</code>
+                </p>
+                <p>
+                  <a href={setup.url}>Open in authenticator app</a>
+                </p>
+              </details>
+            </>
+          ) : (
+            <>
+              <p>
+                Add this account to your authenticator app using the key below (or the otpauth
+                link), then enter the 6-digit code.
+              </p>
+              <p>
+                <code aria-label="Setup key">{setup.secret}</code>
+              </p>
+              <p>
+                <a href={setup.url}>Open in authenticator app</a>
+              </p>
+            </>
+          )}
           <Input
             label="6-digit code"
             inputMode="numeric"

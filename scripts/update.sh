@@ -2,32 +2,44 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Updates a Syntaxis install made by scripts/install.sh. Run as root from the checkout.
 #
-#   sudo sh scripts/update.sh                   # update within the current channel
-#   sudo sh scripts/update.sh --release         # switch to (or update) published releases: the latest
-#   sudo sh scripts/update.sh --release v1.4.0  # ... or one version
-#   sudo sh scripts/update.sh --edge            # follow the main branch (built from source)
-#   sudo sh scripts/update.sh --auto            # quiet when already up to date (used by the timer)
+#   sudo sh scripts/update.sh                   # update within the current release stream
+#   sudo sh scripts/update.sh --stream stable   # follow the newest published release (the default)
+#   sudo sh scripts/update.sh --stream preview  # follow the newest release including pre-releases
+#   sudo sh scripts/update.sh --stream edge     # follow the main branch (built from source)
+#   sudo sh scripts/update.sh --release         # same as --stream stable
+#   sudo sh scripts/update.sh --release v1.4.0  # one version (a pre-release tag puts you on preview)
+#   sudo sh scripts/update.sh --edge            # same as --stream edge
+#   sudo sh scripts/update.sh --auto            # quiet when already up to date; never goes backwards (the timer)
 #   sudo sh scripts/update.sh --dry-run ...     # say what would be done, change nothing
 #
-# Channels: "release" runs the published images of one version; "edge" builds the main branch from
-# this checkout. Steps: back up the database, keep the running image for rollback, pull or build the
-# new version, restart, and wait for the health endpoint to report the new version. If that fails,
-# the previous image, checkout and database backup are restored.
+# Release streams (recorded as SYNTAXIS_CHANNEL in .env, and kept by later updates): "stable" runs
+# the newest published release that is not a pre-release; "preview" runs the newest published
+# release of any kind; "edge" builds the main branch from this checkout. Steps: back up the
+# database, keep the running image for rollback, pull or build the new version, restart, and wait
+# for the health endpoint to report the new version. If that fails, the previous image, checkout
+# and database backup are restored.
 #
 # The whole script is one compound command so the shell reads it before running anything: the
 # checkout can be switched to another version underneath it safely.
 {
 set -eu
 cd "$(dirname "$0")/.."
-CHANNEL=keep VERSION="" AUTO=0 DRY=0
+CHANNEL=keep VERSION="" STREAM="" AUTO=0 DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) CHANNEL=release; case "${2:-}" in ''|--*) shift ;; *) VERSION="$2"; shift 2 ;; esac ;;
-    --edge) CHANNEL=edge; shift ;;
+    --edge) CHANNEL=edge; STREAM=edge; shift ;;
+    --stream)
+      case "${2:-}" in
+        stable|preview) CHANNEL=release; STREAM="$2" ;;
+        edge) CHANNEL=edge; STREAM=edge ;;
+        *) echo "unknown stream: ${2:-} (stable, preview or edge)" >&2; exit 2 ;;
+      esac
+      shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --auto) AUTO=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,19p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -57,18 +69,44 @@ case "$CHANNEL" in
   edge) SOURCE=1 ;;
   *) SOURCE=$SOURCE_NOW ;;
 esac
+# Which stream this update is on. One named on the command line wins. A version given by hand
+# chooses its own: a pre-release tag is on preview. Otherwise keep what the last update recorded
+# in SYNTAXIS_CHANNEL ("release" is the old name for stable); an install built from source is edge.
+if [ -z "$STREAM" ]; then
+  case "$CHANNEL" in
+    release) case "$VERSION" in *-*) STREAM=preview ;; *) STREAM=stable ;; esac ;;
+    *)
+      if [ "$SOURCE_NOW" = 1 ]; then STREAM=edge
+      elif [ "$(getenv SYNTAXIS_CHANNEL)" = preview ]; then STREAM=preview
+      else STREAM=stable; fi ;;
+  esac
+fi
 
-latest_release() {
-  curl -fsS https://api.github.com/repos/kolonuk/syntaxis/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1
+API=https://api.github.com/repos/kolonuk/syntaxis
+latest_stable() {
+  curl -fsS "$API/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1
+}
+# the highest version among the newest releases, pre-releases included: a final release outranks
+# its own candidates, so "1.2.0~rc1" sorts below "1.2.0"
+latest_preview() {
+  curl -fsS "$API/releases?per_page=30" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' |
+    while read -r t; do printf '%s %s\n' "$(printf '%s' "${t#v}" | tr - '~')" "$t"; done |
+    sort -V -k1,1 | tail -n 1 | cut -d' ' -f2
+}
+latest_release() { if [ "$STREAM" = preview ]; then latest_preview; else latest_stable; fi; }
+# newer A B: is version A higher than B?
+newer() {
+  a=$(printf '%s' "${1#v}" | tr - '~'); b=$(printf '%s' "${2#v}" | tr - '~')
+  [ "$a" != "$b" ] && [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n 1)" = "$a" ]
 }
 
 if [ "$DRY" = 1 ]; then
   if [ "$SOURCE" = 1 ]; then
-    echo "plan: channel=edge target=${VERSION:-main} from=$OLD_IMAGE"
+    echo "plan: channel=edge target=${VERSION:-main} stream=edge from=$OLD_IMAGE"
   else
     v=$VERSION
     [ -n "$v" ] || v=$(latest_release) || true
-    echo "plan: channel=release target=${v:-unknown} from=$OLD_IMAGE"
+    echo "plan: channel=release target=${v:-unknown} stream=$STREAM from=$OLD_IMAGE"
   fi
   exit 0
 fi
@@ -108,9 +146,13 @@ else
   fi
   NEW_IMAGE="ghcr.io/kolonuk/syntaxis:${VERSION#v}"
   if [ "$NEW_IMAGE" = "$IMAGE" ]; then
-    say "already on $VERSION"
+    # the version is the same, but the stream may be changing (stable to preview, say): record it
+    if [ "$(getenv SYNTAXIS_CHANNEL)" != "$STREAM" ] && [ "$AUTO" != 1 ]; then setenv SYNTAXIS_CHANNEL "$STREAM"; fi
+    say "already on $VERSION (stream: $STREAM)"
     exit 0
   fi
+  # the weekly timer only moves forward: a preview install must not be pulled back to an older stable
+  if [ "$AUTO" = 1 ] && [ "$SOURCE_NOW" = 0 ] && ! newer "$VERSION" "${IMAGE##*:}"; then exit 0; fi
   WANT="$VERSION"
 fi
 say "updating from $OLD_VERSION to $WANT"
@@ -140,7 +182,7 @@ if [ "$SOURCE" = 1 ]; then
 else
   setenv SYNTAXIS_IMAGE "$NEW_IMAGE"
   setenv SYNTAXIS_SANDBOX_IMAGE "ghcr.io/kolonuk/syntaxis-sandbox:$VERSION"
-  setenv SYNTAXIS_CHANNEL release
+  setenv SYNTAXIS_CHANNEL "$STREAM"
   docker compose pull -q
   docker pull -q "ghcr.io/kolonuk/syntaxis-sandbox:$VERSION" >/dev/null
   # keep the Compose file and scripts in step with the release (best effort)
@@ -173,6 +215,12 @@ if healthy; then
     systemctl daemon-reload
     systemctl enable syntaxis-firewall-sync.service >/dev/null 2>&1 || true
     systemctl restart syntaxis-egress.service syntaxis-firewall-sync.service || true
+    # The update service that started this update is still running the old version of its script.
+    # Restart it a few seconds from now, from outside its own control group (a restart now would
+    # end this script before it reports), so the next request is read by the new version.
+    if [ -f /etc/systemd/system/syntaxis-update-agent.service ] && command -v systemd-run >/dev/null 2>&1; then
+      systemd-run --quiet --no-block --on-active=15 --unit=syntaxis-update-agent-restart systemctl restart syntaxis-update-agent.service >/dev/null 2>&1 || true
+    fi
   fi
   exit 0
 fi

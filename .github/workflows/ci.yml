@@ -272,7 +272,10 @@ jobs:
       - name: Updating from the development branch works and the update service is running
         run: |
           systemctl is-active syntaxis-update-agent.service
-          sudo sh scripts/update.sh --dry-run --release v0.0.1 | grep -q 'channel=release target=v0.0.1'
+          sudo sh scripts/update.sh --dry-run --release v0.0.1 | grep -q 'channel=release target=v0.0.1 stream=stable'
+          sudo sh scripts/update.sh --dry-run --release v0.0.1-rc.1 | grep -q 'stream=preview'
+          sudo sh scripts/update.sh --dry-run --stream preview | grep -q 'channel=release .* stream=preview'
+          sudo sh scripts/update.sh --dry-run --stream edge | grep -q 'channel=edge'
           sudo sh scripts/update.sh --edge
           curl -fsS http://127.0.0.1:8080/healthz
           [ "$(sudo grep '^SYNTAXIS_CHANNEL=' .env)" = "SYNTAXIS_CHANNEL=edge" ]

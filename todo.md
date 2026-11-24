@@ -14,7 +14,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
 - [ ] **Per-user, per-level and per-group upload limits (Easy to Medium).** Uploads have a global switch, size and allowed kinds only. Add a daily upload total per user and let level and group policies lower or switch off uploads, like the other limits.
-- [ ] **Restore on a clean machine (Medium).** The restore was drilled on the real host, in a temporary data directory and on spare ports, and by a test comparing every table. A full restore on a clean virtual machine (volumes, master key and the update service) still needs a host with virtualisation.
+- [ ] **Restore on a clean machine (Medium).** The restore was drilled on the real host, in a temporary data directory and on spare ports, and by a test comparing every table. A full restore on a clean virtual machine (volumes, master key and the update service) can now use the test VMs in `test/vm`, but has not been done.
 
 ## 2. Agent and workflow
 
@@ -28,7 +28,6 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] The pull-request flow end to end: the agent pushes a branch from a sandbox and a pull request is opened. Sandboxes cannot reach a private forge by design, so this needs a public test repository.
 - [ ] SMTP login and STARTTLS against a real relay.
 - [ ] The llama.cpp and LiteLLM adapters against real servers.
-- [ ] The installer on a full virtual machine per distribution (CI checks package installation and the fresh install on one image; this host has no hardware virtualisation).
 - [ ] A real update through the admin app on a disposable Docker host: a published release (v0.1.1 is the first, so there is nothing newer to update to yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 - [ ] Web search against a real SearXNG server (the parser is tested; the live test needs `SYNTAXIS_TEST_SEARXNG_URL`).
@@ -78,7 +77,6 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 ### Tier 3: polish and scale
 
 - [ ] **Per-role model routing (Medium).** A planner model and a coder model, and fallback when a model is unavailable. Check what `internal/routing` already covers first.
-- [ ] **Push notifications (Medium).** Web Push for "finished" and "needs approval", since the chat app is already a PWA.
 - [ ] **Agent-level evaluations (Medium).** Extend the model benchmark to task suites run against real repositories, to choose models for agent work.
 - [ ] **Team-shared project library (Medium).** Skills, rules, commands and memory shared across the trusted users, and hand-off of a session to another user.
 - [ ] **Voice input (Easy, low value).** Browser speech recognition in the message box.

@@ -172,7 +172,7 @@ func TestEnvExampleHasNoValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, line := range strings.Split(string(b), "\n") {
-		for _, k := range []string{"MASTER_KEY=", "PASSWORD=", "VAPID_PRIVATE=", "VAPID_PUBLIC="} {
+		for _, k := range []string{"MASTER_KEY=", "PASSWORD="} {
 			if i := strings.Index(line, k); i >= 0 && strings.TrimSpace(line[i+len(k):]) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
 				t.Errorf(".env.example sets a value for %s", k)
 			}

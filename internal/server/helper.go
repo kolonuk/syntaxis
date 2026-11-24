@@ -20,7 +20,7 @@ import (
 // A helper model does the cheap jobs (session titles, summaries of long events, compacting a long
 // conversation) so the main model's queue and context stay free for the real work. The admin picks
 // one per provider, or none. It is used only while the server says it is already loaded: Syntaxis
-// never loads or swaps a model. Every job falls back to the session's own model if the helper is
+// does not ask the server to load the helper just for these jobs. Every job falls back to the session's own model if the helper is
 // missing, not loaded, or fails.
 
 func helperKey(providerID int64) string { return "helper_model:" + strconv.FormatInt(providerID, 10) }
