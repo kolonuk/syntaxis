@@ -204,11 +204,15 @@ func cmdAudit(args []string, in io.Reader, out io.Writer) error {
 	}
 	var entries []audit.Entry
 	var err error
+	file := ""
+	if rest := args[1:]; len(rest) == 1 {
+		file = rest[0]
+	}
 	switch {
-	case len(args) == 2 && args[1] == "-":
+	case file == "-":
 		entries, err = audit.ReadLines(in)
-	case len(args) == 2:
-		f, ferr := os.Open(args[1])
+	case file != "":
+		f, ferr := os.Open(file) //nolint:gosec // the operator names the file to check
 		if ferr != nil {
 			return ferr
 		}

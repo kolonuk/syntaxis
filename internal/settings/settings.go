@@ -42,7 +42,7 @@ const (
 	List   Kind = "list"   // comma-separated
 )
 
-// Groups, in the order the admin app shows them.
+// Groups lists the sections of the Configuration screen, in the order the admin app shows them.
 var Groups = []struct{ ID, Label, Help string }{
 	{"email", "Email", "Where invite and password-reset emails are sent from. Without a server, emails are only written to the log."},
 	{"addresses", "Addresses", "How people reach the apps. The public address is used in email links and decides whether cookies are Secure."},

@@ -175,6 +175,9 @@ func TestUpdateScriptPlansTheRightStream(t *testing.T) {
 		t.Skipf("GitHub did not answer: %s", stable)
 	}
 	preview, _ := run("--stream", "preview")
+	if strings.Contains(preview, "target=unknown") {
+		testenv.NotTested(t, "GitHub did not list the releases for the preview stream (rate limited?): "+preview)
+	}
 	tag := func(plan string) string {
 		for _, f := range strings.Fields(plan) {
 			if v, ok := strings.CutPrefix(f, "target="); ok {
