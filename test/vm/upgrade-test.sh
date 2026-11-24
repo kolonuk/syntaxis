@@ -34,7 +34,8 @@ name=upgrade-$distro
 out=$HOME_DIR/results/upgrade-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$out"
 steps=$out/steps.txt
-PASSWORD='Syx-upgrade-test-2026!'
+# a throwaway password, made fresh for each run
+PASSWORD="Syx-$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')-2026!"
 fails=0
 
 ok() { echo "PASS $*" | tee -a "$steps"; }
