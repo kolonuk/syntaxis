@@ -149,3 +149,25 @@ func TestStreamOfAnInstall(t *testing.T) {
 		t.Fatal("only the three streams are streams")
 	}
 }
+
+// A failed look-up is retried within a minute, not remembered for the hour a good answer is.
+func TestCheckRetriesAFailureSoon(t *testing.T) {
+	now := time.Now()
+	s := &Source{Base: "http://127.0.0.1:1", TTL: time.Hour, Now: func() time.Time { return now }} // nothing listens
+	if _, _, err := s.Check(context.Background(), false); err == nil {
+		t.Fatal("a look-up against nothing succeeded")
+	}
+	// the failure is remembered briefly: a second request straight away does not ask again
+	s.Base = "http://127.0.0.1:2"
+	if _, _, err := s.Check(context.Background(), false); err == nil || !strings.Contains(err.Error(), "could not reach") {
+		t.Fatalf("%v", err)
+	}
+	// after a minute it does ask again (and would now reach the address that answers)
+	now = now.Add(61 * time.Second)
+	s.mu.Lock()
+	remembered := !s.fetched.IsZero() && now.Sub(s.fetched) < s.TTL
+	s.mu.Unlock()
+	if remembered {
+		t.Fatal("a failure was still remembered after a minute")
+	}
+}

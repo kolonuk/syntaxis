@@ -52,9 +52,20 @@ info() { api get /update; }
 info_is() { info 2>/dev/null | jq -e "$1" >/dev/null; }
 version() { gx 'curl -fsS http://127.0.0.1:8080/api/version' 2>/dev/null | tr -d '\r'; }
 envval() { gx "sudo sed -n 's/^$1=//p' /opt/syntaxis/.env | tail -n 1" 2>/dev/null | tr -d '\r'; }
-branch() { gx 'git -C /opt/syntaxis rev-parse --abbrev-ref HEAD' 2>/dev/null | tr -d '\r'; }
+branch() { gx "sudo git -c safe.directory='*' -C /opt/syntaxis rev-parse --abbrev-ref HEAD" 2>/dev/null | tr -d '\r'; }
 healthy() { gx 'curl -fsS http://127.0.0.1:8080/healthz'; }
-rev() { gx 'git -C /opt/syntaxis rev-parse HEAD' 2>/dev/null | tr -d '\r'; }
+rev() { gx "sudo git -c safe.directory='*' -C /opt/syntaxis rev-parse HEAD" 2>/dev/null | tr -d '\r'; }
+# request_update <json>: ask for an update, trying again while GitHub is not answering (it limits
+# unauthenticated requests per address, and a test run shares its address with everything else)
+request_update() {
+	local i out
+	for i in 1 2 3 4 5; do
+		out=$(api post /update "$1" 2>/dev/null)
+		if ! grep -q "could not look up the releases" <<<"$out"; then echo "$out"; return 0; fi
+		sleep 70
+	done
+	echo "$out"
+}
 msg_has() { status_msg | grep -q "$1"; }
 admin_sees_failure() { api login admin@example.com "$PASSWORD" >/dev/null && info_is '.status.state == "failed"'; }
 status_msg() { info 2>/dev/null | jq -r '.status | "\(.state) \(.target // "") \(.message // "")"' 2>/dev/null; }
@@ -127,7 +138,7 @@ check "the update is recorded as done" jq -e '.status.state == "done"' "$out/upd
 # --- 3. the old host service cannot be told a stream ---
 echo "-- a stream request against the old host service"
 check "the old host service has not announced a protocol" jq -e '.agent.protocol == 0' "$out/update-info.json"
-msg=$(api post /update '{"target":"preview"}' 2>/dev/null | jq -r '.error // ""')
+msg=$(request_update '{"target":"preview"}' | jq -r '.error // ""')
 if grep -q "systemctl restart syntaxis-update-agent" <<<"$msg"; then ok "a stream request is refused with the way out"; else bad "a stream request is refused with the way out: $msg"; fi
 gx 'sudo systemctl restart syntaxis-update-agent' >/dev/null 2>&1
 sleep 25
@@ -135,7 +146,7 @@ check "the restarted host service announces protocol 2" info_is '.agent.protocol
 
 # --- 4. switch stream ---
 echo "-- switch to the preview stream ($(date +%T))"
-api post /update '{"target":"preview"}' >"$out/preview-request.json" 2>&1
+request_update '{"target":"preview"}' >"$out/preview-request.json" 2>&1
 check "the preview request is accepted" jq -e '.stream == "preview"' "$out/preview-request.json"
 wait_update 2400
 rc=$?
@@ -157,8 +168,8 @@ check "back on edge" healthy
 good=$(version)
 good_rev=$(rev)
 good_env=$(gx 'sudo cat /opt/syntaxis/.env | grep -v "^#" | sort | md5sum' 2>/dev/null)
-gx 'cd /tmp && sudo rm -rf work && git clone -q /opt/syx-origin.git work && cd work && git checkout -q main && sed -i "s#SYNTAXIS_SANDBOX_NETWORK: \${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}#SYNTAXIS_SANDBOX_NETWORK: \${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}\n      SYNTAXIS_EGRESS_MODE: bogus#" docker-compose.yml && git -c user.name=t -c user.email=t@example.com commit -q -am "a change that cannot start" && git push -q origin main' >"$out/break.log" 2>&1
-check "main now holds a commit that cannot start" gx 'git -C /opt/syx-origin.git show main:docker-compose.yml | grep -q "EGRESS_MODE: bogus"'
+gx "cd /tmp && sudo rm -rf work && sudo git -c safe.directory='*' clone -q /opt/syx-origin.git work && cd work && sudo sed -i 's#SYNTAXIS_SANDBOX_NETWORK: \${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}#SYNTAXIS_SANDBOX_NETWORK: \${SYNTAXIS_SANDBOX_NETWORK:-syntaxis-sandbox}\n      SYNTAXIS_EGRESS_MODE: bogus#' docker-compose.yml && sudo git -c safe.directory='*' -c user.name=t -c user.email=t@example.com commit -q -am 'a change that cannot start' && sudo git -c safe.directory='*' push -q origin main" >"$out/break.log" 2>&1
+check "main now holds a commit that cannot start" gx "sudo git -c safe.directory='*' -C /opt/syx-origin.git show main:docker-compose.yml | grep -q 'EGRESS_MODE: bogus'"
 api post /update '{"target":"edge"}' >"$out/rollback-request.json" 2>&1
 check "the request for the broken update is accepted" jq -e '.target == "edge"' "$out/rollback-request.json"
 wait_update 3000

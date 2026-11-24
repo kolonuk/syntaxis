@@ -19,6 +19,9 @@ import (
 	"time"
 )
 
+// errorRetry is how long a failed look-up is remembered before asking GitHub again.
+const errorRetry = time.Minute
+
 // DefaultRepo is where releases come from.
 const DefaultRepo = "kolonuk/syntaxis"
 
@@ -151,6 +154,11 @@ func (s *Source) Check(ctx context.Context, force bool) ([]Release, Edge, error)
 	}
 	r, e, err := s.Refresh(ctx)
 	s.fetched, s.releases, s.edge, s.err = s.now(), r, e, err
+	if err != nil {
+		// a failure (GitHub limiting this address, a network blip) is remembered for a minute, not
+		// for the whole hour a good answer is, so the next request tries again soon
+		s.fetched = s.now().Add(-ttl + errorRetry)
+	}
 	return r, e, err
 }
 

@@ -228,9 +228,14 @@ func (a *App) adminUpdateRequest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "choose a release stream (stable, preview or edge) or a version")
 		return
 	}
-	rs, _, _ := a.updateSource().Check(r.Context(), false)
+	rs, _, cerr := a.updateSource().Check(r.Context(), false)
 	tag, strm, msg := resolveUpdateTarget(rs, b.Target, b.Stream)
 	if msg != "" {
+		if cerr != nil && len(rs) == 0 && b.Target != update.StreamEdge {
+			// not "no release yet": the look-up itself failed, and the admin should know why
+			writeErr(w, http.StatusBadGateway, "could not look up the releases: "+cerr.Error())
+			return
+		}
 		writeErr(w, 400, msg)
 		return
 	}
