@@ -28,7 +28,7 @@ for c in sandbox.network-rules sandbox.socket-proxy sandbox.runsc; do
 done
 
 key=$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)
-sudo sh scripts/install.sh --yes --url http://localhost:8080 --version "${SYX_INSTALL_VERSION:-v0.1.2}" >reinstall.log 2>&1
+sudo sh scripts/install.sh --yes --url http://localhost:8080 --version "${SYX_INSTALL_VERSION:-v0.2.0}" >reinstall.log 2>&1
 check "re-running the installer succeeds" test -s reinstall.log
 check "re-run keeps the master key" test "$key" = "$(sudo grep '^SYNTAXIS_MASTER_KEY=' .env)"
 check "healthz still answers after the re-run" curl -fsS http://127.0.0.1:8080/healthz

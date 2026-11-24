@@ -132,7 +132,7 @@ distro, in its own fresh VM (two at a time by default):
 1. Boot on `nat` (provisioning), copy the working tree in, and run
    `scripts/install.sh` as a user would: it installs Docker, nftables and gVisor,
    starts the stack, installs the firewall units and prints the admin link. The
-   release images are pinned (`SYX_INSTALL_VERSION`, default `v0.1.2`); building them
+   release images are pinned (`SYX_INSTALL_VERSION`, default `v0.2.0`); building them
    is the same on every distro, while the package, repository and SELinux handling is
    what differs.
 2. Verify the install as CI does (health, units, nft table, `.env`, `doctor`) and check

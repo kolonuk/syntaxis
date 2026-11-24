@@ -17,7 +17,7 @@
 # Results go to $SYX_VM_HOME/results/<timestamp>/<distro>/. The VM is destroyed
 # when everything passes and kept for inspection when something fails.
 #
-# Environment: SYX_INSTALL_VERSION (default v0.1.2), SYX_GO_SDK (a Go toolchain
+# Environment: SYX_INSTALL_VERSION (default v0.2.0), SYX_GO_SDK (a Go toolchain
 # directory, default ~/sdk/go1.27.4), SYX_SUITE_PARALLEL (default 2), SYX_SUITE_MEM (MB, 4096).
 set -uo pipefail
 
@@ -25,7 +25,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=${SYX_REPO:-$(cd "$HERE/../.." && pwd)}
 VMCTL=$HERE/vmctl.sh
 HOME_DIR=${SYX_VM_HOME:-$HOME/.local/share/syntaxis-vm}
-VERSION=${SYX_INSTALL_VERSION:-v0.1.2}
+VERSION=${SYX_INSTALL_VERSION:-v0.2.0}
 GO_SDK=${SYX_GO_SDK:-$HOME/sdk/go1.27.4}
 PARALLEL=${SYX_SUITE_PARALLEL:-2}
 MEM=${SYX_SUITE_MEM:-4096}
