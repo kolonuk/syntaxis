@@ -36,7 +36,17 @@ ONCE=0; [ "${1:-}" = "--once" ] && ONCE=1
 
 # the protocol header tells the server which request format this service understands (2: a stream may follow the target)
 call() { curl -fsS -m 20 -H "Authorization: Bearer $TOKEN" -H "X-Syntaxis-Agent: 2" "$@"; }
-report() { printf '%s' "$1" | call -X POST --data-binary @- "$URL/internal/update/status" >/dev/null 2>&1 || true; }
+# An update restarts Syntaxis, and a rollback does too, so the server is often not listening at the
+# moment the result is ready. Keep trying for a couple of minutes instead of losing the result.
+send_status() { # <path> <text>
+  tries=0
+  while [ "$tries" -lt "${REPORT_TRIES:-30}" ]; do
+    printf '%s' "$2" | call -X POST --data-binary @- "$URL$1" >/dev/null 2>&1 && return 0
+    tries=$((tries + 1)); sleep "${REPORT_WAIT:-4}"
+  done
+  return 0
+}
+report() { send_status /internal/update/status "$1"; }
 
 # "<target> [stream]": a version or a stream name, and the stream an install follows from now on
 run_update() {
@@ -78,7 +88,7 @@ run_env() {
     report_env "$action $name failed $(printf '%s' "$out" | tail -n 6 | tr '\n' ' ')"
   fi
 }
-report_env() { printf '%s' "$1" | call -X POST --data-binary @- "$URL/internal/environments/status" >/dev/null 2>&1 || true; }
+report_env() { send_status /internal/environments/status "$1"; }
 
 while :; do
   if reply=$(call "$URL/internal/update" 2>/dev/null); then

@@ -149,6 +149,11 @@ export function UpdatesTab() {
           The last update to {info.status.target} failed and was rolled back. {info.status.message}
         </Banner>
       )}
+      {info.status.state === "unknown" && (
+        <Banner tone="warn">
+          The update to {info.status.target} may or may not have happened. {info.status.message}
+        </Banner>
+      )}
       {info.status.state === "done" && (
         <Banner>
           Updated to {info.status.target}

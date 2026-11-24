@@ -37,7 +37,7 @@ const (
 
 // UpdateStatus is what the admin app shows about the last request.
 type UpdateStatus struct {
-	State   string    `json:"state"` // requested | running | done | failed
+	State   string    `json:"state"` // requested | running | done | failed | unknown
 	Target  string    `json:"target"`
 	Stream  string    `json:"stream,omitempty"`
 	Message string    `json:"message,omitempty"`
@@ -283,6 +283,15 @@ func (a *App) handleUpdatePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.updAgent.touch(a.Now(), hostProtocol(r))
+	// The host service does one thing at a time, so when it asks again, whatever it was running has
+	// ended. If this server never heard how it went, the final report could not be delivered: an
+	// update restarts this server, and a rollback does too. Say so instead of showing "running" for ever.
+	if st := a.updateStatus(r.Context()); st.State == "running" {
+		st.State, st.At = "unknown", a.Now()
+		st.Message = "The update service finished without telling Syntaxis how it went, most likely because this server was restarting. Check the version under Running now: if it is not the one requested, the update did not happen or was rolled back."
+		a.setUpdateStatus(r.Context(), st)
+		_, _ = a.Store.AppendAudit(r.Context(), "host", "update.unknown", "server", st.Target)
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	raw := a.setting(r.Context(), settingUpdateRequest, "")

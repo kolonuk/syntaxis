@@ -382,6 +382,21 @@ describe("Updates tab", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+  it("says so when the update service never reported back, instead of showing a result it does not know", async () => {
+    api({
+      "GET /update": info({
+        status: {
+          state: "unknown",
+          target: "v0.2.1",
+          message: "The update service finished without telling Syntaxis how it went.",
+        },
+      }),
+    });
+    wrap(<UpdatesTab />);
+    expect(await screen.findByText(/may or may not have happened/)).toHaveTextContent("v0.2.1");
+    expect(screen.getByText(/finished without telling Syntaxis/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update to v0.2.1" })).toBeEnabled(); // not stuck as "running"
+  });
   it("explains what to do when there is no update service, and offers nothing it cannot do", async () => {
     api({
       "GET /update": info({ agent: { running: false, manual: "sudo sh scripts/update.sh" } }),

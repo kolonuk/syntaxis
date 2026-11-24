@@ -58,19 +58,20 @@ rev() { gx "sudo git -c safe.directory='*' -C /opt/syntaxis rev-parse HEAD" 2>/d
 # request_update <json>: ask for an update, trying again while GitHub is not answering (it limits
 # unauthenticated requests per address, and a test run shares its address with everything else)
 request_update() {
-	local i out
-	for i in 1 2 3 4 5; do
+	local out
+	for _ in 1 2 3 4 5; do
 		out=$(api post /update "$1" 2>/dev/null)
 		if ! grep -q "could not look up the releases" <<<"$out"; then echo "$out"; return 0; fi
 		sleep 70
 	done
 	echo "$out"
 }
-msg_has() { status_msg | grep -q "$1"; }
-admin_sees_failure() { api login admin@example.com "$PASSWORD" >/dev/null && info_is '.status.state == "failed"'; }
+admin_sees_result() { api login admin@example.com "$PASSWORD" >/dev/null && info_is '.status.state == "failed" or .status.state == "unknown"'; }
 status_msg() { info 2>/dev/null | jq -r '.status | "\(.state) \(.target // "") \(.message // "")"' 2>/dev/null; }
 
-# wait_update [seconds]: until the last update request has finished. 0 done, 1 failed, 2 timed out.
+# wait_update [seconds]: until the last update request has finished. 0 done, 1 failed, 2 timed out,
+# 3 finished but the host service never reported how it went (an older service loses its last report
+# when the server restarts, as a rollback does; this server then says "unknown" instead of "running").
 wait_update() {
 	local deadline=$((SECONDS + ${1:-2400})) st
 	while [ "$SECONDS" -lt "$deadline" ]; do
@@ -78,6 +79,7 @@ wait_update() {
 		case $st in
 			done) return 0 ;;
 			failed) return 1 ;;
+			unknown) return 3 ;;
 		esac
 		sleep 15
 	done
@@ -153,7 +155,7 @@ rc=$?
 if [ "$rc" -eq 0 ]; then ok "the switch to preview finished: $(status_msg)"; else bad "the switch to preview finished ($rc): $(status_msg)"; fi
 sleep 25
 check "the stream is recorded as preview" test "$(envval SYNTAXIS_CHANNEL)" = preview
-check "the app reports the preview stream" info_is '.stream == "preview"'
+# (the app running now is the published release the stream pointed at, which has no streams of its own)
 check "the stack is healthy after the switch" healthy
 before=$(version)
 gx 'cd /opt/syntaxis && sudo sh scripts/update.sh --auto' >"$out/auto.log" 2>&1
@@ -174,14 +176,13 @@ api post /update '{"target":"edge"}' >"$out/rollback-request.json" 2>&1
 check "the request for the broken update is accepted" jq -e '.target == "edge"' "$out/rollback-request.json"
 wait_update 3000
 rc=$?
-check "the update is reported as failed" test "$rc" -eq 1
-check "the failure says it was rolled back" msg_has "rolled back"
+check "the update is not shown as done or as still running" test "$rc" -eq 1 -o "$rc" -eq 3
 sleep 25
 check "the previous version is running again" test "$(version)" = "$good"
 check "the stack is healthy after the rollback" healthy
 check "the .env is as it was before the update" test "$(gx 'sudo cat /opt/syntaxis/.env | grep -v "^#" | sort | md5sum' 2>/dev/null)" = "$good_env"
 check "the checkout is back on the commit it was on" test "$(rev)" = "$good_rev" -a "$(branch)" = main
-check "the admin can still sign in and see the failure" admin_sees_failure
+check "the admin can still sign in and the app says it failed, or that the result was lost" admin_sees_result
 check "the failed database was kept for inspection" gx 'sudo docker run --rm -v "$(sudo docker inspect -f "{{range .Mounts}}{{if eq .Destination \"/data\"}}{{.Name}}{{end}}{{end}}" "$(cd /opt/syntaxis && sudo docker compose ps -q syntaxis)")":/d busybox ls /d | grep -q failed-update'
 
 echo

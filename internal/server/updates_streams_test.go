@@ -339,3 +339,60 @@ if newer "$1" "$2"; then echo yes; else echo no; fi`, "sh", tc.a, tc.b).Output()
 		}
 	}
 }
+
+// An update restarts the server, and a rollback does too, so the host service often cannot deliver
+// its final report. The service does one thing at a time: when it asks for work again, the run it
+// was doing has ended. The page must not show "running" for ever.
+func TestAnUpdateWhoseResultWasNeverReportedDoesNotStayRunning(t *testing.T) {
+	e := newEnv(t)
+	e.app.Cfg.FirewallToken = "host-token-for-tests"
+	adm := e.makeAdminSession()
+	poll := func() string {
+		req, _ := http.NewRequest("GET", e.admin.URL+"/internal/update", nil)
+		req.Header.Set("Authorization", "Bearer host-token-for-tests")
+		req.Header.Set("X-Syntaxis-Agent", "2")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(b))
+	}
+	poll()
+	if code, _, raw := adm.do("POST", "/api/update", map[string]string{"target": "edge"}); code != 202 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if got := poll(); got != "request edge" {
+		t.Fatalf("%q", got)
+	}
+	state := func() (string, string) {
+		_, st, _ := adm.do("GET", "/api/update", nil)
+		s := st["status"].(map[string]any)
+		msg, _ := s["message"].(string)
+		return s["state"].(string), msg
+	}
+	if s, _ := state(); s != "running" {
+		t.Fatalf("after hand-out: %s", s)
+	}
+	// no report comes (the server was restarting); the service asks again
+	if got := poll(); got != "none" {
+		t.Fatalf("%q", got)
+	}
+	s, msg := state()
+	if s != "unknown" || !strings.Contains(msg, "without telling Syntaxis") || !strings.Contains(msg, "Running now") {
+		t.Fatalf("the lost result must be said plainly: %s %q", s, msg)
+	}
+	// and it can be asked again straight away
+	if code, _, raw := adm.do("POST", "/api/update", map[string]string{"target": "edge"}); code != 202 {
+		t.Fatalf("a new request after an unknown result: %d %s", code, raw)
+	}
+	es, _ := e.st.ListAudit(t.Context(), 0)
+	found := false
+	for _, x := range es {
+		found = found || x.Action == "update.unknown"
+	}
+	if !found {
+		t.Fatal("the lost result was not audited")
+	}
+}
