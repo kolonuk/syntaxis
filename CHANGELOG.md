@@ -4,6 +4,13 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-24
+
+### Upgrading from 0.1.3
+- The host update service (`syntaxis-update-agent`) keeps running the old version of its script until it is restarted, and the old one cannot be told which release stream to follow. Updating from 0.1.3 works as before; afterwards run `sudo systemctl restart syntaxis-update-agent` once. The Updates page says so if a request needs it, and later updates restart the service themselves.
+- `SYNTAXIS_VAPID_PUBLIC` and `SYNTAXIS_VAPID_PRIVATE` are no longer read; remove them if you set them. A value you save in Configuration now replaces the one Docker gives, so check the screen before relying on a change in the compose file.
+- The weekly automatic update (`--auto-update`) now stays inside your release stream and never goes backwards.
+
 ### Added
 - **Release streams.** Updates now has three streams: **stable** (the newest release that is not a pre-release, the default), **preview** (the newest release of any kind, release candidates and betas included) and **edge** (the main branch built from source). The admin app shows which one you follow and what each would install, and switching warns when it would go to an older version. `scripts/update.sh` takes `--stream stable|preview|edge`; the stream is kept as `SYNTAXIS_CHANNEL` in `.env`, and the weekly automatic update stays inside it and never goes backwards.
 - **Configuration** screen in the admin app: every option Syntaxis has, including email (SMTP, with a test button), addresses, sandbox lifetimes, egress defaults, reverse-proxy sign-in and logging. Each option says whether its value comes from **Docker**, was **saved here** (a saved value replaces the environment's) or is the **default**, whether it applies at once or after a restart, and can go back to the Docker value. Options that belong to the deployment are shown but not edited, and secrets are never shown. The mail password is kept encrypted under a reserved name that is never offered to MCP servers.
@@ -27,6 +34,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - Push notifications and VAPID keys: `SYNTAXIS_VAPID_PUBLIC` and `_PRIVATE` are ignored, `syntaxis keygen --vapid` is gone, the unused `push_subscriptions` table is dropped, and so are the browser push code and the "no VAPID keys" health note. Nothing ever sent a push.
 
 ### Fixed
+- An update's result is no longer lost when it restarts Syntaxis. The host service keeps trying to deliver it for a couple of minutes, and a server that never heard how a run went says "unknown" and what to check, instead of showing "running" for ever. Found by upgrading a real install in a VM: the rollback after a failed update worked, but the page never said so.
+- A failed look-up of the releases (GitHub limiting the address) is retried after a minute instead of being remembered for an hour, and a stream request says that the look-up failed instead of "no release yet".
 - The official GitHub MCP server, the first recommended one, could never be approved: it is a container image and its version is in the tag, which was read as "not pinned".
 - A real-GitHub test (`TestGitHubReleases`) failed the build whenever GitHub rate-limited the CI runner; it now reports "not tested" like the others.
 - The admin app went blank when you pressed Review on an MCP server with no environment variables (many in the registry): the catalogue search sent `null` where the page expected a list. The search now always sends lists and the page copes with either.
