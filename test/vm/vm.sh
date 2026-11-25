@@ -11,7 +11,8 @@
 # The host needs Docker and /dev/kvm, nothing else. VM data (images, VM disks, results, keys) is in
 # the Docker volume syntaxis-vm-data. Set SYX_VM_DATA to another volume name or an absolute host
 # path to keep it elsewhere.
-#   ./vm.sh import-iso <file>      copy a Windows ISO into the volume and register it
+#   SYX_ISO_DIR=<folder> ./vm.sh ...   mount a host folder holding a Windows ISO at /isos (read-only);
+#                                      stop the container (./vm.sh down) after changing it
 #   ./vm.sh results <dir>          copy the test results out of the volume into <dir>
 set -euo pipefail
 
@@ -31,10 +32,12 @@ running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = 
 
 start() {
 	docker image inspect "$IMAGE" >/dev/null 2>&1 || build
+	iso=()
+	[ -z "${SYX_ISO_DIR:-}" ] || iso=(-v "$SYX_ISO_DIR:/isos:ro")
 	docker rm -f "$NAME" >/dev/null 2>&1 || true
 	docker run -d --init --name "$NAME" \
 		--device /dev/kvm \
-		-v "$REPO:/repo:ro" -v "$DATA:/data" \
+		-v "$REPO:/repo:ro" -v "$DATA:/data" "${iso[@]}" \
 		"$IMAGE" sleep infinity >/dev/null
 }
 
@@ -46,16 +49,10 @@ esac
 
 running || start
 env=()
-for v in $(compgen -e | grep -E '^SYX_' | grep -vE '^SYX_(VM_HOME|VM_IMAGE|VM_CONTAINER|REPO|GO_SDK)$'); do env+=(-e "$v"); done
+for v in $(compgen -e | grep -E '^SYX_' | grep -vE '^SYX_(VM_HOME|VM_IMAGE|VM_CONTAINER|VM_DATA|ISO_DIR|REPO|GO_SDK)$'); do env+=(-e "$v"); done
 tty=()
 [ -t 0 ] && [ -t 1 ] && tty=(-t)
 case $1 in
-	import-iso)
-		[ -f "${2:-}" ] || die "usage: vm.sh import-iso <iso file>"
-		docker cp "$2" "$NAME:/data/import.iso"
-		docker exec "$NAME" bash -c '/repo/test/vm/vmctl.sh import-iso /data/import.iso && rm -f /data/import.iso'
-		exit $?
-		;;
 	results)
 		[ -n "${2:-}" ] || die "usage: vm.sh results <dir>"
 		mkdir -p "$2"

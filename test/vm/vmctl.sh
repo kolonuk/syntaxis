@@ -38,9 +38,8 @@ usage: vmctl.sh <command> [args]
   create <vm> <distro> [cpus] [mem-MB] [disk]
                                   make a VM disk from the current base image
                                   (defaults: 2 cpus, 2048 MB, 20G); the distro
-                                  "windows11" installs from the imported ISO
+                                  "windows11" installs from the ISO in $SYX_ISO_DIR
                                   (defaults: 4 cpus, 4096 MB, 64G)
-  import-iso <file>               register a Windows 11 ISO for "create windows11"
   screenshot <vm> <out.png>       picture of a Windows VM's screen (install progress)
   win-template <vm>               save an installed Windows VM as the template that
                                   new Windows VMs (and rebuild) start from
@@ -438,7 +437,6 @@ case $cmd in
 	destroy) [ $# -eq 1 ] || die "usage: destroy <vm>"; cmd_destroy "$1" ;;
 	prune) cmd_prune ;;
 	win-template) [ $# -eq 1 ] || die "usage: win-template <vm>"; cmd_win_template "$1" ;;
-	import-iso) [ $# -eq 1 ] || die "usage: import-iso <windows11.iso>"; cmd_import_iso "$1" ;;
 	screenshot) [ $# -eq 2 ] || die "usage: screenshot <vm> <out.png>"; cmd_screenshot "$1" "$2" ;;
 	*) die "unknown command '$cmd' (try: vmctl.sh help)" ;;
 esac

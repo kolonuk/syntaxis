@@ -12,7 +12,8 @@
 
 OVMF_CODE=${SYX_OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.ms.fd}
 OVMF_VARS=${SYX_OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.ms.fd}
-WIN_ISO_DIR=$HOME_DIR/isos/windows11
+# a folder holding the Windows 11 ISO; vm.sh mounts the host folder in SYX_ISO_DIR here, read-only
+WIN_ISO_DIR=${SYX_ISO_DIR:-/isos}
 WIN_EDITION=${SYX_WIN_EDITION:-Windows 11 Pro}
 WIN_TPL=$IMG_DIR/windows11
 WIN_INSTALL_WAIT=${SYX_WIN_INSTALL_WAIT:-3600}
@@ -27,20 +28,6 @@ win_need_tools() {
 	done
 	[ "${#missing[@]}" -eq 0 ] || die "missing tools: ${missing[*]} (Debian: apt install swtpm genisoimage socat)"
 	[ -f "$OVMF_CODE" ] && [ -f "$OVMF_VARS" ] || die "OVMF firmware not found (Debian: apt install ovmf)"
-}
-
-cmd_import_iso() {
-	local src=$1 dest
-	[ -f "$src" ] || die "no such file: $src"
-	case $src in *.iso) ;; *) die "expected an .iso file" ;; esac
-	mkdir -p "$WIN_ISO_DIR"
-	dest=$WIN_ISO_DIR/$(basename "$src")
-	if [ "$(readlink -f "$src")" = "$(readlink -f "$dest")" ]; then
-		log "already in place: $dest"
-	else
-		cp "$src" "$dest"
-		log "imported $dest"
-	fi
 }
 
 win_make_unattend() {
@@ -70,7 +57,7 @@ win_create() {
 	dir=$VM_DIR/$vm
 	[ ! -e "$dir" ] || die "VM '$vm' exists (use rebuild or destroy)"
 	iso=$(win_latest_iso)
-	[ -n "$iso" ] || die "no Windows ISO: download Windows 11 (x64) from Microsoft, then run 'vmctl.sh import-iso <file>'"
+	[ -n "$iso" ] || die "no Windows ISO: put the Windows 11 (x64) ISO in a folder and set SYX_ISO_DIR to it (vm.sh mounts it at /isos)"
 	ensure_key
 	if win_have_template && [ "${SYX_WIN_FRESH:-0}" != 1 ]; then
 		win_from_template "$dir" "$size"
@@ -205,7 +192,7 @@ win_start() {
 	local media=()
 	if [ "$installed_flag" != 1 ]; then
 		iso=$(win_latest_iso)
-		[ -n "$iso" ] || die "no Windows ISO (vmctl.sh import-iso <file>)"
+		[ -n "$iso" ] || die "no Windows ISO in $WIN_ISO_DIR (set SYX_ISO_DIR)"
 		media=(-device ahci,id=ahci
 			-drive file="$iso",if=none,id=cd0,media=cdrom,readonly=on -device ide-cd,drive=cd0,bus=ahci.0,bootindex=1
 			-drive file="$VM/unattend.iso",if=none,id=cd1,media=cdrom,readonly=on -device ide-cd,drive=cd1,bus=ahci.1)

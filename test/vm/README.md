@@ -51,7 +51,7 @@ The scripts run three tests:
 - `vm.sh down` stops the container. This also stops every running VM.
 - `vm.sh build` rebuilds the image.
 
-Everything the scripts create (base images, VM disks, SSH key, results, ISOs) is stored in the Docker volume `syntaxis-vm-data`, mounted at `/data` in the container. Nothing is stored in the repository. To use a different volume, or a folder on the host, set `SYX_VM_DATA` to a volume name or an absolute path.
+Everything the scripts create (base images, VM disks, SSH key, results) is stored in the Docker volume `syntaxis-vm-data`, mounted at `/data` in the container. The volume keeps the downloaded images, kept VMs and the Windows template across container restarts, so none of them is downloaded or built again. Nothing is stored in the repository. To use a different volume, or a folder on the host, set `SYX_VM_DATA` to a volume name or an absolute path.
 
 | Path in the volume | Contents |
 |---|---|
@@ -59,7 +59,6 @@ Everything the scripts create (base images, VM disks, SSH key, results, ISOs) is
 | `vms/` | One folder per VM: its disk, console log and settings. |
 | `keys/` | The SSH key used to log in to the VMs. Generated, never committed. |
 | `results/` | Logs from each test run. |
-| `isos/` | Windows ISO files. |
 
 ## Run the install and security suite
 
@@ -181,10 +180,11 @@ Add a line to `distros.conf`: `name|image URL|checksum URL|file name`, then run 
 A Windows VM is only needed to test Windows support. It installs from a Windows 11 ISO with an unattended answer file and no product key.
 
 1. Download the Windows 11 ISO (x64, multi-edition) from Microsoft in a browser.
-2. Copy it into the volume and register it:
+2. Put it in a folder and set `SYX_ISO_DIR` to that folder. It is mounted read-only at `/isos` in the container, so the ISO is never copied. Stop the container if it is running, so it starts with the folder mounted:
 
    ```sh
-   test/vm/vm.sh import-iso ~/Downloads/Win11_*.iso
+   test/vm/vm.sh down
+   export SYX_ISO_DIR=~/isos
    ```
 
 3. Create and start the VM (the install takes 15 to 40 minutes):
