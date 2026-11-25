@@ -52,7 +52,6 @@ usage: vmctl.sh <command> [args]
   rebuild <vm>                    stop, recreate disk from current base, boot
   destroy <vm>                    stop and delete the VM and its disk
   prune                           delete base images no VM or current link uses
-  timer install|remove            weekly 'fetch' via a systemd --user timer
   help                            this text
 
 Networking:
@@ -418,45 +417,6 @@ cmd_doctor() {
 cmd_put() { load_vm "$1"; "${SCP[@]}" "$2" "$SSH_USER@127.0.0.1:$3"; }
 cmd_get() { load_vm "$1"; "${SCP[@]}" "$SSH_USER@127.0.0.1:$2" "$3"; }
 
-cmd_timer() {
-	local unit_dir=$HOME/.config/systemd/user
-	case ${1:-} in
-		install)
-			mkdir -p "$unit_dir"
-			cat >"$unit_dir/syntaxis-vm-fetch.service" <<EOF
-[Unit]
-Description=Refresh Syntaxis test VM base images
-
-[Service]
-Type=oneshot
-ExecStart=$HERE/vmctl.sh fetch
-EOF
-			cat >"$unit_dir/syntaxis-vm-fetch.timer" <<'EOF'
-[Unit]
-Description=Weekly refresh of Syntaxis test VM base images
-
-[Timer]
-OnCalendar=weekly
-Persistent=true
-RandomizedDelaySec=1h
-
-[Install]
-WantedBy=timers.target
-EOF
-			systemctl --user daemon-reload
-			systemctl --user enable --now syntaxis-vm-fetch.timer
-			log "timer installed (runs while you are logged in; 'loginctl enable-linger' keeps it running after logout)"
-			;;
-		remove)
-			systemctl --user disable --now syntaxis-vm-fetch.timer 2>/dev/null || true
-			rm -f "$unit_dir/syntaxis-vm-fetch.service" "$unit_dir/syntaxis-vm-fetch.timer"
-			systemctl --user daemon-reload
-			log "timer removed"
-			;;
-		*) die "usage: vmctl.sh timer install|remove" ;;
-	esac
-}
-
 # ---- dispatch --------------------------------------------------------------
 
 cmd=${1:-help}
@@ -480,6 +440,5 @@ case $cmd in
 	win-template) [ $# -eq 1 ] || die "usage: win-template <vm>"; cmd_win_template "$1" ;;
 	import-iso) [ $# -eq 1 ] || die "usage: import-iso <windows11.iso>"; cmd_import_iso "$1" ;;
 	screenshot) [ $# -eq 2 ] || die "usage: screenshot <vm> <out.png>"; cmd_screenshot "$1" "$2" ;;
-	timer) cmd_timer "$@" ;;
 	*) die "unknown command '$cmd' (try: vmctl.sh help)" ;;
 esac
