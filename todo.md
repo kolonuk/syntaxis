@@ -9,7 +9,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 1. Fixes and verification
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] **Check the first release end to end (Easy to Medium).** v0.1.1 is the first release (v0.1.0 was tagged but its release run failed, and that tag was left in place). Pull its signed images with `cosign verify`, install it on a fresh host and fix what that finds; the release workflow itself has not run before.
+- [ ] **Check each release end to end (Easy to Medium).** For every release: `cosign verify` the signed images, install it on a fresh host (the VM suite does this: `SYX_INSTALL_VERSION=<tag> test/vm/suite.sh`) and update an older install to it (`SYX_UPGRADE_TO=<tag> test/vm/upgrade-test.sh`). v0.2.0 has passed both on the Linux distros the harness covers; `cosign verify` is still manual.
 - [ ] **Accessibility and mobile checks for every screen, with a skill to keep them in check (Medium).** Only the sign-in pages are in the axe flows today. Add Playwright and axe flows for the chat, Files, attachments, slash menu, task list, settings and admin pages on a phone and desktop width in light and dark, and extend the existing `.claude/skills/check-the-web-app` skill with a checklist for a new screen (contrast, focus order, labels, keyboard use, screen-reader text), with the ship-a-feature skill requiring it, so each new feature is checked before it ships.
 
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
@@ -28,7 +28,7 @@ These work as far as a test can show, but the test needs something this project 
 - [ ] The pull-request flow end to end: the agent pushes a branch from a sandbox and a pull request is opened. Sandboxes cannot reach a private forge by design, so this needs a public test repository.
 - [ ] SMTP login and STARTTLS against a real relay.
 - [ ] The llama.cpp and LiteLLM adapters against real servers.
-- [ ] A real update through the admin app on a disposable Docker host: a published release (v0.1.1 is the first, so there is nothing newer to update to yet) and the roll-back after a failed update. CI checks the update scripts' plans, the service protocol against the real server, and a real update to the development branch on a fresh install.
+- [ ] The update and the roll-back after a failed update on a physical host, not a VM (the VM test covers both on the five Linux distros).
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 - [ ] Web search against a real SearXNG server (the parser is tested; the live test needs `SYNTAXIS_TEST_SEARXNG_URL`).
 - [ ] Pictures sent to a vision model through the llama.cpp and LiteLLM adapters (checked with Ollama's native and OpenAI-compatible APIs only), and OCR of languages other than English.
