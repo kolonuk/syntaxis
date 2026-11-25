@@ -198,6 +198,9 @@ echo "-- a failed update rolls back ($(date +%T))"
 api post /update '{"target":"edge"}' >/dev/null 2>&1
 wait_update 3000
 check "back on edge" healthy
+# a published release's update script restarts the host service some seconds after an update; wait for that
+# to finish so it cannot land in the update that follows
+gx 'sleep 8; while systemctl is-active -q syntaxis-update-agent-restart.timer || systemctl is-active -q syntaxis-update-agent-restart.service; do sleep 2; done; sleep 10' >/dev/null 2>&1
 good=$(version)
 good_rev=$(rev)
 good_env=$(gx 'sudo cat /opt/syntaxis/.env | grep -v "^#" | sort | md5sum' 2>/dev/null)

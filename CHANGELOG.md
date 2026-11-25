@@ -6,6 +6,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [0.2.1] - 2026-11-25
 
+### Fixed
+- The delayed restart of the host update service after an update no longer ends the next update half way. It waits until no update is running. Before, a request made within about 20 seconds of an update could leave the git checkout on the new commit without rolling back.
+
 ### Changed
 - Release images and checksums are no longer signed with cosign. Releases still carry an SBOM, build provenance and a `SHA256SUMS` file.
 - The test VM harness runs inside a Docker container (`test/vm/vm.sh`); the host needs only Docker and KVM. `test/vm/vm.sh all.sh` runs every VM test in one go.
