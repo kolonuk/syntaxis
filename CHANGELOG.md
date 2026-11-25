@@ -4,6 +4,14 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-25
+
+### Changed
+- Release images and checksums are no longer signed with cosign. Releases still carry an SBOM, build provenance and a `SHA256SUMS` file.
+- The test VM harness runs inside a Docker container (`test/vm/vm.sh`); the host needs only Docker and KVM. `test/vm/vm.sh all.sh` runs every VM test in one go.
+- The Windows ISO is mounted read-only (`SYX_ISO_DIR`) instead of being copied, and is needed only for the first Windows install.
+- The documentation is rewritten as instructions.
+
 ## [0.2.0] - 2026-11-24
 
 ### Upgrading from 0.1.3

@@ -80,7 +80,7 @@ Text the model reads can try to steer it ([prompt injection](https://en.wikipedi
 ## Keys, privacy and supply chain
 
 - Back up the master key separately; without it stored secrets and 2FA cannot be recovered. A wrong master key is not noticed at start-up: secrets fail to decrypt.
-- Base images are pinned and kept current by Dependabot; releases are signed and carry an SBOM; CI runs `govulncheck` and `npm audit`.
+- Base images are pinned and kept current by Dependabot; releases carry an SBOM and a `SHA256SUMS` file; CI runs `govulncheck` and `npm audit`.
 - Keep Docker Engine itself up to date.
 
 ## Known gaps

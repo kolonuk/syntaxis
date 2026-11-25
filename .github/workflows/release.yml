@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write
 
 jobs:
   images:
@@ -30,7 +29,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-      - uses: sigstore/cosign-installer@v3
       - id: build
         uses: docker/build-push-action@v7
         with:
@@ -45,17 +43,12 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
           sbom: true
           provenance: true
-      - name: Sign the server image (keyless, recorded in the public transparency log)
-        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
-      - name: Sandbox images, base first because the variants build on it, signed
+      - name: Sandbox images, base first because the variants build on it
         run: |
           for v in sandbox sandbox-cloud sandbox-security; do
             docker buildx build --push --platform linux/amd64 --sbom=true --provenance=true \
-              --metadata-file meta-$v.json \
               --build-arg BASE=ghcr.io/${{ github.repository }}-sandbox:${{ github.ref_name }} \
               -t ghcr.io/${{ github.repository }}-$v:${{ github.ref_name }} images/$v
-            digest=$(jq -r '."containerimage.digest"' meta-$v.json)
-            cosign sign --yes ghcr.io/${{ github.repository }}-$v@$digest
           done
   release:
     needs: images
@@ -81,11 +74,8 @@ jobs:
           format: spdx-json
           output-file: dist/syntaxis-${{ github.ref_name }}.spdx.json
           upload-artifact: false
-      - uses: sigstore/cosign-installer@v3
-      - name: Sign the checksums (keyless)
-        run: |
-          cd dist && sha256sum * > SHA256SUMS
-          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
       - name: Release notes from the changelog
         run: |
           # the section for this tag, or Unreleased if the tag has no section yet
@@ -95,12 +85,6 @@ jobs:
           if [ ! -s notes.md ]; then
             awk '/^## \[Unreleased\]/{on=1; next} /^## /{if(on) exit} on' CHANGELOG.md > notes.md
           fi
-          cat >> notes.md <<'EOF'
-
-          ### Verifying
-          Images and `SHA256SUMS` are signed with Sigstore keyless signing by this repository's release workflow:
-          `cosign verify ghcr.io/kolonuk/syntaxis:<version> --certificate-identity-regexp 'https://github.com/kolonuk/syntaxis/.github/workflows/release.yml@.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com`
-          EOF
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*

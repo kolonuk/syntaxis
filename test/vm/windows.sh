@@ -56,8 +56,6 @@ win_create() {
 	win_need_tools
 	dir=$VM_DIR/$vm
 	[ ! -e "$dir" ] || die "VM '$vm' exists (use rebuild or destroy)"
-	iso=$(win_latest_iso)
-	[ -n "$iso" ] || die "no Windows ISO: put the Windows 11 (x64) ISO in a folder and set SYX_ISO_DIR to it (vm.sh mounts it at /isos)"
 	ensure_key
 	if win_have_template && [ "${SYX_WIN_FRESH:-0}" != 1 ]; then
 		win_from_template "$dir" "$size"
@@ -79,6 +77,8 @@ EOF
 		log "created $vm from the saved template (windows11, $cpus cpus, $mem MB): boots in about a minute"
 		return 0
 	fi
+	iso=$(win_latest_iso)
+	[ -n "$iso" ] || die "no Windows ISO: put the Windows 11 (x64) ISO in a folder and set SYX_ISO_DIR to it (vm.sh mounts it at /isos)"
 	mkdir -p "$dir/tpm"
 	qemu-img create -q -f qcow2 "$dir/disk.qcow2" "$size"
 	cp "$OVMF_VARS" "$dir/OVMF_VARS.fd"

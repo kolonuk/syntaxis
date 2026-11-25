@@ -5,6 +5,7 @@
 #   ./vm.sh suite.sh debian12
 #   ./vm.sh upgrade-test.sh rocky9
 #   ./vm.sh selftest.sh
+#   ./vm.sh all.sh         every test above in one run (--quick skips the upgrade tests)
 #   ./vm.sh shell          a shell inside the container
 #   ./vm.sh build          (re)build the image
 #   ./vm.sh down           stop the container (this also stops every VM)
@@ -44,7 +45,7 @@ start() {
 case ${1:-} in
 	build) build; exit 0 ;;
 	down) docker rm -f "$NAME" >/dev/null 2>&1 || true; exit 0 ;;
-	"" | -h | --help | help) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	"" | -h | --help | help) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 running || start

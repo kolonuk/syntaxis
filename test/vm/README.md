@@ -60,6 +60,15 @@ Everything the scripts create (base images, VM disks, SSH key, results) is store
 | `keys/` | The SSH key used to log in to the VMs. Generated, never committed. |
 | `results/` | Logs from each test run. |
 
+## Run everything
+
+```sh
+test/vm/vm.sh all.sh           # about 2 hours
+test/vm/vm.sh all.sh --quick   # without the upgrade tests
+```
+
+`all.sh` runs the self-test on every Linux distribution, the Windows 11 self-test when a Windows template is saved (see Windows 11), the install and security suite on every distribution, and the upgrade test with rollback on `debian12` and `rocky9` (`SYX_UPGRADE_DISTROS` changes the list). It prints one summary and exits non-zero if anything failed. CI does not run these tests, because they need KVM on a developer's machine.
+
 ## Run the install and security suite
 
 ```sh
@@ -177,7 +186,7 @@ Add a line to `distros.conf`: `name|image URL|checksum URL|file name`, then run 
 
 ## Windows 11
 
-A Windows VM is only needed to test Windows support. It installs from a Windows 11 ISO with an unattended answer file and no product key.
+A Windows VM is only needed to test Windows support. It installs from a Windows 11 ISO with an unattended answer file and no product key. The ISO is needed only for the first install; once a template is saved (below), VMs are cloned from it and `all.sh` tests Windows without the ISO.
 
 1. Download the Windows 11 ISO (x64, multi-edition) from Microsoft in a browser.
 2. Put it in a folder and set `SYX_ISO_DIR` to that folder. It is mounted read-only at `/isos` in the container, so the ISO is never copied. Stop the container if it is running, so it starts with the folder mounted:
