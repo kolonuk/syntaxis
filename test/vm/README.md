@@ -58,32 +58,43 @@ test/vm/vmctl.sh destroy esc-1
 
 ## Self-test
 
-`test/vm/selftest.sh [distro...]` runs the harness against real VMs: create, boot,
-SSH and sudo, OS identity, network isolation (with a real listener on the host's
-loopback), file copy in and out, rebuild wiping the guest, stop and destroy. The
-first distro also checks that `nat` mode really differs from `isolated` and that
-`prune` keeps a base image a running VM uses. All five Linux distros pass (105
-checks, about 15 minutes). Run it after changing `vmctl.sh`.
+`test/vm/selftest.sh [distro...]` runs the harness against real VMs: create, boot, SSH and sudo, OS identity, network isolation, file copy in and out, rebuild, stop and destroy. The first distro also checks that `nat` differs from `isolated` and that `prune` keeps a base image a running VM uses. Run it after changing `vmctl.sh`. All five Linux distros take about 15 minutes.
 
-`selftest.sh windows11` is opt-in: it needs the imported ISO and does a full
-unattended install (about 15 minutes), then checks Windows 11 Pro, the answer
-file has no product key, TPM 2.0 and Secure Boot, isolation after the first boot,
-and a file round trip.
+`selftest.sh windows11` needs the imported ISO. It installs Windows unattended (about 15 minutes) and checks the edition, that the answer file has no product key, TPM 2.0 and Secure Boot, isolation after first boot, and a file round trip.
+
+Run VM jobs from a copy of `test/vm` (`cp -r test/vm /tmp/vm-run`, then `SYX_REPO=<checkout> /tmp/vm-run/suite.sh`). Editing the scripts while a run is in progress breaks the run.
+
+## Install and security suite
+
+`test/vm/suite.sh [--keep] [distro...]` installs Syntaxis and runs the security tests, one fresh VM per distro (two at a time).
+
+1. Boot on `nat`, copy the working tree in and run `scripts/install.sh` as a user would. Release images are pinned by `SYX_INSTALL_VERSION` (default `v0.2.0`).
+2. Verify the install: health, units, nft table, `.env`, `doctor`. Re-run the installer and check the master key is kept.
+3. Copy the Go toolchain in and download modules.
+4. Pass A, isolated: reboot with no route out and run the sandbox, Docker proxy, egress, safehttp, doctor and policy tests against the real Docker and gVisor.
+5. Pass B, nat: run `TestIntegrationEgressBlocksLANHostMetadataSMTP`, which needs the internet to prove the firewall blocks LAN, host, metadata and SMTP while the internet stays reachable.
+
+Environment: `SYX_INSTALL_VERSION` (release to install), `SYX_GO_SDK` (a Go toolchain to copy in), `SYX_REPO` (checkout to test).
+
+The suite waits for the guest to settle (boot finished, stack healthy, egress rules loaded, plus 30 seconds) before verifying. Testing earlier gives false failures from the egress firewall checks.
+
+Results (logs, `go test -json`, skipped tests) go to `$SYX_VM_HOME/results/<timestamp>/<distro>/`. A VM is destroyed when everything passes and kept when something fails. Four tests skip by design: the opt-in live model test and a test that needs minutes of real load.
+
+CI does not run the harness because GitHub-hosted runners have no KVM.
+
+## Upgrade test
+
+`test/vm/upgrade-test.sh [distro]` installs an old release in a VM and updates it through the admin app.
+
+- Default run: install `SYX_UPGRADE_FROM` (default `v0.1.3`), update to `edge` through the old server and update service, check the three release streams are listed, restart the update service, switch to `preview`, check the weekly `--auto` run leaves a current install alone, then break `main` and check the update rolls back and the admin app reports the failure.
+- `SYX_UPGRADE_TO=<tag>`: update to that published release and stop. Use this to check a release before announcing it.
+- `SYX_KEEP=1` keeps the VM, `SYX_SUITE_MEM` sets its memory in MB (default 6144).
+
+The test calls the GitHub API from the guest. GitHub limits unauthenticated requests per address, so a run can fail with "GitHub is limiting requests from this address". Wait and re-run.
 
 ## Windows 11
 
-A Windows VM installs from the consumer Windows 11 ISO (Home/Pro multi-edition)
-with an unattended answer file. **We supply no product key, generic or otherwise**:
-the edition is chosen by name (`Windows 11 Pro`, override with `SYX_WIN_EDITION`).
-Nothing is cracked or bypassed: UEFI with Secure Boot (OVMF) and a software
-TPM 2.0 (`swtpm`) meet the Windows 11 requirements, and every VM gets its own
-random machine UUID. The disk is NVMe and the network card an e1000e, so no
-extra drivers are needed.
-
-Activation: Windows decides this by itself. Both VMs we installed reported
-"permanently activated" after their nat first boot, with no key from us and each
-with its own random machine UUID. We do not know why and make no use of it. Do not
-rely on that, or on the opposite, in any test.
+A Windows VM installs from the consumer Windows 11 ISO (Home/Pro multi-edition) with an unattended answer file. No product key is supplied; the edition is chosen by name (`Windows 11 Pro`, override with `SYX_WIN_EDITION`). UEFI with Secure Boot (OVMF) and a software TPM 2.0 (`swtpm`) meet the Windows 11 requirements. Every VM gets a random machine UUID. The disk is NVMe and the network card an e1000e, so no extra drivers are needed.
 
 ```sh
 sudo apt install swtpm genisoimage socat ovmf
@@ -98,127 +109,58 @@ test/vm/vmctl.sh start win-1                 # now isolated, like the Linux VMs
 test/vm/vmctl.sh ssh win-1 'ver'             # PowerShell over OpenSSH, user "tester"
 ```
 
-- The ISO lives in `$SYX_VM_HOME/isos/windows11/`, outside the repository. The
-  browser download link Microsoft gives you expires, so import the file, not the link.
-- The first boot of a new Windows VM uses `nat` networking, because the answer file
-  installs the OpenSSH server from Windows Update. After the install, `stop` and
-  `start` boot it isolated. Treat that first boot as provisioning, not a test.
-- `tester` is a local administrator. Its autologon password is random per VM and
-  stored in the VM directory; SSH uses the key only.
-- `rebuild` on a Windows VM reinstalls it from the ISO (about 15 minutes), so keep
-  a Windows VM for a whole test session rather than rebuilding between steps.
-- A Windows VM needs about 4 GB of RAM and a 64 GB disk image (it uses about 15 GB once installed).
-- `put` and `get` use the legacy scp protocol for Windows guests: Win32-OpenSSH's SFTP server
-  truncates scp downloads at 200 KiB.
-- OpenSSH comes from Microsoft's Win32-OpenSSH release on GitHub; the Windows optional
-  feature (Windows Update) is the fallback, because it hung for over 30 minutes in testing.
+- The ISO is stored in `$SYX_VM_HOME/isos/windows11/`. Microsoft's download links expire, so import the file, not the link.
+- The first boot uses `nat` because the answer file installs OpenSSH. After the install, `stop` and `start` boot isolated. Treat the first boot as provisioning, not a test.
+- `tester` is a local administrator. The autologon password is random per VM and stored in the VM directory. SSH uses the key only.
+- `rebuild` reinstalls from the ISO (about 15 minutes) unless a template exists (below).
+- A Windows VM needs 4 GB of RAM and a 64 GB disk image (about 15 GB used).
+- `put` and `get` use the legacy scp protocol for Windows guests, because the Win32-OpenSSH SFTP server truncates scp downloads at 200 KiB.
+- OpenSSH is installed from Microsoft's Win32-OpenSSH release on GitHub, with the Windows optional feature as the fallback.
+- Activation is left to Windows. Do not make a test depend on the activation state.
 
 ### Windows template
 
-After the first install, `vmctl.sh win-template <vm>` saves that VM's disk (flattened
-and compressed), firmware variables and TPM state as the template in
-`$SYX_VM_HOME/images/windows11/`. From then on `create <vm> windows11` makes a
-copy-on-write clone of it that boots isolated in about a minute, and `rebuild` goes
-back to the template in seconds instead of reinstalling. `SYX_WIN_FRESH=1` forces a
-fresh install. `prune` never deletes the template. Delete `template.*` to rebuild it
-(for example after importing a newer ISO). `selftest.sh windows11` installs and saves
-the template on its first run, and clones it on every run after that.
+`vmctl.sh win-template <vm>` saves a VM's disk (flattened and compressed), firmware variables and TPM state to `$SYX_VM_HOME/images/windows11/`. After that, `create <vm> windows11` makes a copy-on-write clone that boots isolated in about a minute, and `rebuild` returns to the template in seconds.
 
-## Install and security suite
-
-`test/vm/suite.sh [--keep] [distro...]` is the real test the VMs exist for. For each
-distro, in its own fresh VM (two at a time by default):
-
-1. Boot on `nat` (provisioning), copy the working tree in, and run
-   `scripts/install.sh` as a user would: it installs Docker, nftables and gVisor,
-   starts the stack, installs the firewall units and prints the admin link. The
-   release images are pinned (`SYX_INSTALL_VERSION`, default `v0.2.0`); building them
-   is the same on every distro, while the package, repository and SELinux handling is
-   what differs.
-2. Verify the install as CI does (health, units, nft table, `.env`, `doctor`) and check
-   that re-running the installer keeps the master key.
-3. Copy the Go toolchain in and download modules (still `nat`).
-4. **Pass A, isolated:** reboot with no route out and run the sandbox, Docker proxy,
-   egress, safehttp, doctor and policy tests against the real Docker and gVisor.
-5. **Pass B, nat:** only `TestIntegrationEgressBlocksLANHostMetadataSMTP`, which needs
-   the internet to prove the firewall blocks LAN, host, metadata and SMTP while the
-   internet stays reachable. It probes addresses inside the VM and a private range.
-
-Last run: all five distros pass all 33 steps (install, install verification, 80 tests
-isolated with 4 skipped, and the egress firewall test). The 4 skips are the opt-in live
-model test and a test that needs minutes of real load.
-
-Timing: the suite waits for the guest to settle (boot finished, stack healthy, egress
-rules loaded, plus 30 seconds) before verifying or testing. Without that wait,
-`syntaxis doctor` reported "the egress firewall is not loaded" and the egress test
-reported the host, LAN and metadata as reachable on a guest less than a minute old,
-even though probes by hand were blocked and both pass once it has settled. The
-probes read a failed or slow connection from a sandbox as "reached the host".
-
-Results (logs, `go test -json`, skipped tests) go to
-`$SYX_VM_HOME/results/<timestamp>/<distro>/`. A VM is destroyed when everything
-passes and kept when something fails. The harness itself is not run in CI: it needs
-KVM, which only this host has.
+- `SYX_WIN_FRESH=1` forces a fresh install.
+- `prune` never deletes the template.
+- Delete `template.*` to rebuild it, for example after importing a newer ISO.
+- `selftest.sh windows11` saves the template on its first run and clones it afterwards.
 
 ## Networking
 
 | Mode | Guest can reach | Use for |
 |---|---|---|
 | `isolated` (default) | Nothing outside the guest. SSH is a forward from `127.0.0.1:<port>` on the host. | All escape and destructive tests. |
-| `nat` (`--net=nat`) | Internet, and the host's loopback services and LAN through QEMU's `10.0.2.2` gateway. | Provisioning (installing packages), and the one egress-firewall test in `suite.sh` that needs the internet. Start, install, stop, then boot isolated for tests. |
+| `nat` (`--net=nat`) | The internet, and the host's loopback services and LAN through QEMU's `10.0.2.2` gateway. | Provisioning, and the egress-firewall test in `suite.sh`. Start, install, stop, then boot isolated for tests. |
 
-Checked on this host: an isolated guest gets connection refused or timeouts to
-the host's Ollama and LiteLLM ports, to host SSH, to a LAN address and to the
-internet; DNS does not resolve. Only the gateway answers ping, and QEMU answers
-that itself.
+Never run escape tests in `nat` mode. SSH ports come from 2200 to 2299 and are bound to 127.0.0.1.
 
-SSH ports come from 2200 to 2299 and are bound to 127.0.0.1 only.
+## Resources
 
-## Resource budget
-
-- Base images: about 0.3 to 0.7 GB each; all five are about 2.5 GB.
-- VM overlays start at a few tens of MB and grow with what the test writes.
-- Memory: a VM takes its `mem` value (2 GB by default) while running. Check `doctor` for available memory before starting several.
-- `rebuild` and `destroy` free the overlay space. Run `prune` after upgrading images.
+- Base images are 0.3 to 0.7 GB each; all five are about 2.5 GB.
+- Overlays start at a few tens of MB and grow with what the test writes. `rebuild` and `destroy` free the space; run `prune` after upgrading images.
+- A VM takes its `mem` value while running (2 GB by default). Check `doctor` for available memory before starting several.
 
 ## Keeping images current
 
-`fetch` checks each upstream checksum file, so a moving "latest" image is picked up
-without changing VM names. Existing VMs keep the version they were created from, so
-a fetch never changes a VM under a running test. `rebuild` moves a VM to the newest base.
+`fetch` reads each upstream checksum file and downloads an image only if its hash is new. Existing VMs keep the version they were created from; `rebuild` moves a VM to the newest base.
 
-Trust: the image and its checksum come from the same vendor over HTTPS. The
-checksum file is not checked against the vendor's GPG signature. That is a
-known gap; it is acceptable for disposable test guests.
+The image and its checksum come from the same vendor over HTTPS. The checksum file is not verified against the vendor's GPG signature.
 
 ## Other operating systems
 
-- **Windows 11**: see "Windows 11" below. ReactOS has no cloud image and is not
-  a reliable stand-in for Windows, so it is not used.
-- **macOS**: not possible on this host. Apple only licenses macOS in a VM on Apple
-  hardware, so a macOS guest under KVM on x86 is both unsupported and against the
-  licence. Routes that are allowed, easiest first:
-  1. **A Mac on the network as a second test host** (a used Apple-silicon Mac mini is
-     enough). macOS guests run on Apple's Virtualization framework, driven from the
-     command line by [Tart](https://tart.run) or UTM, with disposable clones of a
-     base image in seconds. Apple's licence allows two macOS VMs per Mac. A small
-     wrapper like `vmctl.sh`, run over SSH from this host, would give the same
-     create, start, rebuild and destroy commands.
-  2. **GitHub-hosted macOS runners** in CI (`runs-on: macos-latest`) for tests that do
-     not need the destructive isolation a throwaway VM gives.
-  3. **A rented Mac** (AWS EC2 Mac dedicated hosts have a 24-hour minimum; MacStadium
-     rents by the month) if no hardware is wanted.
+- **Windows 11**: see above. ReactOS is not used.
+- **macOS**: cannot run under KVM on x86; Apple's licence allows macOS VMs only on Apple hardware. Options:
+  1. A Mac on the network as a second test host, with [Tart](https://tart.run) or UTM driven over SSH by a wrapper like `vmctl.sh`. Apple's licence allows two macOS VMs per Mac.
+  2. GitHub-hosted macOS runners (`runs-on: macos-latest`) for tests that do not need a throwaway VM.
+  3. A rented Mac (AWS EC2 Mac dedicated hosts have a 24-hour minimum; MacStadium rents by the month).
 
-  What macOS testing would mean for Syntaxis: the server needs Linux and gVisor, so on a
-  Mac it would be the Go and web build, the CLI, and the Docker Desktop or Colima
-  route, not the sandbox escape tests.
+  The Syntaxis server needs Linux and gVisor, so on a Mac only the Go and web build, the CLI and the Docker Desktop or Colima route can be tested, not the sandbox escape tests.
 
 ## Rules for test code
 
-- Run every escape or destructive test inside a VM, never on the host. Confirm with
-  `vmctl.sh ssh <vm> hostname` before running anything.
-- Start from `rebuild` or a fresh `create`. Do not reuse a VM after a test that
-  broke it.
-- Keep private values (host LAN addresses, keys, model endpoints) out of this
-  directory and out of commits. Use `$SYX_VM_HOME` or `~/.config`.
+- Run every escape or destructive test inside a VM, never on the host. Confirm with `vmctl.sh ssh <vm> hostname` first.
+- Start from `rebuild` or a fresh `create`. Do not reuse a VM after a test that broke it.
+- Keep private values (LAN addresses, keys, model endpoints) out of this directory and out of commits. Use `$SYX_VM_HOME` or `~/.config`.
 - Do not put a binary image, VM disk or ISO in the repository.

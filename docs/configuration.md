@@ -1,75 +1,94 @@
 # Configuration
 
-Everything environment-specific is configuration. Defaults are safe-by-default.
+## Where a value comes from
 
-**Where a value comes from.** The Docker environment (the compose file or `.env`) gives each option its first value. Most options can also be changed in the admin app, under **Configuration**; a value saved there is kept in the database and *replaces* the environment's. Every option on that screen says which of the two is in effect: **from Docker**, **saved here**, or **default**, and a saved value can be removed ("use the Docker value again") to put the environment's back. Be aware of the consequence: once you have saved a value in the app, changing the same variable in Docker no longer changes anything until you remove the saved one.
+Each option takes its first value from the Docker environment (the compose file or `.env`), falling back to the default. Most options can also be changed in the admin app under **Configuration**. A value saved there is stored in the database and replaces the environment's value.
 
-A few options belong to how Syntaxis is deployed (listen addresses, the data directory, the Docker proxy, the sandbox image and network, DNS, the master key and the host service token). They are shown on the Configuration screen but only changed where Syntaxis is deployed, and the master key and token are never shown, only whether they are set. Options marked *live* take effect at once; the others take effect after Syntaxis restarts, and the screen says which are waiting.
+Each option on that screen shows its source: **from Docker**, **saved here** or **default**. Remove a saved value ("use the Docker value again") to go back to the environment's value. While a saved value exists, changing the same variable in Docker has no effect.
 
-The mail password and other write-only values are kept encrypted (as instance secrets with a reserved `SYNTAXIS_` name that is never offered to MCP servers). Policies for quotas, uploads and web search are on the **Policies** screen.
+Deployment options (listen addresses, data directory, Docker proxy, sandbox image and network, DNS, master key, host service token) are shown but can only be changed where Syntaxis is deployed. The master key and token are never displayed, only whether they are set.
+
+Options marked *live* apply at once. The others apply after a restart; the screen lists the ones waiting.
+
+Write-only values such as the mail password are stored encrypted as instance secrets with a reserved `SYNTAXIS_` name. MCP servers can never be given these. Quotas, uploads and web search are set on the **Policies** screen.
+
+## Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SYNTAXIS_LISTEN` | `127.0.0.1:8080` | Chat app listen address |
-| `SYNTAXIS_ADMIN_LISTEN` | `127.0.0.1:8081` | Admin app listen address. A separate port so it can stay on loopback/LAN/VPN. Binding it publicly is flagged as an error by the health check |
-| `SYNTAXIS_ADMIN_URL` | – | Where admins open the admin app. Adds an "Admin mode" link in the chat app for users with the admin level. The admin app has its own sign-in and two-factor step; the link does not skip it |
-| `SYNTAXIS_BASE_URL` | `http://localhost:8080` | Public URL for email links; `https://` turns on Secure cookies and HSTS |
+| `SYNTAXIS_ADMIN_LISTEN` | `127.0.0.1:8081` | Admin app listen address. Keep it on loopback, LAN or VPN; the health check reports an error if it is public |
+| `SYNTAXIS_ADMIN_URL` | – | Where admins open the admin app. Adds an "Admin mode" link in the chat app for the `admin` level. The admin app's own sign-in and two-factor step still apply |
+| `SYNTAXIS_BASE_URL` | `http://localhost:8080` | Public URL used in emails. `https://` turns on Secure cookies and HSTS |
 | `SYNTAXIS_DATA_DIR` | `./data` | SQLite database and local state |
-| `SYNTAXIS_MASTER_KEY` / `_FILE` | – | 32-byte base64 key (`syntaxis keygen`). Required for `serve`. Keep outside the data dir |
-| `SYNTAXIS_LOG_LEVEL` / `_FORMAT` | `info` / `json` | `text` for pretty dev output |
-| `SYNTAXIS_SMTP_HOST` `_PORT` `_USER` `_PASSWORD` `_FROM` | empty / 587 | Empty host = dev mode: emails are logged, not sent. STARTTLS on port 587 is supported; port 465 (TLS from the start) is not. *Configuration → Email*, with a test button; applies at once |
-| `SYNTAXIS_DOCKER_HOST` | environment | The validating Docker proxy: `tcp://docker-socket-proxy:2375` (Compose sets it) |
-| `SYNTAXIS_SANDBOX_RUNTIME` | `runsc` | OCI runtime for sandboxes. Only gVisor runtimes are accepted by the spec validator |
+| `SYNTAXIS_MASTER_KEY` / `_FILE` | – | 32-byte base64 key (`syntaxis keygen`). Required for `serve`. Store it outside the data directory |
+| `SYNTAXIS_LOG_LEVEL` / `_FORMAT` | `info` / `json` | Use `text` format for readable output in development |
+| `SYNTAXIS_SMTP_HOST` `_PORT` `_USER` `_PASSWORD` `_FROM` | empty / 587 | Empty host: emails are logged, not sent. STARTTLS on 587 works; implicit TLS on 465 does not. Set under *Configuration → Email*, which has a test button; applies at once |
+| `SYNTAXIS_DOCKER_HOST` | environment | The validating Docker proxy, `tcp://docker-socket-proxy:2375` (set by Compose) |
+| `SYNTAXIS_SANDBOX_RUNTIME` | `runsc` | OCI runtime for sandboxes. Only gVisor runtimes are accepted |
 | `SYNTAXIS_SANDBOX_IMAGE` | `syntaxis-sandbox:latest` | Sandbox image |
 | `SYNTAXIS_SANDBOX_NETWORK` | `syntaxis-sandbox` | Dedicated Docker network |
-| `SYNTAXIS_EGRESS_MODE` | `open` | `open` / `allowlist` / `none`; per-user override in the admin UI |
-| `SYNTAXIS_EGRESS_ALLOWLIST` | – | Comma-separated hostnames or CIDRs (allowlist mode) |
-| `SYNTAXIS_FIREWALL_TOKEN` | generated by the installer | Shared secret for the host's services (the firewall sync and the update service, `/internal/*` on the admin listener). Without it, a user's own egress mode is applied by the DNS resolver only, not by the host firewall |
-| `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE` | – | Comma-separated private address ranges the server may call for users' self-hosted GitLab or Gitea (for example `192.0.2.0/24` for a LAN forge). Otherwise only public addresses are reached, so a user cannot aim the server at the LAN, the Docker network or its own admin app. Link-local and cloud metadata addresses are never allowed |
-| `SYNTAXIS_PASSWORD_ROTATION_DAYS` | `30` | Users **without 2FA** must change their password this often; `0` disables. *Configuration* |
-| `SYNTAXIS_SECRET_SCAN` | `warn` | `off` / `warn` / `block`. *Configuration* |
-| `SYNTAXIS_ALLOW_USER_OVERRIDE` | `true` | May a user confirm a push despite scanner findings (audited). *Configuration* |
-| `SYNTAXIS_SIGNING_MODE` | `off` | `off` / `optional` / `required` SSH commit signing |
+| `SYNTAXIS_EGRESS_MODE` | `open` | `open`, `allowlist` or `none`. Overridable per user in the admin app |
+| `SYNTAXIS_EGRESS_ALLOWLIST` | – | Comma-separated hostnames or CIDRs, used in `allowlist` mode |
+| `SYNTAXIS_FIREWALL_TOKEN` | set by the installer | Shared secret for the host services (firewall sync and update service, `/internal/*` on the admin listener). Without it the DNS resolver applies a user's egress mode but the host firewall does not |
+| `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE` | – | Comma-separated private ranges the server may call for users' self-hosted GitLab or Gitea, for example `192.0.2.0/24`. Without it only public addresses are reachable. Link-local and cloud metadata addresses are never allowed |
+| `SYNTAXIS_PASSWORD_ROTATION_DAYS` | `30` | Users without 2FA must change their password this often. `0` disables |
+| `SYNTAXIS_SECRET_SCAN` | `warn` | `off`, `warn` or `block` |
+| `SYNTAXIS_ALLOW_USER_OVERRIDE` | `true` | Whether a user may confirm a push despite scanner findings (audited) |
+| `SYNTAXIS_SIGNING_MODE` | `off` | SSH commit signing: `off`, `optional` or `required` |
 | `SYNTAXIS_IDLE_MINUTES` | `30` | Stop sandboxes idle this long |
 | `SYNTAXIS_SANDBOX_MAX_AGE_DAYS` | `7` | Destroy unused sandbox containers after this many days |
-| `SYNTAXIS_CPU_MINUTES_DAILY` | `240` | CPU time (core-minutes) a user's sandboxes may use per day; `0` = unlimited. See [troubleshooting](pitfalls.md#resource-limits) |
-| `SYNTAXIS_WORKSPACE_RETENTION_DAYS` | `30` | Delete a user's workspace after this many days unused (`0` keeps) |
-| `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication (off by default) |
-| `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name and the **only** proxy addresses/CIDRs whose headers are trusted |
-| `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`; remove after use |
-| `SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD` | `false` | Let the first admin created from the environment start with a password of 6 or more characters instead of 12 (common passwords and your own name are still refused). For an operator reusing a password they already have on a LAN-only admin app; admin 2FA is still mandatory, and it applies to nothing but this one account creation |
-| `SYNTAXIS_BOOTSTRAP_PROVIDER_URL` | – | Add a model provider at this address when the instance has none (so a rebuilt host is ready to use). Also `_NAME` (default `local-llm`), `_KIND` (`ollama` by default, or `llamacpp`, `litellm`, `openai`), `_CONCURRENCY` (default 1) and `_ENABLE_MODELS`: `all` switches on every discovered chat model (embedding models stay off), a comma-separated list switches on those names, empty leaves them for the admin. Models are discovered with retries while the model server starts. Never changes an instance that already has a provider |
+| `SYNTAXIS_CPU_MINUTES_DAILY` | `240` | Core-minutes of CPU a user's sandboxes may use per day. `0` is unlimited. See [troubleshooting](pitfalls.md#resource-limits) |
+| `SYNTAXIS_WORKSPACE_RETENTION_DAYS` | `30` | Delete a user's workspace after this many days unused. `0` keeps it |
+| `SYNTAXIS_PROXY_AUTH_ENABLED` | `false` | Trusted reverse-proxy header authentication |
+| `SYNTAXIS_PROXY_AUTH_HEADER` / `_TRUSTED` | `X-Forwarded-User` / – | Header name, and the only proxy addresses or CIDRs whose headers are trusted |
+| `SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | – | Create the first admin on first boot. Prefer `syntaxis admin create`, and remove these after use |
+| `SYNTAXIS_BOOTSTRAP_ADMIN_ALLOW_SHORT_PASSWORD` | `false` | Allow a password of 6 or more characters instead of 12 for the first admin created from the environment. Common passwords and the user's name are still refused, 2FA is still mandatory, and it affects only that account creation |
+| `SYNTAXIS_BOOTSTRAP_PROVIDER_URL` | – | Add a model provider at this address if the instance has none. Related: `_NAME` (default `local-llm`), `_KIND` (`ollama` (default), `llamacpp`, `litellm`, `openai`), `_CONCURRENCY` (default 1), `_ENABLE_MODELS` (`all` enables every discovered chat model, a comma-separated list enables those names, empty leaves them off). Discovery retries while the model server starts. An instance that already has a provider is never changed |
 
 ## Levels, groups and per-user settings
 
-Every chat user has a **level** (`user`, `poweruser`, `admin`) and may be in a **group**. Levels, groups and users all carry the same settings: token quotas, concurrent sessions, daily compute minutes, egress mode, allowed models, and switches for the terminal and cloud tooling. Set levels and groups under **Levels & groups** in the admin app, and a user's level and group under **Users → Edit**.
+Every chat user has a level (`user`, `poweruser`, `admin`) and may be in a group. Levels, groups and users carry the same settings: token quotas, concurrent sessions, daily compute minutes, egress mode, allowed models, and switches for the terminal and cloud tooling.
 
-The most specific setting wins: the user's own, then their group's, then their level's, then the instance default (`0` means "not set here", `-1` unlimited). An on/off switch stays off if any of the three turns it off. The `admin` level is for an admin's own chat account (same email as their admin account) and adds an "Admin mode" link; see `SYNTAXIS_ADMIN_URL`.
+Set levels and groups under **Levels & groups**, and a user's level and group under **Users → Edit**.
+
+The most specific value wins: user, then group, then level, then the instance default. `0` means "not set here" and `-1` means unlimited. An on/off switch is off if any of the three turns it off.
+
+The `admin` level is for an admin's own chat account (same email as the admin account). It adds the "Admin mode" link; see `SYNTAXIS_ADMIN_URL`.
 
 ## Providers and models
 
-Add one or more providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with an optional API key (encrypted at rest). Set **concurrency** to your server's real parallelism. Discovered models start **disabled**. Set a **context override** for a model when the server cannot report its real window.
+Add providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with an optional API key, stored encrypted. Set **concurrency** to the server's real parallelism. Discovered models start disabled. Set a **context override** for a model when the server cannot report its real context window.
 
-**Helper model** (per provider, optional): a small, fast model that does the cheap jobs so the main model's queue and context stay free: session titles, summaries of long watch events, and compacting long conversations (only if its context window is at least as large). It is used only while the server says it is already loaded; Syntaxis never loads or swaps a model. If it is not loaded, or a call fails, the session's own model does the job, and a health warning says the helper is not loaded.
+**Helper model** (per provider, optional): a small, fast model for session titles, summaries of long watch events and compaction of long conversations (compaction only if its context window is at least as large as the session model's). It is used only while the server reports it as already loaded; Syntaxis never loads or swaps a model for it. If it is not loaded or a call fails, the session's own model does the job and a health warning is raised.
 
-**Probe** (per model) checks for real instead of trusting what the server claims: it asks the model to call a trivial tool, and asks for a long reply to see whether it streams or arrives in one block (a proxy or compression in front of the server holding it back). It may load the model, so it only runs when you press it. The result decides whether agent mode is offered for that model, and a buffered stream shows up as a health warning.
+**Probe** (per model): asks the model to call a trivial tool, and asks for a long reply to check whether it streams or arrives as one block. It can load the model, so it runs only when you press it. The result decides whether agent mode is offered for that model. A buffered stream raises a health warning.
 
 ## Web search, pictures and repository content
 
-Admin settings (**Policies** in the admin app): **Web search server** is the address of a SearXNG instance (its `json` format must be enabled, `search.formats` in its settings; a server on the LAN also needs `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`); **Models that accept pictures** lists model names for servers that do not report vision themselves. Two more settings have no field in the app yet and are changed with the settings API: `repo_skills` (a repository's skills and slash commands, default on) and `repo_hooks` (a repository's `.syntaxis/hooks.json`, default on).
+Set these under **Policies**:
 
-Reading PDFs and scans needs `poppler-utils` and `tesseract-ocr` in the sandbox image; the default image has them (rebuild it with `docker build -t syntaxis-sandbox:latest images/sandbox` after an update). A custom image without them still works, but the agent cannot read a PDF or a picture as text there.
+- **Web search server**: the address of a SearXNG instance. Its `json` format must be enabled (`search.formats` in its settings). A server on the LAN also needs `SYNTAXIS_CONNECTIONS_ALLOW_PRIVATE`.
+- **Models that accept pictures**: model names, for servers that do not report vision support.
+
+Two settings have no field in the app and are changed through the settings API: `repo_skills` (a repository's skills and slash commands, default on) and `repo_hooks` (a repository's `.syntaxis/hooks.json`, default on).
+
+Reading PDFs and scans needs `poppler-utils` and `tesseract-ocr` in the sandbox image. The default image has them; after an update rebuild it with `docker build -t syntaxis-sandbox:latest images/sandbox`. In a custom image without them the agent cannot read a PDF or picture as text.
 
 ## Environments
 
-An environment is a sandbox image you have prepared and approved. The default one already has Python, Node, Go and a C toolchain. **Environments** in the admin app lists the examples below, and nothing is built until you choose it: press **Build**, read the warning (it takes a few minutes or more, uses disk on the Docker host and downloads packages), and confirm. The build runs on the Docker host through the update service, one at a time, and the finished image is approved automatically. You can also build on the host yourself with `sh scripts/build-templates.sh rust java` (or no names for all), which makes `syntaxis-env-<name>:1`.
+An environment is a sandbox image you have prepared and approved. The default image has Python, Node, Go and a C toolchain.
 
-A built environment that nobody has used for 30 days (change this on the same page; 0 keeps them) is removed again to free the disk, unless a session still has a sandbox in it. Choosing **Build** brings it back.
+**Environments** in the admin app lists the examples below. Nothing is built until you choose it: press **Build**, read the warning (a build takes minutes, uses disk on the Docker host and downloads packages) and confirm. The build runs on the Docker host through the update service, one at a time, and the finished image is approved automatically.
+
+To build on the host instead, run `sh scripts/build-templates.sh rust java` (no names builds all). Images are named `syntaxis-env-<name>:1`.
+
+A built environment unused for 30 days is removed to free disk, unless a session still has a sandbox in it. Change the period on the same page (`0` keeps them). **Build** brings a removed one back.
 
 | Name | Adds | A devcontainer image it can match |
 |---|---|---|
 | `rust` | Rust (rustup, cargo) | `mcr.microsoft.com/devcontainers/rust` |
-| `go` | Go tooling on top of the Go already in the default image: gopls, delve, staticcheck, golangci-lint, govulncheck | `mcr.microsoft.com/devcontainers/go` |
+| `go` | gopls, delve, staticcheck, golangci-lint, govulncheck, on top of the Go in the default image | `mcr.microsoft.com/devcontainers/go` |
 | `java` | OpenJDK 17, Maven | `mcr.microsoft.com/devcontainers/java` |
 | `dotnet` | .NET 8 SDK | `mcr.microsoft.com/devcontainers/dotnet` |
 | `ruby` | Ruby, Bundler | `mcr.microsoft.com/devcontainers/ruby` |
@@ -79,18 +98,27 @@ A built environment that nobody has used for 30 days (change this on the same pa
 | `typescript` | tsc, tsx, ts-node, ESLint, Prettier, Vitest, pnpm, Yarn | `mcr.microsoft.com/devcontainers/typescript-node` |
 | `kotlin` | Kotlin compiler, OpenJDK 17, Maven | |
 | `haskell` | GHC, Cabal, Stack | `mcr.microsoft.com/devcontainers/haskell` |
-| `zig` | Zig (checked against the project's published checksum) | |
-| `swift` | Swift toolchain (large) | `swift` |
-| `browser` | Headless Chromium with Playwright and its test runner, Puppeteer, axe-core, Jest, Vitest, Mocha, and pytest with pytest-playwright (large). Chromium is wrapped to start with `--no-sandbox`, because its own sandbox cannot start inside gVisor, which is the sandbox here; Puppeteer needs `headless: "shell"`. Cypress and Lighthouse are not included: they need a full Chrome or Electron, which does not start under gVisor | |
+| `zig` | Zig, verified against the project's published checksum | |
+| `swift` | Swift toolchain (about 6 GB) | `swift` |
+| `browser` | Headless Chromium with Playwright and its test runner, Puppeteer, axe-core, Jest, Vitest, Mocha, pytest with pytest-playwright (about 3 GB) | |
 | `data` | NumPy, pandas, SciPy, scikit-learn, Matplotlib, Jupyter | `mcr.microsoft.com/devcontainers/anaconda` |
 
-Some are large (Swift is about 6 GB, the browser image about 3 GB), so build only the ones you need. Copy one to make your own (a toolchain your team needs, with your internal CA certificates). Keep `USER 10001:10001` and make sure the tools write their caches under `/tmp`, as the examples do: the sandbox's root filesystem is read-only. Add it under **Environments** in the admin app with the images a repository's `devcontainer.json` may name to get it (tags are ignored).
+Browser image notes: Chromium is wrapped to start with `--no-sandbox` because its own sandbox cannot start inside gVisor. Puppeteer needs `headless: "shell"`. Cypress and Lighthouse are not included because they need a full Chrome or Electron, which does not start under gVisor.
 
-- A user can pick an environment for a session. It runs in that image, still under gVisor with the same limits.
-- When a session starts from a repository, its `devcontainer.json` (comments allowed) is read through the user's own connection. If its `image` matches an approved environment, the session uses it. Anything else is ignored and the session says why: a repository can never name an image of its own, and building from a Dockerfile is not supported. A repository can name an approved environment directly with `"customizations": {"syntaxis": {"template": "rust"}}`.
-- After the clone, `containerEnv` (plain variables only; it cannot change `PATH`, `HOME`, `GIT_*` and the like, and never overrides your secrets) and `postCreateCommand` are used. The setup command runs once, unless the session is set to ask before running anything: then you are shown the command instead.
+### Making your own
+
+Copy an example Dockerfile from `images/templates/`. Keep `USER 10001:10001` and have tools write their caches under `/tmp`, because the sandbox root filesystem is read-only. Add the image under **Environments**, together with the devcontainer images a repository may name to get it (tags are ignored).
+
+### How sessions use environments
+
+- A user can pick an environment for a session. It runs in that image, under gVisor with the same limits.
+- When a session starts from a repository, its `devcontainer.json` (comments allowed) is read through the user's own connection. If `image` matches an approved environment, the session uses it. Anything else is ignored and the session says why. A repository cannot name an image of its own, and building from a Dockerfile is not supported.
+- A repository can name an approved environment directly: `"customizations": {"syntaxis": {"template": "rust"}}`.
+- After the clone, `containerEnv` and `postCreateCommand` are applied. `containerEnv` takes plain variables only; it cannot change `PATH`, `HOME`, `GIT_*` and similar, and never overrides your secrets. The setup command runs once, unless the session is set to ask before running anything, in which case the command is shown instead.
 - Features, forwarded ports, mounts, users and extensions in the file are ignored.
 
 ## CLI
 
-`syntaxis serve | admin create | keygen | doctor | backup <dest> | rotate-key <old> <new> | egress-rules <subnet> … | version`
+```
+syntaxis serve | admin create | keygen | doctor | backup <dest> | rotate-key <old> <new> | egress-rules <subnet> … | version
+```

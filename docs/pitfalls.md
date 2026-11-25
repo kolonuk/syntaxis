@@ -1,20 +1,20 @@
 # Troubleshooting
 
-The admin **Health** page (and `docker compose exec syntaxis syntaxis doctor`) checks most of this and says how to fix what it finds. This page covers the things worth knowing in advance.
+The admin **Health** page and `docker compose exec syntaxis syntaxis doctor` check most of this and say how to fix what they find.
 
 ## Context windows
 
-A model has an advertised maximum context, a configured one and the one the server actually loaded, and servers often run with far less than advertised. Ollama, for one, silently drops the oldest text beyond its limit, and the agent then "forgets" the task and behaves oddly. Agent work wants roughly 16k tokens or more.
+A server often runs a model with a smaller context window than advertised. Ollama silently drops the oldest text beyond its limit, so the agent forgets the task. Agent work needs about 16k tokens or more.
 
-Set the window on the server and check it: for Ollama see its [FAQ on context length](https://docs.ollama.com/faq); for llama.cpp use `--ctx-size` (shared across `--parallel` slots). If the server cannot report its real window, set a **context override** on the model in the admin app.
+Set the window on the server: for Ollama see its [FAQ on context length](https://docs.ollama.com/faq); for llama.cpp use `--ctx-size` (shared across `--parallel` slots). If the server cannot report its real window, set a **context override** on the model in the admin app.
 
 ## Concurrency
 
-A GPU serves only so many requests at once (Ollama's `OLLAMA_NUM_PARALLEL`, llama.cpp's `--parallel`). Set each provider's **concurrency** in Syntaxis to that real number: it queues the rest fairly. Set too high, requests wait invisibly inside the server and time out.
+A GPU serves only so many requests at once (Ollama's `OLLAMA_NUM_PARALLEL`, llama.cpp's `--parallel`). Set each provider's **concurrency** in Syntaxis to that number; Syntaxis queues the rest. If it is set too high, requests wait inside the server and time out.
 
 ## Weak tool calling
 
-Some local models call tools badly. Syntaxis recovers what it can and stops loops, but expect to supervise a new model: use the `ask` autonomy level first, and try the admin app's benchmark (Providers & models) to compare models. Syntaxis never loads or swaps a model by itself, so avoid configuring your LLM server to unload models between requests. The admin app's **Probe** button (Providers & models) tests a model for real: it asks for a tool call and checks the reply streams, and the result decides whether agent mode is offered.
+Some local models call tools badly. Syntaxis recovers what it can and stops loops. Use the `ask` autonomy level with a new model, and compare models with the benchmark in Providers & models. The **Probe** button in Providers & models asks the model for a tool call and checks that the reply streams; the result decides whether agent mode is offered. Syntaxis never loads or swaps a model by itself, so do not configure the LLM server to unload models between requests.
 
 ## Reverse proxy and HTTPS
 
@@ -40,9 +40,9 @@ Sandboxes have fixed CPU, memory and process limits. On top of that Syntaxis wat
 
 ## Backups and upgrades
 
-Back up the database (`syntaxis backup <file>`), the workspace volumes, and the **master key, separately**; without the key stored secrets and 2FA cannot be recovered, and a wrong key is not noticed until a secret fails to decrypt.
+Back up the database (`syntaxis backup <file>`), the workspace volumes, and the **master key, separately**. Without the key stored secrets and 2FA cannot be recovered, and a wrong key is not noticed until a secret fails to decrypt.
 
-`syntaxis backup` writes a consistent copy and then opens it on its own: SQLite must find it intact and it must have every table, or the file is removed and the command fails. Everything Syntaxis keeps (users, sessions, notes, hooks, commands, shares, automations, tokens, settings) is in that one file. A restore is: stop Syntaxis, put the file where the old one was (`<data dir>/syntaxis.db`, with the old master key in place), and start it again. This was tried on a real host with the real binary and with a database holding data in every table, and the restored copy matched table by table.
+`syntaxis backup` writes a consistent copy, then opens it: if SQLite finds it damaged or a table missing, the file is removed and the command fails. The file holds everything Syntaxis keeps (users, sessions, notes, hooks, commands, shares, automations, tokens, settings). To restore: stop Syntaxis, put the file where the old one was (`<data dir>/syntaxis.db`, with the old master key in place), and start it again.
 
 A workspace volume is a Docker volume named `syntaxis-ws-u<user id>`. To copy one, run `tar` as root in a throwaway container, one end into the other (replace the names and the image with one you have):
 

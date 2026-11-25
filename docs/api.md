@@ -1,18 +1,18 @@
 # API
 
-Syntaxis has a small HTTP API for scripts and tools: look at sessions, start one, send it a message, follow it, answer its questions. It is the same API the chat app uses, limited to what a personal API token may do. This page lists what a token can reach. The rest of the app's `/api` is internal and changes without notice.
+A small HTTP API for scripts and tools: list sessions, start one, send a message, follow it, answer its questions. It is the chat app's API, limited to what a personal API token may do. The rest of `/api` is internal and changes without notice.
 
 ## Tokens
 
-Make a token in the chat app under **Settings → API tokens**. Pick a name, a scope and when it expires. The token is shown once and stored only as a hash. You can revoke it there at any time, and an admin can revoke it too. A disabled user's tokens stop working at once, and so do expired and revoked ones. You can have up to 20.
+Create a token under **Settings → API tokens** with a name, a scope and an expiry. It is shown once and stored only as a hash. You can revoke it there at any time; an admin can too. Expired, revoked and disabled-user tokens stop working at once. Maximum 20 per user.
 
-Send it as a bearer token to the chat app's address (the one you sign in at, never the admin app):
+Send it as a bearer token to the chat app's address (not the admin app):
 
 ```sh
 curl -H "Authorization: Bearer syx_..." https://syntaxis.example.com/api/sessions
 ```
 
-A token acts as you, with your models, quotas, approvals and audit log. Changes made with a token are recorded in the audit log under the token. No CSRF header is needed because there is no cookie.
+A token acts as you, with your models, quotas and approvals. Changes made with it are recorded in the audit log under the token. No CSRF header is needed.
 
 ## Scopes
 
@@ -21,7 +21,7 @@ A token acts as you, with your models, quotas, approvals and audit log. Changes 
 | `read` | Look at your sessions and what is in them: messages, the live event stream, changes (diff), checkpoints, files (list, read, download), resources, the model and environment lists, your usage. |
 | `run` | Everything in `read`, and start a session, send a message, stop a run, answer approvals and questions, approve a plan, and branch a session. |
 
-**A token can never** read or change your secrets or connections, settings, notes, hooks, slash commands, MCP choices or automations; make, list or revoke tokens; open the terminal; upload, edit or delete files; create share links; trust repository hooks; delete a session; or change your password or two-factor settings. Anything not in the table below is refused with `403`. A new endpoint is closed to tokens until it is added on purpose, and a test checks that.
+**A token can never** read or change your secrets or connections, settings, notes, hooks, slash commands, MCP choices or automations; make, list or revoke tokens; open the terminal; upload, edit or delete files; create share links; trust repository hooks; delete a session; or change your password or two-factor settings. Anything not listed below is refused with `403`; new endpoints are closed to tokens until added deliberately.
 
 `read` sees everything in a session, including whatever the agent printed or wrote. Give a token only to a tool you trust with that.
 
@@ -62,7 +62,7 @@ All paths start with `/api`. Bodies and replies are JSON. Errors are `{"error": 
 
 ### Events
 
-The event stream sends `event: <kind>` and a JSON `data:` line. The kinds are `assistant_delta` (streamed text), `assistant_message`, `tool_call`, `tool_result`, `approval_request`, `approval_result`, `question`, `context`, `compaction`, `checkpoint`, `status`, `plan`, `phase`, `notice` and `todos`. The stream is for following a run; read `GET /sessions/{id}/messages` for the finished record. A client should reconnect after a drop: it gets the run's events again from the start.
+The stream sends `event: <kind>` with a JSON `data:` line. The kinds are `assistant_delta` (streamed text), `assistant_message`, `tool_call`, `tool_result`, `approval_request`, `approval_result`, `question`, `context`, `compaction`, `checkpoint`, `status`, `plan`, `phase`, `notice` and `todos`. Use the stream to follow a run and `GET /sessions/{id}/messages` for the finished record. After a dropped connection, reconnect: the run's events are replayed from the start.
 
 ## Example: run a task and wait
 
@@ -70,10 +70,10 @@ The event stream sends `event: <kind>` and a JSON `data:` line. The kinds are `a
 H="Authorization: Bearer $SYNTAXIS_TOKEN"; B=https://syntaxis.example.com/api
 ID=$(curl -s -H "$H" -H 'Content-Type: application/json' -d '{"model":"llm/coder","autonomy":"ask"}' $B/sessions | jq -r .id)
 curl -s -H "$H" -H 'Content-Type: application/json' -d '{"text":"Summarise the README"}' $B/sessions/$ID/messages
-curl -N -H "$H" $B/sessions/$ID/events          # follow it; approvals still wait for a person or a `run` token
+curl -N -H "$H" $B/sessions/$ID/events          # approvals still wait for a person or a `run` token
 curl -s -H "$H" $B/sessions/$ID/messages | jq -r '.[-1].content'
 ```
 
 ## Stability
 
-This page is the supported surface. It may still change before 1.0; changes are listed in the [changelog](../CHANGELOG.md). A versioned, machine-readable description is planned.
+This page is the supported surface. It may change before 1.0; changes are listed in the [changelog](../CHANGELOG.md).
