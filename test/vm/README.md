@@ -116,7 +116,6 @@ test/vm/vmctl.sh ssh win-1 'ver'             # PowerShell over OpenSSH, user "te
 - A Windows VM needs 4 GB of RAM and a 64 GB disk image (about 15 GB used).
 - `put` and `get` use the legacy scp protocol for Windows guests, because the Win32-OpenSSH SFTP server truncates scp downloads at 200 KiB.
 - OpenSSH is installed from Microsoft's Win32-OpenSSH release on GitHub, with the Windows optional feature as the fallback.
-- Activation is left to Windows. Do not make a test depend on the activation state.
 
 ### Windows template
 
