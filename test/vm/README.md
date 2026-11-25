@@ -179,7 +179,7 @@ Add a line to `distros.conf`: `name|image URL|checksum URL|file name`.
 A Windows VM is only needed to test Windows support. It installs from a Windows 11 ISO with an unattended answer file and no product key.
 
 1. Install the extra tools: `sudo apt install swtpm genisoimage socat ovmf`
-2. Download the Windows 11 ISO (x64, multi-edition) from Microsoft in a browser. Microsoft refuses scripted downloads.
+2. Download the Windows 11 ISO (x64, multi-edition) from Microsoft in a browser.
 3. Register it: `test/vm/vmctl.sh import-iso ~/Downloads/Win11_*.iso`
 4. Create and start the VM (the install takes 15 to 40 minutes):
 
@@ -218,16 +218,6 @@ test/vm/vmctl.sh create win-2 windows11 # now a clone of the template
 `rebuild` returns a VM to the template in seconds. `SYX_WIN_FRESH=1` forces a fresh install. Delete `$SYX_VM_HOME/images/windows11/template.*` to rebuild the template, for example after importing a newer ISO.
 
 `test/vm/selftest.sh windows11` runs the Windows checks (edition, no product key in the answer file, TPM 2.0, Secure Boot, isolation, file copy). It saves the template on its first run.
-
-## macOS
-
-macOS cannot run in a VM under KVM on x86; Apple licenses it only on Apple hardware. Options:
-
-1. A Mac on the network as a second test host, using [Tart](https://tart.run) or UTM over SSH. Apple's licence allows two macOS VMs per Mac.
-2. GitHub-hosted macOS runners (`runs-on: macos-latest`) for tests that do not need a throwaway VM.
-3. A rented Mac (AWS EC2 Mac has a 24-hour minimum; MacStadium rents monthly).
-
-The Syntaxis server needs Linux and gVisor, so on a Mac only the Go and web build, the CLI and the Docker Desktop or Colima route can be tested, not the sandbox escape tests.
 
 ## Rules for test code
 

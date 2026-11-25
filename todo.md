@@ -15,6 +15,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
 - [ ] **Per-user, per-level and per-group upload limits (Easy to Medium).** Uploads have a global switch, size and allowed kinds only. Add a daily upload total per user and let level and group policies lower or switch off uploads, like the other limits.
 - [ ] **Restore on a clean machine (Medium).** The restore was drilled on the real host, in a temporary data directory and on spare ports, and by a test comparing every table. A full restore on a clean virtual machine (volumes, master key and the update service) can now use the test VMs in `test/vm`, but has not been done.
+- [ ] **macOS test host (Medium).** macOS cannot run under KVM on x86; Apple licenses it only on Apple hardware. Add a Mac on the network as a second test host (Tart or UTM driven over SSH by a wrapper with the same commands as `vmctl.sh`), or use GitHub-hosted macOS runners for tests that do not need a throwaway VM. Only the Go and web build, the CLI and the Docker Desktop or Colima route can be tested on a Mac; the server needs Linux and gVisor.
 
 ## 2. Agent and workflow
 
