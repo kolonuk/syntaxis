@@ -19,7 +19,8 @@
 # committed state, so what is tested is the code on disk, not what has been pushed. Results go to
 # $SYX_VM_HOME/results/upgrade-<timestamp>/. The VM is destroyed when everything passes.
 #
-# Environment: SYX_UPGRADE_FROM (a published tag, default v0.1.3), SYX_SUITE_MEM (MB, 6144),
+# Environment: SYX_UPGRADE_TO (a published tag: update to it through the admin app and stop, instead of the
+# edge/stream/rollback run), SYX_UPGRADE_FROM (a published tag, default v0.1.3), SYX_SUITE_MEM (MB, 6144),
 # SYX_KEEP=1 (keep the VM).
 set -uo pipefail
 
@@ -116,6 +117,35 @@ v0=$(version)
 echo "running: $v0"
 check "the old version is running" grep -q "${FROM#v}" <<<"$v0"
 check "the update service is running" info_is '.agent.running == true'
+
+# --- 1b. SYX_UPGRADE_TO=<published tag>: update to that release through the admin app and stop ---
+if [ -n "${SYX_UPGRADE_TO:-}" ]; then
+	TO=$SYX_UPGRADE_TO
+	echo "-- upgrade to the published release $TO ($(date +%T))"
+	sleep 20
+	request_update "{\"target\":\"$TO\"}" >"$out/release-request.json" 2>&1
+	check "the old server accepts a request for $TO" jq -e ".target == \"$TO\"" "$out/release-request.json"
+	wait_update 3000
+	rc=$?
+	if [ "$rc" -eq 0 ]; then ok "the update to $TO finished"; else bad "the update to $TO finished ($rc): $(status_msg)"; fi
+	sleep 25
+	v1=$(version)
+	echo "running: $v1"
+	check "the running version is $TO" grep -q "${TO#v}" <<<"$v1"
+	check "the stack is healthy after the update" healthy
+	check "the admin can sign in on the new version" api login admin@example.com "$PASSWORD"
+	info >"$out/update-info.json" 2>&1
+	check "the new version lists the three release streams" jq -e '(.streams | map(.id)) == ["stable","preview","edge"]' "$out/update-info.json"
+	check "the update is recorded as done" jq -e '.status.state == "done"' "$out/update-info.json"
+	check "the old host service has not announced a protocol" jq -e '.agent.protocol == 0' "$out/update-info.json"
+	gx 'sudo systemctl restart syntaxis-update-agent' >/dev/null 2>&1
+	sleep 25
+	check "the restarted host service announces protocol 2" info_is '.agent.protocol == 2'
+	check "the data survived: the admin account still exists" api login admin@example.com "$PASSWORD"
+	echo
+	if [ "$fails" -eq 0 ]; then echo "ALL PASSED"; else echo "$fails FAILED"; exit 1; fi
+	exit 0
+fi
 
 # --- 2. upgrade to the development branch with the old server, service and script ---
 echo "-- upgrade to edge through the admin app ($(date +%T))"
