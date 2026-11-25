@@ -156,6 +156,11 @@ else
   WANT="$VERSION"
 fi
 say "updating from $OLD_VERSION to $WANT"
+# the delayed restart of the update service (below) waits for this file's process to finish, so it
+# never ends an update half way
+UPDATE_PID_FILE=/run/syntaxis-update.pid
+echo $$ >"$UPDATE_PID_FILE" 2>/dev/null || true
+trap 'rm -f "$UPDATE_PID_FILE"' EXIT
 
 # ---- backup and rollback point ----
 TS=$(date -u +%Y%m%dT%H%M%SZ)
@@ -216,10 +221,18 @@ if healthy; then
     systemctl enable syntaxis-firewall-sync.service >/dev/null 2>&1 || true
     systemctl restart syntaxis-egress.service syntaxis-firewall-sync.service || true
     # The update service that started this update is still running the old version of its script.
-    # Restart it a few seconds from now, from outside its own control group (a restart now would
+    # Restart it a few seconds from now (once no update is running), from outside its own control group (a restart now would
     # end this script before it reports), so the next request is read by the new version.
     if [ -f /etc/systemd/system/syntaxis-update-agent.service ] && command -v systemd-run >/dev/null 2>&1; then
-      systemd-run --quiet --no-block --on-active=15 --unit=syntaxis-update-agent-restart systemctl restart syntaxis-update-agent.service >/dev/null 2>&1 || true
+      # shellcheck disable=SC2016 # the script is for the transient unit's shell, not this one
+      systemd-run --quiet --no-block --on-active=5 --unit=syntaxis-update-agent-restart sh -c '
+        busy() { p=$(cat /run/syntaxis-update.pid 2>/dev/null); [ -n "$p" ] && [ -d "/proc/$p" ]; }
+        while :; do
+          while busy; do sleep 2; done
+          sleep 15
+          busy || break
+        done
+        systemctl restart syntaxis-update-agent.service' >/dev/null 2>&1 || true
     fi
   fi
   exit 0
