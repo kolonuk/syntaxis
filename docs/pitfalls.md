@@ -36,7 +36,8 @@ Sandboxes have fixed CPU, memory and process limits. On top of that Syntaxis wat
 
 - **AlmaLinux, Rocky, RHEL, Fedora:** SELinux is enforcing by default; the compose file already lets the Docker proxy reach the socket. Look at `ausearch -m avc -ts recent` rather than turning SELinux off. firewalld may need the chat port opened for other machines.
 - **Raspberry Pi OS:** use the 64-bit release. If memory limits do not apply, add `cgroup_enable=memory cgroup_memory=1` to `/boot/firmware/cmdline.txt` and reboot. Expect slow builds and room for only a couple of sessions.
-- **macOS and Windows:** not supported; gVisor needs Linux.
+- **macOS:** not supported; it cannot be tested.
+- **Windows:** not supported; gVisor needs Linux.
 
 ## Backups and upgrades
 
