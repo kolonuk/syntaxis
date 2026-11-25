@@ -9,7 +9,7 @@ Rules for contributors: no environment-specific values in the repo (use `example
 ## 1. Fixes and verification
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
-- [ ] **Check each release end to end (Easy to Medium).** For every release: install it on a fresh host (the VM suite does this: `SYX_INSTALL_VERSION=<tag> test/vm/vm.sh suite.sh`) and update an older install to it (`SYX_UPGRADE_TO=<tag> test/vm/vm.sh upgrade-test.sh`). v0.2.0 has passed both on the Linux distros the harness covers.
+- [ ] **Check each release end to end (Easy to Medium).** For every release: install it on a fresh host (the VM suite does this: `SYX_INSTALL_VERSION=<tag> test/vm/vm.sh suite.sh`) and update an older install to it (`SYX_UPGRADE_TO=<tag> test/vm/vm.sh upgrade-test.sh`). v0.2.1 has passed both on the Linux distros the harness covers.
 - [ ] **Accessibility and mobile checks for every screen, with a skill to keep them in check (Medium).** Only the sign-in pages are in the axe flows today. Add Playwright and axe flows for the chat, Files, attachments, slash menu, task list, settings and admin pages on a phone and desktop width in light and dark, and extend the existing `.claude/skills/check-the-web-app` skill with a checklist for a new screen (contrast, focus order, labels, keyboard use, screen-reader text), with the ship-a-feature skill requiring it, so each new feature is checked before it ships.
 
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
