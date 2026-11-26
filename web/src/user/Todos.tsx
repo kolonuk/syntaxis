@@ -20,17 +20,17 @@ export function TodoList({ todos }: { todos: Todo[] }) {
           Progress {done} of {total}
         </span>
         {current && <span className="muted todos-now"> · {current.content}</span>}
+        <span
+          className="todos-bar"
+          role="progressbar"
+          aria-label="Task progress"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={done}
+        >
+          <span style={{ width: `${(done / total) * 100}%` }} />
+        </span>
       </summary>
-      <div
-        className="todos-bar"
-        role="progressbar"
-        aria-label="Task progress"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={done}
-      >
-        <span style={{ width: `${(done / total) * 100}%` }} />
-      </div>
       <ul>
         {todos.map((t, i) => (
           <li key={i} className={`todo ${t.status}`}>

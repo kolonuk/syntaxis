@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { GroupedTabs } from "./GroupedTabs";
 import {
   Badge,
   Button,
@@ -97,6 +99,25 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("does not move focus back to the first field when its parent re-renders", () => {
+    function Form() {
+      const [name, setName] = useState("");
+      const [email, setEmail] = useState("");
+      return (
+        <Modal title="Invite" onClose={() => undefined}>
+          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Modal>
+      );
+    }
+    render(<Form />);
+    const email = screen.getByLabelText("Email");
+    email.focus();
+    fireEvent.change(email, { target: { value: "a" } });
+    fireEvent.change(email, { target: { value: "ab" } });
+    expect(document.activeElement).toBe(email);
+  });
+
   it("shows the actions it is given instead of the default Close", () => {
     render(
       <Modal title="Ask" onClose={() => undefined} actions={<button type="button">Do it</button>}>
@@ -186,5 +207,34 @@ describe("useShortcuts", () => {
     expect(fn).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(document.body, { key: "n", ctrlKey: true });
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GroupedTabs", () => {
+  const groups = [
+    {
+      id: "a",
+      label: "Alpha",
+      tabs: [
+        { id: "a1", label: "First" },
+        { id: "a2", label: "Second" },
+      ],
+    },
+    { id: "b", label: "Beta", tabs: [{ id: "b1", label: "Only" }] },
+  ];
+  it("shows the tabs of the current group, and opens a group on its first tab", () => {
+    const onChange = vi.fn();
+    render(<GroupedTabs groups={groups} value="a2" onChange={onChange} />);
+    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Beta" }));
+    expect(onChange).toHaveBeenCalledWith("b1");
+    fireEvent.click(screen.getByRole("tab", { name: "First" }));
+    expect(onChange).toHaveBeenCalledWith("a1");
+  });
+  it("has no second row for a group with one tab", () => {
+    render(<GroupedTabs groups={groups} value="b1" onChange={() => undefined} />);
+    expect(screen.queryByRole("tab", { name: "Only" })).toBeNull();
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 });

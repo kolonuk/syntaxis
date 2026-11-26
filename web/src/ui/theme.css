@@ -556,7 +556,7 @@ pre {
   max-height: 200px;
 }
 .side-panel {
-  width: 360px;
+  width: var(--panel-w, 360px);
   border-left: 1px solid var(--border);
   background: var(--surface);
   padding: var(--s3);
@@ -1145,6 +1145,7 @@ a.btn {
   font-weight: 400;
 }
 .todos-bar {
+  display: block;
   height: 4px;
   background: var(--surface-2);
   border-radius: 2px;
@@ -1335,4 +1336,84 @@ a.btn {
 }
 .stream h3 {
   margin: 0;
+}
+
+/* The one-time code field: large and clearly the place to type, with a strong focus ring. */
+.input-code {
+  font-size: 1.4rem;
+  letter-spacing: 0.25em;
+  text-align: center;
+  border-width: 2px;
+}
+.input-code:focus {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 35%, transparent);
+  outline: none;
+}
+
+/* Short labels under a name, for example the features of a model. */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ---- session screen: resizing the side panel, stop square, message times ---- */
+.panel-resizer {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+.panel-resizer:hover,
+.panel-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+@media (max-width: 760px) {
+  .panel-resizer {
+    display: none;
+  }
+}
+.stop-square {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+.stop-square::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  background: var(--danger);
+  border-radius: 1px;
+}
+.stop-square:hover {
+  background: var(--surface-2);
+}
+.msg .stamp {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* The second row of a grouped tab bar: lighter than the first. */
+.tab-groups {
+  gap: 4px;
+}
+.sub-tabs .tabs {
+  border-bottom: 1px solid var(--border, #d0d4dc);
+}
+.sub-tabs .tab {
+  font-size: 0.9rem;
+}
+.ctx-mini {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-sm);
 }

@@ -88,6 +88,10 @@ func (a *App) UserHandler() http.Handler {
 			r.Delete("/shares/{id}", a.handleShareRevoke)
 			r.Get("/mcp", a.handleMyMCP)
 			r.Put("/mcp", a.handleMyMCPSet)
+			r.Get("/mcp/search", a.handleMCPSearch)
+			r.Get("/mcp/requests", a.handleMyMCPRequests)
+			r.Post("/mcp/requests", a.handleMCPRequestAdd)
+			r.Delete("/mcp/requests/{id}", a.handleMCPRequestWithdraw)
 			r.Get("/connections", a.handleConnections)
 			r.Put("/connections/{kind}", a.handleConnectionPut)
 			r.Delete("/connections/{kind}", a.handleConnectionDelete)
@@ -129,6 +133,7 @@ func (a *App) UserHandler() http.Handler {
 				r.Get("/files/content", a.handleFileGet)
 				r.Put("/files/content", a.handleFilePut)
 				r.Get("/files/download", a.handleFileDownload)
+				r.Get("/files/zip", a.handleFileZip)
 				r.Post("/files/upload", a.handleFileUpload)
 				r.Post("/files/mkdir", a.handleFileMkdir)
 				r.Delete("/files", a.handleFileDelete)
@@ -817,11 +822,15 @@ func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
 		fl.Flush()
 		return
 	}
-	replay, ch, unsub := run.Subscribe()
+	after := 0 // the last event the browser has, as "<run>-<number>"; from another run it counts for nothing
+	if run0, num, ok := strings.Cut(firstNonEmpty(r.Header.Get("Last-Event-ID"), r.URL.Query().Get("after")), "-"); ok && run0 == strconv.FormatInt(run.started, 10) {
+		after, _ = strconv.Atoi(num)
+	}
+	replay, ch, unsub := run.Subscribe(after)
 	defer unsub()
-	send := func(e agent.Event) {
-		b, _ := jsonMarshal(e)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, b)
+	send := func(e seqEvent) {
+		b, _ := jsonMarshal(e.Event)
+		fmt.Fprintf(w, "id: %d-%d\nevent: %s\ndata: %s\n\n", run.started, e.Seq, e.Event.Kind, b)
 		fl.Flush()
 	}
 	for _, e := range replay {
@@ -831,13 +840,19 @@ func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
 	defer tick.Stop()
 	for {
 		select {
-		case e := <-ch:
+		case e, ok := <-ch:
+			if !ok {
+				return // fell behind: the browser reconnects and is sent what it missed
+			}
 			send(e)
 		case <-run.done:
 			// drain anything emitted just before completion
 			for {
 				select {
-				case e := <-ch:
+				case e, ok := <-ch:
+					if !ok {
+						return
+					}
 					send(e)
 				default:
 					fmt.Fprint(w, "event: end\ndata: {}\n\n")

@@ -45,7 +45,7 @@ Uploads are **off until an admin turns them on** (Policies → Allow file upload
 
 ## Files
 
-The **Files** tab browses the session workspace: open folders, view or edit text files (up to 1 MB, **Ctrl+S** saves), download, upload, create folders, delete. It is confined to `/workspace` and works through the sandbox. Changes are refused while the agent is working. The editor has no syntax highlighting.
+The **Files** tab browses the session workspace: open folders, view or edit text files (up to 1 MB, **Ctrl+S** saves), download, upload, create folders, delete. The list refreshes by itself every few seconds. **Download workspace (zip)** and each folder's **Download zip** save a folder as a zip file (up to 50 MB before compression; larger folders need the terminal); the zip holds regular files only, no symbolic links. It is confined to `/workspace` and works through the sandbox. Changes are refused while the agent is working. The editor has no syntax highlighting.
 
 ## Slash commands and hooks
 
@@ -62,6 +62,39 @@ A **hook** runs a command in the sandbox before (`pre_tool`) or after (`post_too
 ```json
 {"hooks":[{"event":"post_tool","tools":["write_file","patch_file","apply_patch"],"command":"gofmt -l ."}]}
 ```
+
+### Writing hooks
+
+A hook file is JSON with one list, `hooks`. Each entry has:
+
+| Field | Meaning |
+|---|---|
+| `event` | `pre_tool` (before the tool runs) or `post_tool` (after it). |
+| `tools` | Optional list of tool names. Leave it out to run on every tool. The file tools are `read_file`, `write_file`, `patch_file`, `apply_patch`, `list_files` and `search_files`; the others are `run_shell`, `git` and `fetch_url`. |
+| `command` | The shell command, run in `/workspace`. |
+| `timeout_seconds` | Optional limit for this command in seconds: 60 by default, 300 at most. |
+
+Examples. Copy one into **Settings → Hooks** or `.syntaxis/hooks.json`.
+
+Format Go files after every edit and show the agent which files were not formatted:
+
+```json
+{"hooks":[{"event":"post_tool","tools":["write_file","patch_file","apply_patch"],"command":"gofmt -l ."}]}
+```
+
+Run the linter after edits, so the agent sees problems straight away:
+
+```json
+{"hooks":[{"event":"post_tool","tools":["write_file","patch_file","apply_patch"],"command":"npx eslint . --max-warnings 0"}]}
+```
+
+Stop the agent running shell commands while a file called `.freeze` exists in the workspace:
+
+```json
+{"hooks":[{"event":"pre_tool","tools":["run_shell"],"command":"test ! -e .freeze"}]}
+```
+
+A `pre_tool` hook that exits with a non-zero status stops the tool call, and its output is shown to the agent. A `post_tool` hook's output is added to the tool result. At most 20 hooks.
 
 ## Editing and branching a conversation
 
@@ -80,6 +113,15 @@ The **Changes** tab shows what the agent changed, file by file. A comment on a f
 A new session can run the same task 2 or more times at once. Each attempt gets its own sandbox clone and branch (`syntaxis/<id>`). The compare view shows the changes side by side, and **Keep this one** removes the rest.
 
 The number offered is the smallest of: what the machine can run (CPUs and memory against the sandbox limits), your remaining concurrent sessions, and the model server's concurrency. A model that is not loaded yet is flagged, because the first attempt loads it.
+
+## The session screen
+
+- The **Output** tab shows each step of getting the sandbox ready ("Creating a new sandbox"), then the commands the agent runs, with a last line saying what it is doing now.
+- The **Context** tab and the line above the message box show how full the context window is. The figure is an estimate from the conversation until the agent's own count arrives.
+- **Stop** is next to **Send** while the agent works, and as a small square next to the status.
+- Drag the bar between the chat and the side panel to resize the panel, or focus it and press the left and right arrow keys (Shift for bigger steps). The width is remembered in the browser.
+- The time of each message is shown under it; hover for the full date.
+- The screen follows a run on its own and reconnects if the connection drops. A page refresh is not needed.
 
 ## Context and checkpoints
 

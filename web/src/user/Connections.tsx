@@ -44,9 +44,13 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
   const [open, setOpen] = useState(false);
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // the result of the last check, shown in the card until the next one; a toast alone is easy to miss
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const k = c.kind;
-  const shown = (f: ConnField) =>
-    vals[f.name] ?? (f.secret ? "" : (c.values[f.name] ?? f.default ?? ""));
+  // Only what the user (or an earlier save) has set is filled in. A default is shown as a
+  // placeholder and applied by the server when the field is left empty, so nothing looks
+  // configured that is not.
+  const shown = (f: ConnField) => vals[f.name] ?? (f.secret ? "" : (c.values[f.name] ?? ""));
 
   async function save() {
     setBusy(true);
@@ -55,11 +59,13 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
       for (const f of k.fields) fields[f.name] = shown(f);
       const r = await put<{ account: string }>(`/connections/${k.id}`, { fields });
       toast(`Connected as ${r.account}.`, "success");
+      setResult({ ok: true, text: `Saved. The check passed: connected as ${r.account}.` });
       setVals({});
       setOpen(false);
       reload();
     } catch (x) {
       toast(errText(x), "error");
+      setResult({ ok: false, text: `Not saved. ${errText(x)}` });
     } finally {
       setBusy(false);
     }
@@ -68,9 +74,11 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
     try {
       const r = await post<{ account: string }>(`/connections/${k.id}/test`);
       toast(`Works: ${r.account}.`, "success");
+      setResult({ ok: true, text: `The check passed: ${r.account}.` });
       reload();
     } catch (x) {
       toast(errText(x), "error");
+      setResult({ ok: false, text: `The check failed. ${errText(x)}` });
     }
   }
   return (
@@ -83,9 +91,9 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
         )}
         {c.detail && <span className="muted">{c.detail}</span>}
         <span className="grow" />
-        {c.connected && <Button onClick={test}>Test</Button>}
+        {c.connected && <Button onClick={test}>Test again</Button>}
         <Button onClick={() => setOpen(!open)} aria-expanded={open}>
-          {c.connected ? "Change" : "Connect"}
+          {open ? "Hide settings" : c.connected ? "Show settings" : "Set up"}
         </Button>
         {c.connected && (
           <Button
@@ -100,6 +108,15 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
           </Button>
         )}
       </div>
+      {result && (
+        <div
+          className={`result-banner ${result.ok ? "ok" : "fail"}`}
+          role={result.ok ? "status" : "alert"}
+        >
+          {result.ok ? "✓ " : "✗ "}
+          {result.text}
+        </div>
+      )}
       {open && (
         <form
           className="stack"
@@ -116,13 +133,19 @@ function ConnectionCard({ c, reload }: { c: Conn; reload: () => void }) {
               hint={f.hint}
               type={f.secret ? "password" : "text"}
               autoComplete="off"
-              placeholder={f.secret && c.stored[f.name] ? "Saved. Leave empty to keep it" : ""}
+              placeholder={
+                f.secret && c.stored[f.name]
+                  ? "Saved. Leave empty to keep it"
+                  : f.default
+                    ? `${f.default} (used when empty)`
+                    : ""
+              }
               value={shown(f)}
               onChange={(e) => setVals({ ...vals, [f.name]: e.target.value })}
             />
           ))}
           <Button variant="primary" type="submit" disabled={busy}>
-            {busy ? "Checking…" : "Check and save"}
+            {busy ? "Checking…" : "Test the connection and save"}
           </Button>
         </form>
       )}

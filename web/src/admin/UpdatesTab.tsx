@@ -28,6 +28,8 @@ export interface UpdateInfo {
   releases: Release[];
   check_error?: string;
   agent: { running: boolean; manual: string };
+  /** Syntaxis itself runs in a container (Docker, Podman or Kubernetes). */
+  container?: boolean;
   status: { state?: string; target?: string; stream?: string; message?: string; at?: string };
 }
 
@@ -138,6 +140,20 @@ export function UpdatesTab() {
 
   return (
     <div className="stack">
+      {info.container && !info.agent.running && (
+        <Banner tone="warn">
+          <p>
+            <strong>Updates made here are temporary.</strong> Syntaxis runs in a container, and its
+            update service is not running. An update made by hand on the host lasts only until the
+            container is deployed again from your Compose file or Kubernetes manifest: it then
+            returns to the image written there.
+          </p>
+          <p>
+            To keep an update, change the image version in that file and deploy it. Use this page to
+            see what is available.
+          </p>
+        </Banner>
+      )}
       {(busy || lost) && (
         <Banner tone="info">
           {busy ? `Updating to ${info.status.target}. ` : ""}Syntaxis restarts during an update;

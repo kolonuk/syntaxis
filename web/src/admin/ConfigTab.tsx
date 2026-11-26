@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { useState } from "react";
 import { del, errText, post, put } from "../lib/api";
-import { Badge, Banner, Button, Card, Input, Select, Skeleton, Toggle, useToast } from "../ui/ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  Input,
+  Select,
+  Skeleton,
+  Tabs,
+  Toggle,
+  useToast,
+} from "../ui/ui";
 import { DOCS, useLoad } from "./shared";
 
 export interface ConfigItem {
@@ -216,9 +227,11 @@ function ConfigGroupCard({ g, onSaved }: { g: ConfigGroup; onSaved: (restart: st
 export function ConfigTab() {
   const { data, err, reload } = useLoad<ConfigData>("/config");
   const [restart, setRestart] = useState<string[] | null>(null);
+  const [gid, setGid] = useState("");
   if (err) return <Banner tone="danger">{err}</Banner>;
   if (!data) return <Skeleton />;
   const pending = restart ?? data.restart_pending;
+  const active = data.groups.some((g) => g.id === gid) ? gid : (data.groups[0]?.id ?? "");
   return (
     <div className="stack">
       <p className="muted">
@@ -238,15 +251,23 @@ export function ConfigTab() {
           <code>docker compose restart syntaxis</code>.
         </Banner>
       )}
+      <Tabs
+        label="Configuration groups"
+        value={active}
+        onChange={setGid}
+        tabs={data.groups.map((g) => ({ id: g.id, label: g.label }))}
+      />
       {data.groups.map((g) => (
-        <ConfigGroupCard
-          key={g.id}
-          g={g}
-          onSaved={(r) => {
-            setRestart(r);
-            reload();
-          }}
-        />
+        // Every group stays mounted, so what you typed in one is still there when you come back.
+        <div key={g.id} hidden={g.id !== active}>
+          <ConfigGroupCard
+            g={g}
+            onSaved={(r) => {
+              setRestart(r);
+              reload();
+            }}
+          />
+        </div>
       ))}
     </div>
   );

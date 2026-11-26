@@ -28,6 +28,9 @@ describe("Login", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(screen.getByLabelText(/Authentication code/)).toBeInTheDocument());
+    // the code field is ready to type in, and stands out
+    expect(document.activeElement).toBe(screen.getByLabelText(/Authentication code/));
+    expect(screen.getByLabelText(/Authentication code/)).toHaveClass("input-code");
     fireEvent.change(screen.getByLabelText(/Authentication code/), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Verify" }));
     await waitFor(() => expect(done).toHaveBeenCalled());

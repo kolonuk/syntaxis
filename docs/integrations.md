@@ -2,10 +2,10 @@
 
 ## Secrets and connections
 
-Each user keeps their own credentials, encrypted. Nobody else can see or use them, admins included. They are placed in the environment of that user's own commands only and are never sent to the model. A change applies to the next command.
+The pages are grouped in the left menu of **Settings**: Account (Profile, Password, Two-factor, Usage), Services and keys (Connections, Secrets, API tokens), Agent (Tools, Notes, Commands, Hooks) and Sharing. Each user keeps their own credentials, encrypted. Nobody else can see or use them, admins included. They are placed in the environment of that user's own commands only and are never sent to the model. A change applies to the next command.
 
 - **Settings → Secrets**: any token you want available as an environment variable.
-- **Settings → Connections**: guided setup for GitHub, GitLab (including self-hosted), Gitea/Forgejo, Cloudflare, AWS, Azure, Google Cloud and IFTTT. Each is checked when saved and has a short guide to creating a least-privilege, short-lived credential. `git`, `gh`, `aws`, `az`, `gcloud` and `wrangler` then work in the sandbox. For anything else, add its token as a secret.
+- **Settings → Connections**: guided setup for GitHub, GitLab (including self-hosted), Gitea/Forgejo, Cloudflare, AWS, Azure, Google Cloud and IFTTT. **Set up** opens a service's fields (**Hide settings** closes them) and **Test the connection and save** checks them and shows the result in the card. A field left empty uses the default shown in it, for example the GitLab address. Each is checked when saved and has a short guide to creating a least-privilege, short-lived credential. `git`, `gh`, `aws`, `az`, `gcloud` and `wrangler` then work in the sandbox. For anything else, add its token as a secret.
 
 Use accounts and projects that belong to you, with a budget alert. The model sees command output, so anything a command prints can reach it. Redaction is best effort.
 
@@ -34,8 +34,9 @@ Limits: 20 automations per user, 48 runs per automation per day, one run at a ti
 
 - An admin approves a server from the official registry, pinned to one exact version.
 - Each user switches on the servers they want under **Settings → Tools**. A server runs only for users who did, with that user's own connected credentials.
+- Any user can find a server that is not approved yet: **Settings → Tools → Find more tools** searches the public catalogue, and **Request** sends the admin a request with an optional reason. A request changes nothing until an admin approves the server, which clears it. Withdraw your own requests from the same screen.
 - Each server runs in its own gVisor container with no workspace, no host access and only that user's credentials.
-- Only servers that run as a local program are supported. Hosted services such as the official GitLab and Cloudflare servers are not.
+- Only servers that run as a local program are supported. A server marked "hosted only" is run by its publisher on its own infrastructure (the official GitLab and Cloudflare servers are examples). Syntaxis does not connect to those, so that nothing the agent sends goes to a third party's server. Choose a server that publishes a package, or connect the service under **Settings → Connections**.
 - Server output is treated as untrusted, and tools that are not read-only ask the user first.
 
 ### Adding a server
@@ -53,7 +54,7 @@ Shared credentials are listed on the same tab.
 
 The official GitHub server is one. The image tag is the pinned version, for example `ghcr.io/github/github-mcp-server:2.2.0`.
 
-Syntaxis cannot download images. Pull the image on the Docker host first, using the `docker pull …` command the review shows. **Approve** stays disabled until the image is present.
+Syntaxis cannot download images: the Docker connection it uses can only create hardened sandboxes (the same applies to building images), so a compromised Syntaxis cannot pull and run an arbitrary image on the host. Pull the image on the Docker host first, using the `docker pull …` command the review shows. **Approve** stays disabled until the image is present.
 
 A tag is weaker than a digest, because the publisher can move it. For full pinning use an `@sha256:` reference.
 

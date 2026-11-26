@@ -40,7 +40,18 @@ export function UserSettingsDialog({
   const [commands, setCommands] = useState("[]");
   const load = useCallback(() => {
     get<Settings>(`${base}/settings`)
-      .then((r) => {
+      .then((raw) => {
+        // a list the server had nothing for may arrive as null: show it as empty, never crash
+        const r: Settings = {
+          ...raw,
+          notes: raw.notes ?? [],
+          commands: raw.commands ?? [],
+          connections: raw.connections ?? [],
+          mcp: raw.mcp ?? [],
+          automations: raw.automations ?? [],
+          tokens: raw.tokens ?? [],
+          secret_names: raw.secret_names ?? [],
+        };
         setS(r);
         setHooks(r.hooks);
         setCommands(JSON.stringify(r.commands ?? [], null, 2));

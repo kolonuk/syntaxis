@@ -3,6 +3,9 @@
 package server
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -29,6 +32,7 @@ const (
 	maxViewBytes     = 1 << 20  // largest file shown or edited as text
 	maxUploadMBLimit = 100      // the most an admin can allow for one upload, in MiB
 	maxDownload      = 25 << 20 // largest download
+	maxZip           = 50 << 20 // largest folder (or whole workspace) zip, before compression
 	maxListEntries   = 2000
 )
 
@@ -281,6 +285,101 @@ func (a *App) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	_, _ = w.Write(data)
+}
+
+// zipScript archives a folder as tar, without the shadow repository, and stops one byte past the
+// limit so the caller can tell that the folder is too big. Symbolic links are left out by the
+// caller, not followed.
+const zipScript = `cd "$1" 2>/dev/null || exit 3
+tar -cf - --exclude=./.syntaxis-shadow . | head -c "$2" | base64 -w0`
+
+// handleFileZip sends a folder, or the whole workspace, as a zip file.
+func (a *App) handleFileZip(w http.ResponseWriter, r *http.Request) {
+	s, _, cid, ok := a.fileSession(w, r, false)
+	if !ok {
+		return
+	}
+	dir, ok := filePath(w, r.URL.Query().Get("path"))
+	if !ok {
+		return
+	}
+	res, err := a.fileExec(r.Context(), s, cid, sandbox.ExecSpec{
+		Cmd:       []string{"sh", "-c", zipScript, "_", dir, strconv.Itoa(maxZip + 1)},
+		MaxOutput: (maxZip+1)*4/3 + 8192, Timeout: 2 * time.Minute,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "could not read the folder: "+err.Error())
+		return
+	}
+	if res.ExitCode == 3 {
+		writeErr(w, http.StatusNotFound, "that folder does not exist")
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
+	if err != nil || res.ExitCode != 0 {
+		writeErr(w, http.StatusBadGateway, "the folder could not be read completely")
+		return
+	}
+	if len(raw) > maxZip {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the folder is larger than %d MiB; zip it from the terminal instead", maxZip>>20))
+		return
+	}
+	data, err := tarToZip(raw)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	name := path.Base(dir)
+	if dir == sandbox.WorkspacePath || name == "." || name == "/" {
+		name = "workspace"
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", safeDownloadName(name)+".zip"))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	_, _ = w.Write(data)
+}
+
+// tarToZip rewrites a tar stream as a zip. Only folders and regular files are kept; a name that is
+// absolute or climbs out of the folder is dropped, so an archive built from a hostile workspace
+// cannot place files outside where the user unpacks it.
+func tarToZip(raw []byte) ([]byte, error) {
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	tr := tar.NewReader(bytes.NewReader(raw))
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, errors.New("the folder could not be read completely")
+		}
+		name := path.Clean(strings.TrimPrefix(h.Name, "./"))
+		if name == "." || name == "" || path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+			continue
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if _, err := zw.Create(name + "/"); err != nil {
+				return nil, err
+			}
+		case tar.TypeReg:
+			fh := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: h.ModTime}
+			fh.SetMode(0o644)
+			f, err := zw.CreateHeader(fh)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := io.Copy(f, tr); err != nil { //nolint:gosec // bounded by maxZip on the tar
+				return nil, errors.New("the folder could not be read completely")
+			}
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 func safeDownloadName(n string) string {

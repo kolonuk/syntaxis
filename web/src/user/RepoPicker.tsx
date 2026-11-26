@@ -23,9 +23,16 @@ interface Repo {
 export function RepoPicker({
   onChange,
   allowCreate = true,
+  legend = "Repository (optional)",
+  noneLabel = "No repository: an empty workspace",
+  autoSelect = false,
 }: {
   onChange: (r: RepoChoice | null) => void;
   allowCreate?: boolean;
+  legend?: string;
+  noneLabel?: string;
+  /** Choose the service at once when only one is connected, so its repositories are listed. */
+  autoSelect?: boolean;
 }) {
   const { data } = useConnections();
   const [kind, setKind] = useState("");
@@ -38,6 +45,11 @@ export function RepoPicker({
   const [desc, setDesc] = useState("");
   const [priv, setPriv] = useState(true);
   const git = (data ?? []).filter((c) => c.kind.git && c.connected);
+
+  useEffect(() => {
+    if (autoSelect && !kind && git.length === 1) setKind(git[0]!.kind.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSelect, data]);
 
   useEffect(() => {
     if (!kind || mode !== "existing") return;
@@ -69,14 +81,15 @@ export function RepoPicker({
   if (!data) return <Skeleton lines={1} />;
   if (git.length === 0)
     return (
-      <p className="muted">
-        To start from a repository, connect GitHub, GitLab or Gitea in Settings, Connections.
-      </p>
+      <Banner>
+        No git service is connected, so there is no list of repositories to choose from. Connect
+        GitHub, GitLab or Gitea in Settings, Connections to pick one here.
+      </Banner>
     );
   return (
     <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
       <legend style={{ fontWeight: 600, fontSize: "var(--fs-sm)", marginBottom: 8 }}>
-        Start from a repository (optional)
+        {legend}
       </legend>
       <Select
         label="Service"
@@ -86,7 +99,7 @@ export function RepoPicker({
           setPicked("");
         }}
         options={[
-          { value: "", label: "No repository: an empty workspace" },
+          { value: "", label: noneLabel },
           ...git.map((c) => ({ value: c.kind.id, label: `${c.kind.title} (${c.account})` })),
         ]}
       />

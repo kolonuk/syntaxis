@@ -60,18 +60,25 @@ func (a *App) adminUserSettings(w http.ResponseWriter, r *http.Request) {
 	for _, t := range toks {
 		tokOut = append(tokOut, tokenView(t))
 	}
-	var mcpOn []string
+	mcpOn := []string{}
 	for n := range a.userMCP(ctx, u.ID) {
 		mcpOn = append(mcpOn, n)
 	}
 	sort.Strings(mcpOn)
 	secretNames, _ := a.Secrets.Names(ctx, "user", u.ID)
+	if secretNames == nil {
+		secretNames = []string{} // a list, never null: the admin app reads its length
+	}
 	var trusted []string
 	_ = json.Unmarshal([]byte(a.setting(ctx, hooksTrustKey(u.ID), "[]")), &trusted)
+	cmds := a.userCommands(ctx, u.ID)
+	if cmds == nil {
+		cmds = []Command{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":               map[string]any{"id": u.ID, "email": u.Email, "name": u.Name},
 		"notes":              noteOut,
-		"commands":           a.userCommands(ctx, u.ID),
+		"commands":           cmds,
 		"hooks":              a.setting(ctx, userHooksKey(u.ID), ""),
 		"trusted_repo_hooks": len(trusted),
 		"connections":        connOut,

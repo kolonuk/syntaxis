@@ -40,7 +40,7 @@ All paths start with `/api`. Bodies and replies are JSON. Errors are `{"error": 
 | `GET /sessions` | Your sessions. |
 | `GET /sessions/{id}` | One session: `id`, `title`, `model`, `autonomy`, `state` (`running` while the agent works), `tokens_in`, `tokens_out`, `repo`, `repo_branch`, `plan_mode`, `plan_state`, `created_at`, `updated_at`. |
 | `GET /sessions/{id}/messages` | The messages: `id`, `role`, `content`, `tool_calls`, `created_at`. `?abandoned=1` includes branches that were left. |
-| `GET /sessions/{id}/events` | A live stream (server-sent events). It replays what the current run has done so far, then continues until the run ends. When nothing is running it sends `event: idle` and closes. |
+| `GET /sessions/{id}/events` | A live stream (server-sent events). It replays what the current run has done so far, then continues until the run ends with `event: end`. When nothing is running it sends `event: idle` and closes. Every event has an `id:` line (`<run>-<number>`). After a dropped connection, reconnect with the last id in a `Last-Event-ID` header and only the later events are sent. A connection that cannot keep up is closed so it can do this. |
 | `GET /sessions/{id}/diff` | What the agent changed in the repository. |
 | `GET /sessions/{id}/checkpoints` and `/checkpoints/{n}/diff` | The checkpoints taken before the agent's turns, and what changed in one. |
 | `GET /sessions/{id}/export` | The whole session as Markdown, or as JSON with `?format=json`. |
@@ -62,7 +62,7 @@ All paths start with `/api`. Bodies and replies are JSON. Errors are `{"error": 
 
 ### Events
 
-The stream sends `event: <kind>` with a JSON `data:` line. The kinds are `assistant_delta` (streamed text), `assistant_message`, `tool_call`, `tool_result`, `approval_request`, `approval_result`, `question`, `context`, `compaction`, `checkpoint`, `status`, `plan`, `phase`, `notice` and `todos`. Use the stream to follow a run and `GET /sessions/{id}/messages` for the finished record. After a dropped connection, reconnect: the run's events are replayed from the start.
+The stream sends `event: <kind>` with a JSON `data:` line. The kinds are `assistant_delta` (streamed text), `assistant_message`, `tool_call`, `tool_result`, `approval_request`, `approval_result`, `question`, `context`, `compaction`, `checkpoint`, `status`, `plan`, `phase`, `progress` (a step of getting the sandbox ready), `notice` and `todos`. Use the stream to follow a run and `GET /sessions/{id}/messages` for the finished record. After a dropped connection, reconnect with `Last-Event-ID` (above); without it the run's events are replayed from the start.
 
 ## Example: run a task and wait
 

@@ -105,10 +105,13 @@ export function Toggle({
   label,
   checked,
   onChange,
+  hideLabel,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  /** Show only the switch; the label stays available to screen readers. */
+  hideLabel?: boolean;
 }) {
   return (
     <label className="toggle">
@@ -119,7 +122,7 @@ export function Toggle({
         onChange={(e) => onChange(e.target.checked)}
       />
       <span className="track" aria-hidden="true" />
-      <span>{label}</span>
+      <span className={hideLabel ? "sr-only" : undefined}>{label}</span>
     </label>
   );
 }
@@ -153,13 +156,16 @@ export function Tabs({
   tabs,
   value,
   onChange,
+  label,
 }: {
   tabs: { id: string; label: string }[];
   value: string;
   onChange: (id: string) => void;
+  /** Names the tab list for screen readers. */
+  label?: string;
 }) {
   return (
-    <div role="tablist" className="tabs">
+    <div role="tablist" className="tabs" aria-label={label}>
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -187,18 +193,24 @@ export function Modal({
   actions?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass a new onClose on every render. Keep it in a ref so the focus effect below runs
+  // once, when the dialog opens; it must not move focus back to the first field on every keystroke.
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") close.current();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}>

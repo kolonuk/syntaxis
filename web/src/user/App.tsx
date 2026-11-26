@@ -4,6 +4,7 @@ import { get, post, errText } from "../lib/api";
 import { applyTheme, loadPref, nextPref, type ThemePref } from "../lib/theme";
 import { clearUserData } from "../lib/queue";
 import { ago } from "../lib/format";
+import "./user.css";
 import { Icon } from "../ui/ui";
 import {
   Banner,
@@ -50,6 +51,9 @@ interface ModelOpt {
   tools: boolean;
   recommended: boolean;
 }
+
+export const MODEL_NAMES_HELP = "https://huggingface.co/blog/moe";
+export const MODEL_QUANT_HELP = "https://huggingface.co/docs/hub/en/gguf";
 
 function NewSession({
   onClose,
@@ -174,24 +178,34 @@ function NewSession({
                 m.id + (m.recommended ? " — recommended" : "") + (m.tools ? "" : " (chat only)"),
             }))}
           />
+          <p className="muted">
+            What a model name means: a size such as 27B is billions of parameters; &quot;MoE&quot;
+            models use only part of them for each word, so 30B-A3B has 30B in total and 3B active.{" "}
+            <a href={MODEL_NAMES_HELP} target="_blank" rel="noreferrer">
+              Mixture of experts explained
+            </a>
+            ,{" "}
+            <a href={MODEL_QUANT_HELP} target="_blank" rel="noreferrer">
+              quantisation (Q4 and similar) explained
+            </a>
+            .
+          </p>
           <RepoPicker onChange={setRepo} />
-          {envs.length > 0 && (
-            <Select
-              label="Environment"
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              options={[
-                {
-                  value: "",
-                  label: "Default (or what the repository's devcontainer.json asks for)",
-                },
-                ...envs.map((x) => ({
-                  value: x.name,
-                  label: x.name + (x.description ? " — " + x.description : ""),
-                })),
-              ]}
-            />
-          )}
+          <Select
+            label="Environment (the tools installed in the sandbox)"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            options={[
+              {
+                value: "",
+                label: "Default (or what the repository's devcontainer.json asks for)",
+              },
+              ...envs.map((x) => ({
+                value: x.name,
+                label: x.name + (x.description ? " — " + x.description : ""),
+              })),
+            ]}
+          />
           {cap && cap.max > 1 && (
             <>
               <Input
@@ -315,6 +329,18 @@ function Shell({
         </Button>
         <h1 className="brand">Syntaxis</h1>
         <Button
+          variant="secondary"
+          className="view-switch"
+          aria-pressed={view === "automations"}
+          onClick={() => {
+            setView(view === "automations" ? "chat" : "automations");
+            setDrawer(false);
+          }}
+        >
+          {view === "automations" ? "Sessions" : "Automations"}
+        </Button>
+        <span className="topbar-spacer" />
+        <Button
           variant="ghost"
           className="icon-only"
           aria-label="New session"
@@ -336,15 +362,6 @@ function Shell({
           }}
         >
           {theme}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setView(view === "automations" ? "chat" : "automations");
-            setDrawer(false);
-          }}
-        >
-          {view === "automations" ? "Sessions" : "Automations"}
         </Button>
         <Button
           variant="ghost"

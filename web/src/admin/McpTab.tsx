@@ -79,6 +79,10 @@ export function McpTab() {
   const approved = useLoad<McpApproved[]>("/mcp/approved");
   const secrets = useLoad<string[]>("/secrets");
   const sugg = useLoad<Suggestions>("/mcp/suggestions");
+  const requests =
+    useLoad<{ id: string; user?: string; name: string; title?: string; reason?: string }[]>(
+      "/mcp/requests",
+    );
   const [how, setHow] = useState("recommended");
   const [q, setQ] = useState("");
   const [results, setResults] = useState<McpServerEntry[] | null>(null);
@@ -121,6 +125,26 @@ export function McpTab() {
         return;
       }
       setMap(s.env_secrets);
+      setReview({ server: hit, pkg });
+    } catch (x) {
+      toast(errText(x), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function reviewRequest(name: string) {
+    setBusy(true);
+    try {
+      const r = await get<{ servers: McpServerEntry[] }>(
+        `/mcp/search?q=${encodeURIComponent(name)}`,
+      );
+      const hit = r.servers.find((x) => x.name === name);
+      const pkg = hit?.packages?.[0];
+      if (!hit || !pkg) {
+        toast("That server is not in the registry right now.", "error");
+        return;
+      }
+      setMap({});
       setReview({ server: hit, pkg });
     } catch (x) {
       toast(errText(x), "error");
@@ -174,6 +198,7 @@ export function McpTab() {
       );
       close();
       approved.reload();
+      requests.reload();
       secrets.reload();
     } catch (x) {
       toast(errText(x), "error");
@@ -215,6 +240,41 @@ export function McpTab() {
           </a>
         </p>
       </Card>
+
+      {requests.data && requests.data.length > 0 && (
+        <Card title={`Requests from users (${requests.data.length})`}>
+          <ul>
+            {requests.data.map((r) => (
+              <li key={r.id} className="row">
+                <span className="grow">
+                  <strong>{r.title || r.name}</strong>{" "}
+                  <span className="muted">
+                    {r.name}
+                    {r.user ? ` · ${r.user}` : ""}
+                    {r.reason ? ` · ${r.reason}` : ""}
+                  </span>
+                </span>
+                <Button disabled={busy} onClick={() => void reviewRequest(r.name)}>
+                  Review
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    try {
+                      await del(`/mcp/requests/${encodeURIComponent(r.id)}`);
+                      requests.reload();
+                    } catch (x) {
+                      toast(errText(x), "error");
+                    }
+                  }}
+                >
+                  Dismiss
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title={`Approved servers${approved.data ? ` (${approved.data.length})` : ""}`}>
         {!approved.data ? (
@@ -271,7 +331,8 @@ export function McpTab() {
             <p className="muted">
               First-party servers that run as a local program, set up so each user connects with
               their own account (Settings → Connections in the chat app). GitLab and Cloudflare
-              publish only hosted servers, which Syntaxis does not run.
+              publish only hosted servers (run by the publisher, not as a package), which Syntaxis
+              does not run: it only runs servers inside its own sandboxes.
             </p>
             {!sugg.data ? (
               <Skeleton lines={2} />
@@ -324,7 +385,16 @@ export function McpTab() {
                 {r.status && r.status !== "active" && <Badge tone="warn">{r.status}</Badge>}
                 <p>{r.description}</p>
                 {r.remote_only ? (
-                  <Badge tone="warn">hosted only: cannot run in a sandbox</Badge>
+                  <>
+                    <Badge tone="warn">hosted only: cannot run in a sandbox</Badge>
+                    <p className="muted">
+                      The publisher runs this server on its own infrastructure and publishes no
+                      package to run here. Syntaxis only runs servers inside its own sandboxes, so
+                      that nothing the agent sends goes to a third party's server. Use a different
+                      server that publishes a package, or connect the service in Settings →
+                      Connections.
+                    </p>
+                  </>
                 ) : (
                   (r.packages ?? []).map((p) => (
                     <Button key={p.index} onClick={() => setReview({ server: r, pkg: p })}>
@@ -434,7 +504,9 @@ export function McpTab() {
           {review.pkg.review.pull_command && (
             <Banner tone={imageMissing ? "warn" : "info"}>
               <p>
-                This server is a container image, and Syntaxis cannot download images.{" "}
+                This server is a container image. Syntaxis cannot download images: the Docker
+                connection it is given can only create hardened sandboxes, so that a compromised
+                Syntaxis cannot pull and run any image on your host.{" "}
                 {imageMissing
                   ? "It is not on the Docker host yet. Run this on the host, then check again:"
                   : review.pkg.image_present

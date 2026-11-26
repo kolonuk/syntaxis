@@ -138,6 +138,7 @@ func (a *App) adminUpdateInfo(w http.ResponseWriter, r *http.Request) {
 	seen := a.updAgent.lastSeen()
 	running := !seen.IsZero() && a.Now().Sub(seen) < agentFreshFor
 	out["agent"] = map[string]any{"running": running, "manual": "sudo sh scripts/update.sh", "protocol": a.updAgent.protocol()}
+	out["container"] = runningInContainer()
 	out["status"] = a.updateStatus(r.Context())
 	writeJSON(w, 200, out)
 }

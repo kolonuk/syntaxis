@@ -31,7 +31,7 @@ sudo sh scripts/install.sh --url http://<this-host>:8080 --admin-email you@examp
 The installer adds gVisor if it is missing, generates the keys, starts everything, keeps the sandbox firewall applied across reboots, and prints a single-use link for your admin account. Then:
 
 1. **Open the link**, choose a password and set up two-factor authentication.
-2. **Admin app → Providers & models → Add provider.** Enter your LLM server, press *Discover models* and switch on the ones people may use.
+2. **Admin app → Models & tools → Providers & models → Add provider.** Enter your LLM server, press *Discover models* and switch on the ones people may use.
 3. **Admin app → Users → Invite user.** They get a link to set a password.
 4. **In the chat app, press *New session*,** pick a model and how much the agent should ask you, and describe a task.
 

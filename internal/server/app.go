@@ -77,6 +77,7 @@ type App struct {
 	Now         func() time.Time
 	RunAgent    RunFunc
 	Queues      *Queues
+	benchRuns   sync.Map // model id -> benchRun: running benchmarks and ones that could not start
 	MCPSource   mcp.Source
 	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler

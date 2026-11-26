@@ -14,7 +14,7 @@ A GPU serves only so many requests at once (Ollama's `OLLAMA_NUM_PARALLEL`, llam
 
 ## Weak tool calling
 
-Some local models call tools badly. Syntaxis recovers what it can and stops loops. Use the `ask` autonomy level with a new model, and compare models with the benchmark in Providers & models. The **Probe** button in Providers & models asks the model for a tool call and checks that the reply streams; the result decides whether agent mode is offered. Syntaxis never loads or swaps a model by itself, so do not configure the LLM server to unload models between requests.
+Some local models call tools badly. Syntaxis recovers what it can and stops loops. Use the `ask` autonomy level with a new model, and compare models with the benchmark: start it with **Benchmark** in Models & tools → Providers & models, then follow it on the **Benchmarks** tab, which shows it running (a run takes several minutes), then the result, or why it did not run. The **Probe** button asks the model for a tool call and checks that the reply streams; the result decides whether agent mode is offered and shows as a label next to the model name ("calls tools", "does not call tools"). Syntaxis never loads or swaps a model by itself, so do not configure the LLM server to unload models between requests.
 
 ## Reverse proxy and HTTPS
 

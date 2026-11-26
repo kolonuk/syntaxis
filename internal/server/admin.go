@@ -122,11 +122,14 @@ func (a *App) AdminHandler() http.Handler {
 			r.Delete("/image-templates/{name}", a.adminImageTemplateDelete)
 			r.Put("/providers/{id}/helper", a.adminProviderHelper)
 			r.Get("/benchmarks", a.adminBenchmarks)
+			r.Get("/benchmarks/runs", a.adminBenchmarkRuns)
 			r.Get("/mcp/search", a.adminMCPSearch)
 			r.Get("/mcp/suggestions", a.adminMCPSuggestions)
 			r.Post("/mcp/approve", a.adminMCPApprove)
 			r.Get("/mcp/approved", a.adminMCPApproved)
 			r.Delete("/mcp/approved", a.adminMCPRevoke)
+			r.Get("/mcp/requests", a.adminMCPRequests)
+			r.Delete("/mcp/requests/{id}", a.adminMCPRequestDismiss)
 			r.Get("/secrets", a.adminSecretNames)
 			r.Put("/secrets/{name}", a.adminSecretPut)
 			r.Delete("/secrets/{name}", a.adminSecretDelete)
@@ -760,6 +763,26 @@ func (a *App) adminBenchmarks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+// benchRun is a benchmark that is running, or one that could not start. A finished one is removed:
+// its result is in the benchmark list.
+type benchRun struct {
+	ModelID int64     `json:"model_id"`
+	State   string    `json:"state"` // running | failed
+	Started time.Time `json:"started"`
+	Message string    `json:"message,omitempty"`
+}
+
+// adminBenchmarkRuns lists benchmarks that are running or failed to start, so the benchmark screen
+// can show that something is happening (a run takes minutes) and why one produced no result.
+func (a *App) adminBenchmarkRuns(w http.ResponseWriter, _ *http.Request) {
+	out := []benchRun{}
+	a.benchRuns.Range(func(_, v any) bool {
+		out = append(out, v.(benchRun))
+		return true
+	})
+	writeJSON(w, 200, out)
+}
+
 // adminBenchmarkRun starts a benchmark in the background at the lowest queue
 // priority, in a throwaway sandbox that is destroyed afterwards.
 func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
@@ -780,11 +803,17 @@ func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := a.actor(r)
 	id := "bench-" + newID()
+	if cur, ok := a.benchRuns.Load(m.ID); ok && cur.(benchRun).State == "running" {
+		writeErr(w, http.StatusConflict, "a benchmark of this model is already running")
+		return
+	}
+	a.benchRuns.Store(m.ID, benchRun{ModelID: m.ID, State: "running", Started: a.Now()})
 	go func() { //nolint:gosec // the benchmark must outlive the HTTP request that started it
 		ctx := context.Background()
 		cid, err := a.Sandbox.Create(ctx, 0, id, nil, false)
 		if err != nil {
 			a.Log.Warn("benchmark: no sandbox", "err", err)
+			a.benchRuns.Store(m.ID, benchRun{ModelID: m.ID, State: "failed", Started: a.Now(), Message: "could not start a sandbox for the benchmark: " + err.Error()})
 			return
 		}
 		defer func() {
@@ -817,6 +846,7 @@ func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 				return a.Sandbox.Exec(c, id, cid, e)
 			}}, bench.Suite())
 		_ = a.Store.AddBenchmark(ctx, m.ID, m.Digest, rep.JSON())
+		a.benchRuns.Delete(m.ID)
 		_, _ = a.Store.AppendAudit(ctx, actor, "benchmark.run", fmt.Sprintf("model:%d", m.ID), fmt.Sprintf("pass=%.0f%%", rep.PassRate*100))
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})

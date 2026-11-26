@@ -88,6 +88,8 @@ export function Login({
             hint="Enter the 6-digit code from your authenticator app, or a recovery code."
             inputMode="numeric"
             autoComplete="one-time-code"
+            className="input input-code"
+            autoFocus
             value={code}
             onChange={(e) => setCode(e.target.value)}
             required
@@ -372,6 +374,8 @@ export function TwoFactorSetup({ onDone, mandatory }: { onDone: () => void; mand
             label="6-digit code"
             inputMode="numeric"
             autoComplete="one-time-code"
+            className="input input-code"
+            autoFocus
             value={code}
             onChange={(e) => setCode(e.target.value)}
             required

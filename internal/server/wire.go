@@ -118,7 +118,12 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		run.Emit(agent.Event{Kind: agent.EvStatus, Data: map[string]any{"status": agent.StatusError, "reason": msg}})
 		a.setState(bg, s.ID, "error", 0, 0)
 	}
-	run.Emit(agent.Event{Kind: agent.EvPhase, Data: map[string]any{"phase": "preparing", "detail": "starting your sandbox"}})
+	// say reports a step of getting ready: the progress line and the output panel both show it
+	say := func(msg string) {
+		run.Emit(agent.Event{Kind: agent.EvProgress, Data: map[string]any{"message": msg}})
+		run.Emit(agent.Event{Kind: agent.EvPhase, Data: map[string]any{"phase": "preparing", "detail": msg}})
+	}
+	say("Starting your sandbox")
 	if a.Sandbox == nil {
 		fail("Sandboxes are not available on this server.")
 		return
@@ -145,9 +150,10 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		return
 	}
 	a.setState(bg, s.ID, "running", 0, 0)
+	a.emitContextEstimate(bg, run, s, w.Window(model))
 
 	// sandbox: reuse if present, else create. Secrets are injected only here.
-	cid, err := a.ensureSandbox(ctx, s, u)
+	cid, err := a.ensureSandboxProgress(ctx, s, u, say)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -495,12 +501,44 @@ func toProviderMessage(m store.Message) provider.Message {
 }
 
 func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.User) (string, error) {
+	return a.ensureSandboxProgress(ctx, s, u, nil)
+}
+
+// emitContextEstimate tells the browser how full the context is from the stored conversation, so the
+// meter shows while the sandbox is still being made. The agent's own figure (which adds the system
+// prompt and tools) replaces it when the run starts.
+func (a *App) emitContextEstimate(ctx context.Context, run *Run, s *store.ChatSession, window int) {
+	if window <= 0 {
+		return
+	}
+	ms, err := a.Store.ListMessages(ctx, s.ID, false)
+	if err != nil {
+		return
+	}
+	used := 0
+	for _, m := range ms {
+		used += agent.EstimateTokens(m.Content) + agent.EstimateTokens(m.ToolCalls)
+	}
+	pct := used * 100 / window
+	if pct > 100 {
+		pct = 100
+	}
+	run.Emit(agent.Event{Kind: agent.EvContext, Data: map[string]any{"used": used, "window": window, "percent": pct, "estimate": true}})
+}
+
+// ensureSandboxProgress is ensureSandbox that reports each step through say (which may be nil).
+func (a *App) ensureSandboxProgress(ctx context.Context, s *store.ChatSession, u *store.User, say func(string)) (string, error) {
+	if say == nil {
+		say = func(string) {}
+	}
 	bg := context.Background()
 	if a.Quota.CPUExhausted(ctx, u) {
 		return "", &quota.ExhaustedError{Kind: quota.KindCPUTime}
 	}
 	if s.SandboxID != "" {
+		say("Starting your existing sandbox")
 		if err := a.Sandbox.Resume(ctx, s.ID, s.SandboxID); err == nil {
+			say("Your sandbox is running")
 			return s.SandboxID, nil
 		} else if !errors.Is(err, sandbox.ErrNotFound) {
 			return "", fmt.Errorf("could not resume the sandbox: %w", err)
@@ -509,6 +547,7 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 	if err := a.Quota.CheckSandboxStart(ctx, u, 0); err != nil {
 		return "", err
 	}
+	say("Creating a new sandbox")
 	mode := u.EgressMode
 	if mode == "" {
 		mode = a.Cfg.EgressMode
@@ -529,6 +568,7 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 		return "", err
 	}
 	if mode != "open" && mode != "none" {
+		say("Waiting for the firewall to apply your network rules")
 		a.waitForFirewall(ctx, created) // an allowlisted sandbox must never be briefly open
 	}
 	if cur, err := a.Store.GetChatSession(bg, s.ID); err == nil {
@@ -536,6 +576,7 @@ func (a *App) ensureSandbox(ctx context.Context, s *store.ChatSession, u *store.
 		_ = a.Store.UpdateChatSession(bg, *cur)
 	}
 	s.SandboxID = id
+	say("Your sandbox is running")
 	return id, nil
 }
 

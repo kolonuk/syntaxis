@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { del, get, patch, post, put, upload, errText } from "../lib/api";
-import { streamEvents, type StreamEvent } from "../lib/sse";
+import { followEvents, type StreamEvent } from "../lib/sse";
 import { enqueue, flush } from "../lib/queue";
 import {
   Badge,
@@ -44,6 +44,7 @@ interface Msg {
   id: number;
   role: string;
   content: string;
+  created_at?: string;
   tool_calls?: string;
   tool_call_id?: string;
 }
@@ -77,20 +78,52 @@ interface Call {
   arguments: string;
 }
 
+const PANEL_MIN = 280;
+const PANEL_MAX = 800;
+const PANEL_KEY = "syntaxis.panel-width";
+const clampPanel = (w: number) => Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(w)));
+function loadPanelWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(PANEL_KEY));
+    return n > 0 ? clampPanel(n) : 360;
+  } catch {
+    return 360;
+  }
+}
+function savePanelWidth(w: number) {
+  try {
+    localStorage.setItem(PANEL_KEY, String(w));
+  } catch {
+    /* storage unavailable: the width just is not remembered */
+  }
+}
+
 /** Turns stored messages into display items: text, and tool steps paired with their results. */
 export function buildItems(msgs: Msg[]) {
   const results = new Map<string, string>();
   for (const m of msgs)
     if (m.role === "tool" && m.tool_call_id) results.set(m.tool_call_id, m.content);
   const items: (
-    | { kind: "user" | "assistant"; text: string; key: number; calls?: boolean }
+    | { kind: "user" | "assistant"; text: string; key: number; calls?: boolean; at?: string }
     | { kind: "step"; call: Call; output?: string; key: string }
   )[] = [];
   for (const m of msgs) {
-    if (m.role === "user") items.push({ kind: "user", text: m.content, key: m.id });
+    if (m.role === "user")
+      items.push({
+        kind: "user",
+        text: m.content,
+        key: m.id,
+        ...(m.created_at ? { at: m.created_at } : {}),
+      });
     else if (m.role === "assistant") {
       if (m.content.trim())
-        items.push({ kind: "assistant", text: m.content, key: m.id, calls: !!m.tool_calls });
+        items.push({
+          kind: "assistant",
+          text: m.content,
+          key: m.id,
+          calls: !!m.tool_calls,
+          ...(m.created_at ? { at: m.created_at } : {}),
+        });
       if (m.tool_calls) {
         try {
           for (const c of JSON.parse(m.tool_calls) as Call[])
@@ -186,6 +219,8 @@ export function Chat({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mcp, setMcp] = useState<McpServer[]>([]);
   const abort = useRef<AbortController | null>(null);
+  const layout = useRef<HTMLDivElement>(null);
+  const [panelW, setPanelW] = useState(loadPanelWidth);
 
   const loadMessages = useCallback(async () => {
     setMsgs(await get<Msg[]>(`/sessions/${session.id}/messages`));
@@ -194,7 +229,13 @@ export function Chat({
   const handle = useCallback(
     (e: StreamEvent) => {
       const d = e.data;
+      // an event means a run is going on, even when this screen has not seen it start (another
+      // device or an automation started it, or the session list was out of date)
+      if (e.kind !== "status" && e.kind !== "notice" && e.kind !== "compaction") setRunning(true);
       switch (e.kind) {
+        case "progress":
+          setLines((l) => [...l, `· ${String(d.message ?? "")}`]);
+          break;
         case "assistant_delta":
           setLive((x) => x + String(d.text ?? ""));
           break;
@@ -262,13 +303,35 @@ export function Chat({
     [loadMessages, onChanged],
   );
 
+  // The stream handlers change on every render of the parent; reading them through refs keeps the
+  // connection (and the screen's state) from being rebuilt each time the session list refreshes.
+  const handleRef = useRef(handle);
+  const loadRef = useRef(loadMessages);
+  useEffect(() => {
+    handleRef.current = handle;
+    loadRef.current = loadMessages;
+  });
+
+  const finished = useCallback(() => {
+    setPhase(null);
+    setRunning(false);
+    void loadRef.current();
+  }, []);
+
   const attach = useCallback(() => {
     abort.current?.abort();
     const ac = new AbortController();
     abort.current = ac;
-    streamEvents(session.id, handle, ac.signal).catch(() => undefined);
-  }, [session.id, handle]);
+    followEvents(session.id, (ev) => handleRef.current(ev), ac.signal)
+      .then((how) => {
+        if (ac.signal.aborted) return;
+        // the run is over (or there never was one here): whatever the last status said, stop spinning
+        if (how === "end" || how === "idle") finished();
+      })
+      .catch(() => undefined);
+  }, [session.id, finished]);
 
+  // A different session: start from nothing and follow it.
   useEffect(() => {
     setMsgs([]);
     setLines([]);
@@ -277,15 +340,24 @@ export function Chat({
     setNotice("");
     setLiveTodos(null);
     setAttached([]);
-    setAutonomy(session.autonomy);
-    setTitle(session.title);
-    void loadMessages();
+    setCtx(null);
+    setPhase(null);
+    setRunning(session.state === "running");
+    void loadRef.current();
     void get<McpServer[]>(`/sessions/${session.id}/mcp`)
       .then(setMcp)
       .catch(() => setMcp([]));
     attach();
     return () => abort.current?.abort();
-  }, [session.id, session.autonomy, session.title, attach, loadMessages]);
+    // session.state is read once, when the session is opened; later changes arrive as events
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, attach]);
+
+  // Renames and autonomy changes made elsewhere update the header without touching the stream.
+  useEffect(() => {
+    setAutonomy(session.autonomy);
+    setTitle(session.title);
+  }, [session.autonomy, session.title]);
 
   // slash commands: refreshed whenever a new one is started, since a repository's can change
   const loadCommands = useCallback(async () => {
@@ -388,7 +460,10 @@ export function Chat({
     const sendFiles = attached;
     setDraft("");
     setAttached([]);
-    setMsgs((m) => [...m, { id: Date.now(), role: "user", content: text }]);
+    setMsgs((m) => [
+      ...m,
+      { id: Date.now(), role: "user", content: text, created_at: new Date().toISOString() },
+    ]);
     if (!navigator.onLine) {
       enqueue(userKey, { sessionId: session.id, text });
       toast("You are offline. The message will be sent when you reconnect.");
@@ -403,6 +478,14 @@ export function Chat({
       setPhase({ name: "preparing", detail: "", since: Date.now() });
       setLines([]);
       attach();
+    } catch (x) {
+      toast(errText(x), "error");
+    }
+  }
+
+  async function stopRun() {
+    try {
+      await post(`/sessions/${session.id}/stop`);
     } catch (x) {
       toast(errText(x), "error");
     }
@@ -532,7 +615,11 @@ export function Chat({
   }, [items]);
 
   return (
-    <div className="layout" style={{ height: "100%" }}>
+    <div
+      className="layout"
+      ref={layout}
+      style={{ height: "100%", ["--panel-w" as string]: `${panelW}px` }}
+    >
       <div className="main chat">
         <div className="chat-head">
           <div className="chat-title">
@@ -540,6 +627,15 @@ export function Chat({
             <StatusPill
               state={running ? "running" : session.state === "running" ? "idle" : session.state}
             />
+            {running && (
+              <button
+                type="button"
+                className="stop-square"
+                onClick={() => void stopRun()}
+                aria-label="Stop"
+                title="Stop the agent"
+              />
+            )}
             <Badge>{session.model}</Badge>
             {session.repo && (
               <Badge>
@@ -563,7 +659,6 @@ export function Chat({
               <option value="workspace">Auto in workspace, ask for risky</option>
               <option value="full">Fully autonomous</option>
             </select>
-            {running && <Button onClick={() => post(`/sessions/${session.id}/stop`)}>Stop</Button>}
             <Button variant="ghost" onClick={() => setRenaming(true)} aria-label="Rename session">
               Rename
             </Button>
@@ -644,6 +739,7 @@ export function Chat({
                 <div className={`msg ${it.kind}`} key={it.key}>
                   {showWho && <div className="who">{it.kind === "user" ? "You" : "Assistant"}</div>}
                   <Body text={parsed ? parsed.text : it.text} plain={it.kind === "user"} />
+                  {it.at && <Stamp at={it.at} />}
                   {parsed && parsed.items.length > 0 && (
                     <div className="chips" aria-label="Attached files">
                       {parsed.items.map((a) => (
@@ -738,6 +834,14 @@ export function Chat({
                 ))}
               </div>
             )}
+            {ctx && (
+              <p
+                className="muted ctx-mini"
+                title="How much of the model's context window this conversation uses"
+              >
+                Context: {ctx.percent}% of {ctx.window.toLocaleString()} tokens
+              </p>
+            )}
             {slash.length > 0 && (
               <ul className="slash-menu" role="listbox" aria-label="Commands">
                 {slash.map((c, i) => (
@@ -827,6 +931,11 @@ export function Chat({
               <Button variant="primary" type="submit" disabled={running || uploading}>
                 Send
               </Button>
+              {running && (
+                <Button type="button" onClick={() => void stopRun()}>
+                  Stop
+                </Button>
+              )}
             </form>
           </div>
         </div>
@@ -841,6 +950,46 @@ export function Chat({
           </Suspense>
         )}
       </div>
+      <div
+        className="panel-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the side panel"
+        aria-valuemin={PANEL_MIN}
+        aria-valuemax={PANEL_MAX}
+        aria-valuenow={panelW}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const box = layout.current?.getBoundingClientRect();
+          if (box) setPanelW(clampPanel(box.right - e.clientX));
+        }}
+        onPointerUp={(e) => {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          savePanelWidth(panelW);
+        }}
+        onKeyDown={(e) => {
+          const step = e.shiftKey ? 80 : 20;
+          const next =
+            e.key === "ArrowLeft"
+              ? panelW + step
+              : e.key === "ArrowRight"
+                ? panelW - step
+                : e.key === "Home"
+                  ? PANEL_MAX
+                  : e.key === "End"
+                    ? PANEL_MIN
+                    : null;
+          if (next === null) return;
+          e.preventDefault();
+          const w = clampPanel(next);
+          setPanelW(w);
+          savePanelWidth(w);
+        }}
+      />
       <aside className={`side-panel ${panelOpen ? "open" : ""}`} aria-label="Session details">
         <div className="row">
           <div className="grow">
@@ -866,7 +1015,7 @@ export function Chat({
             ✕
           </Button>
         </div>
-        {panel === "output" && <Output lines={lines} />}
+        {panel === "output" && <Output lines={lines} running={running} phase={phase} />}
         {panel === "context" && (
           <div className="stack">
             {ctx ? (
@@ -880,7 +1029,11 @@ export function Chat({
                 )}
               </>
             ) : (
-              <p className="muted">The context meter appears once the agent starts working.</p>
+              <p className="muted">
+                {running
+                  ? "Working out how full the context is…"
+                  : "The context meter appears once the agent starts working."}
+              </p>
             )}
           </div>
         )}
@@ -1063,6 +1216,30 @@ interface Phase {
   since: number;
 }
 
+/** When a message was sent: the time today, the date and time before that, in the reader's locale. */
+export function stampText(at: string, now: Date = new Date()): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const date = d.toLocaleDateString([], {
+    day: "numeric",
+    month: "short",
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+  return `${date}, ${time}`;
+}
+
+function Stamp({ at }: { at: string }) {
+  const text = stampText(at);
+  if (!text) return null;
+  return (
+    <time className="stamp" dateTime={at} title={new Date(at).toLocaleString()}>
+      {text}
+    </time>
+  );
+}
+
 const PHASE_TEXT: Record<string, string> = {
   preparing: "Getting your sandbox ready",
   queued: "Waiting for the model",
@@ -1074,6 +1251,13 @@ const PHASE_TEXT: Record<string, string> = {
   tool: "Running",
   approval: "Waiting for your approval",
 };
+
+/** One line saying what the run is doing, for the output panel. */
+function phaseLabel(phase: Phase | null): string {
+  if (!phase) return "Working";
+  const label = PHASE_TEXT[phase.name] ?? "Working";
+  return phase.detail ? `${label}: ${phase.detail}` : label;
+}
 
 /** What the run is doing right now, with how long it has been doing it. */
 function Progress({ phase }: { phase: Phase | null }) {
@@ -1409,13 +1593,23 @@ function Body({ text, plain }: { text: string; plain?: boolean }) {
   );
 }
 
-function Output({ lines }: { lines: string[] }) {
+function Output({
+  lines,
+  running,
+  phase,
+}: {
+  lines: string[];
+  running: boolean;
+  phase: Phase | null;
+}) {
   const box = useRef<HTMLPreElement>(null);
   useEffect(() => {
     const el = box.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lines]);
-  if (lines.length === 0)
+  }, [lines, phase]);
+  // while the agent works, say what it is doing even when it has run no command yet
+  const now = running ? `… ${phaseLabel(phase)}` : "";
+  if (lines.length === 0 && !running)
     return <p className="muted">Commands the agent runs and their output appear here.</p>;
   return (
     <div>
@@ -1428,7 +1622,7 @@ function Output({ lines }: { lines: string[] }) {
         <span>Copy all</span>
       </button>
       <pre className="output" ref={box} role="log" aria-label="Command output" tabIndex={0}>
-        {lines.join("\n")}
+        {lines.concat(now ? [now] : []).join("\n")}
       </pre>
     </div>
   );

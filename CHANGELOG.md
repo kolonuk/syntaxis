@@ -4,6 +4,34 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-26
+
+### Added
+- **Admin app menu in groups.** Health & updates, Users, Models & tools, Sessions & egress and System each have a second row of tabs. Configuration has one tab per group.
+- **Updates page warns about containers.** When Syntaxis runs in a container and the update service is not running, a warning says that an update made by hand is reverted when the container is deployed again from Compose or Kubernetes.
+- **Requests for MCP servers.** Every user can search the catalogue and request a server (Settings → Tools → Find more tools). Admins see the requests on the MCP page, review them and approve or dismiss them.
+- **Workspace zip downloads.** The Files view downloads the whole workspace, or any folder, as a zip.
+- **Session screen.** Resizable right-hand panel, a stop button next to Send and next to the status circle, live sandbox-creation progress in the output panel, the context meter while the model works, a time on every message, and the task list's progress bar stays visible when minimised.
+- **Model features as pills** in the admin model list; the live probe column is gone.
+- **Links for creating API keys** on the add-provider screen.
+- **Level and group** in the admin users list.
+- Benchmark runs are listed, with their state and failure reason.
+- Hooks screen with a list, an editor, an "Edit as JSON" option and a guide with examples (docs/agent.md).
+- The new-session pop-up links to documentation on model sizes, mixture of experts and "A3B".
+
+### Changed
+- User settings use the full width and are grouped; commands, secrets and API tokens are lists with a pop-up editor; notes choose the repository from your git services.
+- Connections no longer show a service's defaults as if they were saved values; the buttons are named for what they do, and a test result appears in the panel as well as the toast.
+- The sessions/automations switch is on the left of the title bar, with a border.
+- The 2FA code field is focused and highlighted.
+- The recommended and enabled columns show only the switch.
+- The admin pages explain why Syntaxis cannot pull images and why some MCP servers are hosted only.
+
+### Fixed
+- The chat stuck on "getting the sandbox ready", a missing spinner after leaving and returning, the screen jumping, and the "older turns were summarised" notice reappearing. The event stream is now resumable with `Last-Event-ID`, reconnects after a drop, and a slow connection is closed so it can resume instead of losing events.
+- Typing in the email field of the invite dialog jumped to the name field (the dialog refocused on every keystroke; this affected every dialog).
+- The user settings option in the admin app showed a blank screen.
+
 ## [0.2.1] - 2026-11-25
 
 ### Fixed

@@ -35,7 +35,8 @@ const (
 	EvCheckpoint      = "checkpoint"
 	EvStatus          = "status"
 	EvPlan            = "plan"
-	EvPhase           = "phase" // what the run is doing right now, for the progress line in the UI
+	EvPhase           = "phase"    // what the run is doing right now, for the progress line in the UI
+	EvProgress        = "progress" // one line of progress before the agent starts (the sandbox being made), shown in the output panel
 	EvNotice          = "notice"
 	EvTodos           = "todos" // the agent's task list, shown as progress
 )

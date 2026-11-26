@@ -28,6 +28,7 @@ interface Opened {
 }
 
 const ROOT = "/workspace";
+export const FILES_POLL_MS = 4000;
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir : dir + "/") + name;
 const parent = (p: string) =>
@@ -93,6 +94,18 @@ export function Files({
     if (!running) void load(path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
+
+  // keep the list current: look again every few seconds while the tab is showing, quietly, so a
+  // failed look does not replace what is on screen
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      get<Listing>(`${base}/files?path=${q(path)}`)
+        .then((l) => setList(l))
+        .catch(() => undefined);
+    }, FILES_POLL_MS);
+    return () => clearInterval(t);
+  }, [base, path]);
 
   async function openFile(p: string) {
     try {
@@ -227,9 +240,17 @@ export function Files({
         <Button onClick={() => setFolderName("")} disabled={running}>
           New folder
         </Button>
-        <Button variant="ghost" onClick={() => void load(path)}>
-          Refresh
-        </Button>
+        <a
+          className="btn btn-ghost"
+          href={`/api${base}/files/zip?path=${q(path)}`}
+          aria-label={
+            path === ROOT
+              ? "Download the whole workspace as a zip"
+              : "Download this folder as a zip"
+          }
+        >
+          {path === ROOT ? "Download workspace (zip)" : "Download folder (zip)"}
+        </a>
       </div>
       {running && (
         <p className="muted">The agent is working, so files cannot be changed right now.</p>
@@ -288,6 +309,15 @@ export function Files({
                         aria-label={`Download ${e.name}`}
                       >
                         Download
+                      </a>
+                    )}
+                    {e.type === "dir" && (
+                      <a
+                        className="btn btn-ghost"
+                        href={`/api${base}/files/zip?path=${q(p)}`}
+                        aria-label={`Download ${e.name} as a zip`}
+                      >
+                        Download zip
                       </a>
                     )}
                     <Button

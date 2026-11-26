@@ -8,6 +8,9 @@ import { AuditTab } from "./AuditTab";
 import { ConfigTab, type ConfigItem } from "./ConfigTab";
 import { describeMapping, McpTab } from "./McpTab";
 import { UpdatesTab, type UpdateInfo } from "./UpdatesTab";
+import { navGroups, UsersTab } from "./App";
+import { BenchmarksTab, modelFeatures, ProvidersTab } from "./ProvidersTab";
+import { UserSettingsDialog } from "./UserSettings";
 
 afterEach(cleanup);
 
@@ -297,6 +300,20 @@ describe("Configuration tab", () => {
     wrap(<ConfigTab />);
     expect(await screen.findByRole("button", { name: "Save email" })).toBeDisabled();
   });
+  it("has a tab for each group, shows one at a time and keeps what was typed in the others", async () => {
+    api({ "GET /config": data() });
+    wrap(<ConfigTab />);
+    expect(
+      await screen.findByRole("tablist", { name: "Configuration groups" }),
+    ).toBeInTheDocument();
+    const mail = await screen.findByLabelText("From address");
+    fireEvent.change(mail, { target: { value: "other@example.com" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Sessions and sandboxes" }));
+    expect(screen.getByLabelText("Stop idle sandboxes after (minutes)")).toBeVisible();
+    expect(screen.getByLabelText("From address")).not.toBeVisible(); // the Email group is hidden now
+    fireEvent.click(screen.getByRole("tab", { name: "Email" }));
+    expect(screen.getByLabelText("From address")).toHaveValue("other@example.com");
+  });
 });
 
 describe("Updates tab", () => {
@@ -404,6 +421,24 @@ describe("Updates tab", () => {
     wrap(<UpdatesTab />);
     expect(await screen.findByText(/deployed by another tool/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update to v0.2.1" })).toBeDisabled();
+    expect(screen.queryByText(/Updates made here are temporary/)).toBeNull(); // not a container
+  });
+  it("warns at the top that an update is temporary when Syntaxis is in a container with no update service", async () => {
+    api({
+      "GET /update": info({
+        agent: { running: false, manual: "sudo sh scripts/update.sh" },
+        container: true,
+      }),
+    });
+    wrap(<UpdatesTab />);
+    expect(await screen.findByText(/Updates made here are temporary/)).toBeInTheDocument();
+    expect(screen.getByText(/Compose file or Kubernetes manifest/)).toBeInTheDocument();
+  });
+  it("does not call updates temporary when the update service is running", async () => {
+    api({ "GET /update": info({ container: true }) });
+    wrap(<UpdatesTab />);
+    await screen.findByText(/Running now/);
+    expect(screen.queryByText(/Updates made here are temporary/)).toBeNull();
   });
 });
 
@@ -460,6 +495,25 @@ describe("MCP servers tab", () => {
       headings.indexOf("Add a server"),
     );
     expect(headings.indexOf("Add a server")).toBeLessThan(headings.indexOf("Shared credentials"));
+  });
+  it("lists what users requested and opens the review for it", async () => {
+    api({
+      ...routes(),
+      "GET /mcp/requests": [
+        {
+          id: "r1",
+          user: "user@example.com",
+          name: "io.github.example/docs",
+          title: "Docs",
+          reason: "for the wiki",
+        },
+      ],
+    });
+    wrap(<McpTab />);
+    expect(await screen.findByText(/Requests from users \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/user@example.com/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByText(/runs npm package docs-mcp@1.2.3/)).toBeInTheDocument();
   });
   it("describes what an approved server was given", async () => {
     api(
@@ -561,5 +615,237 @@ describe("MCP servers tab", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(calls.some((c) => c.path === "/mcp/approve")).toBe(false);
+  });
+});
+
+describe("Admin menu", () => {
+  it("groups related screens and reaches every screen once", () => {
+    const groups = navGroups(false);
+    const ids = groups.flatMap((g) => g.tabs.map((t) => t.id));
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const want of [
+      "health",
+      "updates",
+      "users",
+      "groups",
+      "admins",
+      "providers",
+      "bench",
+      "envs",
+      "mcp",
+      "sessions",
+      "egress",
+      "settings",
+      "config",
+      "audit",
+      "kill",
+    ])
+      expect(ids).toContain(want);
+    const of = (id: string) => groups.find((g) => g.tabs.some((t) => t.id === id))!.id;
+    expect(of("users")).toBe(of("groups"));
+    expect(of("providers")).toBe(of("envs"));
+    expect(of("providers")).toBe(of("mcp"));
+    expect(of("health")).toBe(of("updates"));
+    expect(of("sessions")).toBe(of("egress"));
+  });
+  it("marks the health and updates group when a release is available", () => {
+    expect(navGroups(true)[0]!.label).toContain("●");
+    expect(navGroups(false)[0]!.label).not.toContain("●");
+  });
+});
+
+describe("Providers and models", () => {
+  const prov = {
+    id: 1,
+    name: "local",
+    kind: "ollama",
+    base_url: "http://llm.internal",
+    concurrency: 1,
+    enabled: true,
+    has_key: false,
+    stream_probe: {},
+    helper_model: "",
+    helper_assert: false,
+  };
+  const model = (o: object) => ({
+    id: 5,
+    provider_id: 1,
+    name: "tiny-model",
+    enabled: true,
+    tools: 1,
+    recommended: false,
+    context_override: 0,
+    tool_probe: {},
+    ...o,
+  });
+  it("shows what a model can do as labels beside its name, with no separate probe column", async () => {
+    api({
+      "GET /providers": [prov],
+      "GET /models": [model({ tool_probe: { ok: false, detail: "no tool call came back" } })],
+      "GET /benchmarks": [],
+    });
+    wrap(<ProvidersTab />);
+    expect((await screen.findAllByText("tiny-model")).length).toBeGreaterThan(0);
+    expect(screen.getByText("tools")).toBeInTheDocument();
+    expect(screen.getByText("does not call tools")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Live probe" })).toBeNull();
+  });
+  it("labels a model that cannot use tools and a provider whose stream is buffered", () => {
+    const f = modelFeatures(model({ tools: 0 }) as never, {
+      stream_probe: { ok: false, detail: "buffered" },
+    });
+    expect(f.map((x) => x.text)).toEqual(["no tools", "not probed", "stream is buffered"]);
+  });
+  it("keeps only the switch in the Recommended column", async () => {
+    api({ "GET /providers": [prov], "GET /models": [model({})], "GET /benchmarks": [] });
+    wrap(<ProvidersTab />);
+    const sw = await screen.findByRole("switch", { name: "Recommend tiny-model for agents" });
+    expect(sw.parentElement!.querySelector(".sr-only")).not.toBeNull(); // the words are for screen readers only
+  });
+  it("links to where each hosted provider's API key is made, in the add-provider dialog", async () => {
+    api({ "GET /providers": [prov], "GET /models": [], "GET /benchmarks": [] });
+    wrap(<ProvidersTab />);
+    fireEvent.click(await screen.findByRole("button", { name: /Add provider/ }));
+    for (const name of ["Claude (Anthropic)", "OpenAI", "Google Gemini"]) {
+      const a = screen.getByRole("link", { name });
+      expect(a.getAttribute("href")).toMatch(/^https:\/\//);
+    }
+  });
+});
+
+describe("Benchmarks tab", () => {
+  const prov = [
+    {
+      id: 5,
+      provider_id: 1,
+      name: "tiny-model",
+      enabled: true,
+      tools: 1,
+      recommended: false,
+      context_override: 0,
+      tool_probe: {},
+    },
+  ];
+  it("says a benchmark is running, so a run that takes minutes does not look like nothing", async () => {
+    api({
+      "GET /benchmarks": [],
+      "GET /models": prov,
+      "GET /benchmarks/runs": [{ model_id: 5, state: "running", started: "2026-11-26T10:00:00Z" }],
+    });
+    wrap(<BenchmarksTab />);
+    expect(await screen.findByText(/Benchmark of tiny-model is running/)).toBeInTheDocument();
+    expect(screen.queryByText(/No benchmark has been run/)).toBeNull();
+  });
+  it("shows why a benchmark did not run", async () => {
+    api({
+      "GET /benchmarks": [],
+      "GET /models": prov,
+      "GET /benchmarks/runs": [
+        {
+          model_id: 5,
+          state: "failed",
+          started: "2026-11-26T10:00:00Z",
+          message: "could not start a sandbox",
+        },
+      ],
+    });
+    wrap(<BenchmarksTab />);
+    expect(await screen.findByText(/did not run: could not start a sandbox/)).toBeInTheDocument();
+  });
+  it("shows the empty message when nothing has run", async () => {
+    api({ "GET /benchmarks": [], "GET /models": prov, "GET /benchmarks/runs": [] });
+    wrap(<BenchmarksTab />);
+    expect(await screen.findByText(/No benchmark has been run/)).toBeInTheDocument();
+  });
+});
+
+describe("Users tab", () => {
+  const user = {
+    id: 3,
+    email: "alex@example.com",
+    name: "Alex",
+    disabled: false,
+    invited: false,
+    totp_enabled: true,
+    quota_daily_tokens: 0,
+    quota_monthly_tokens: 0,
+    egress_mode: "",
+    allowed_models: null,
+    level: "power",
+    group_id: 2,
+  };
+  it("shows each user's level and group", async () => {
+    api({
+      "GET /users": [user],
+      "GET /groups": [{ id: 2, name: "Engineers", kind: "group", policy: {} }],
+    });
+    wrap(<UsersTab />);
+    expect(await screen.findByText("Alex")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Level" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Group" })).toBeInTheDocument();
+    expect(await screen.findByText("Engineers")).toBeInTheDocument();
+    expect(screen.getByText("power")).toBeInTheDocument();
+  });
+  it("keeps the email field focused while typing in the invite dialog", async () => {
+    api({ "GET /users": [], "GET /groups": [] });
+    wrap(<UsersTab />);
+    fireEvent.click(await screen.findByRole("button", { name: "Invite user" }));
+    const email = screen.getByLabelText("Email");
+    email.focus();
+    fireEvent.change(email, { target: { value: "a" } });
+    fireEvent.change(email, { target: { value: "al" } });
+    expect(document.activeElement).toBe(email);
+  });
+});
+
+describe("User settings dialog", () => {
+  it("opens for a user who has set nothing up, even if the server sends null for a list", async () => {
+    api({
+      "GET /users/3/settings": {
+        user: { id: 3, email: "a@example.com", name: "Alex" },
+        notes: null,
+        commands: null,
+        hooks: "",
+        trusted_repo_hooks: 0,
+        connections: null,
+        mcp: null,
+        automations: null,
+        tokens: null,
+        secret_names: null,
+      },
+    });
+    wrap(<UserSettingsDialog user={{ id: 3, name: "Alex" }} onClose={() => undefined} />);
+    expect(await screen.findByText("Notes")).toBeInTheDocument();
+    expect(screen.getAllByText("None.").length).toBeGreaterThan(2);
+  });
+});
+
+describe("MCP hosted-only explanation", () => {
+  it("is plain about why a hosted server cannot be used", async () => {
+    api({
+      "GET /mcp/suggestions": { suggestions: [] },
+      "GET /mcp/approved": [],
+      "GET /mcp/credentials": [],
+      "GET /mcp/search": {
+        servers: [
+          {
+            name: "x/hosted",
+            title: "Hosted",
+            description: "d",
+            version: "1",
+            repository: "",
+            status: "active",
+            remote_only: true,
+            packages: [],
+          },
+        ],
+      },
+    });
+    wrap(<McpTab />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Search the registry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(
+      await screen.findByText(/runs this server on its own infrastructure/i),
+    ).toBeInTheDocument();
   });
 });

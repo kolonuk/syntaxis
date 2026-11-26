@@ -206,6 +206,19 @@ func TestPreviewProxyOwnerOnlyAndStripsCookies(t *testing.T) {
 	}
 }
 
+func TestBenchmarkRunsAreListedForAdminsOnly(t *testing.T) {
+	e := newEnv(t)
+	adm := e.makeAdminSession()
+	e.app.benchRuns.Store(int64(7), benchRun{ModelID: 7, State: "failed", Started: e.now, Message: "could not start a sandbox"})
+	code, _, raw := adm.do("GET", "/api/benchmarks/runs", nil)
+	if code != 200 || !strings.Contains(string(raw), `"state":"failed"`) || !strings.Contains(string(raw), "could not start a sandbox") {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if code, _, _ := e.userSession("a@example.com").do("GET", "/api/benchmarks/runs", nil); code == 200 {
+		t.Fatal("a chat user reached the benchmark runs")
+	}
+}
+
 func TestBenchmarkRoutesAreAdminOnly(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)
@@ -237,6 +250,14 @@ func TestLiveBenchmarkStoresResultAndCleansUp(t *testing.T) {
 	adm := e.makeAdminSession()
 	if code, _, raw := adm.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/benchmark", nil); code != 202 {
 		t.Fatalf("%d %s", code, raw)
+	}
+	// while it runs the benchmark screen can see it, and a second run of the same model is refused
+	_, _, runs := adm.do("GET", "/api/benchmarks/runs", nil)
+	if !strings.Contains(string(runs), `"state":"running"`) {
+		t.Fatalf("a running benchmark is not listed: %s", runs)
+	}
+	if code, _, _ := adm.do("POST", "/api/models/"+strconv.FormatInt(mid, 10)+"/benchmark", nil); code != http.StatusConflict {
+		t.Fatalf("a second run of the same model must be refused, got %d", code)
 	}
 	var list []map[string]any
 	deadline := time.Now().Add(25 * time.Minute)

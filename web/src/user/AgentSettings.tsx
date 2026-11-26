@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { del, errText, get, post, put } from "../lib/api";
 import { ago } from "../lib/format";
-import { Banner, Button, Card, Input, Select, Skeleton, TextArea, useToast } from "../ui/ui";
+import { Banner, Button, Card, Input, Modal, Select, Skeleton, TextArea, useToast } from "../ui/ui";
+import { RepoPicker } from "./RepoPicker";
 
 interface Note {
   id: number;
@@ -117,12 +118,19 @@ export function Notes() {
           ]}
         />
         {scope === "repo" && (
-          <Input
-            label="Repository"
-            hint="owner/name, as shown on the session"
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-          />
+          <>
+            <p className="muted">
+              The note is shown to the agent only in sessions that work on this repository. Choose
+              it from the repositories of your connected git services.
+            </p>
+            <RepoPicker
+              allowCreate={false}
+              autoSelect
+              legend="Repository"
+              noneLabel="Choose a git service"
+              onChange={(r) => setRepo(r?.full_name ?? "")}
+            />
+          </>
         )}
         <TextArea
           label="Note"
@@ -131,7 +139,11 @@ export function Notes() {
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <Button variant="primary" onClick={() => void add()} disabled={!text.trim()}>
+        <Button
+          variant="primary"
+          onClick={() => void add()}
+          disabled={!text.trim() || (scope === "repo" && !repo)}
+        >
           Add note
         </Button>
       </div>
@@ -151,6 +163,8 @@ export function CommandsEditor() {
   const toast = useToast();
   const [cmds, setCmds] = useState<Cmd[] | null>(null);
   const [builtin, setBuiltin] = useState<Cmd[]>([]);
+  // the command in the pop-up and where it goes in the list (-1 = a new one)
+  const [edit, setEdit] = useState<{ at: number; cmd: Cmd } | null>(null);
   useEffect(() => {
     void get<{ commands: Cmd[]; builtin: Cmd[] }>("/commands").then((r) => {
       setCmds(r.commands);
@@ -158,11 +172,11 @@ export function CommandsEditor() {
     });
   }, []);
   if (!cmds) return <Skeleton />;
-  const set = (i: number, c: Partial<Cmd>) =>
-    setCmds(cmds.map((x, j) => (j === i ? { ...x, ...c } : x)));
-  async function save() {
+  async function store(next: Cmd[]) {
     try {
-      await put("/commands", { commands: cmds });
+      await put("/commands", { commands: next });
+      setCmds(next);
+      setEdit(null);
       toast("Commands saved.", "success");
     } catch (x) {
       toast(errText(x), "error");
@@ -176,40 +190,82 @@ export function CommandsEditor() {
         {builtin.map((b) => `/${b.name}`).join(", ")}. A repository can add its own in{" "}
         <code>.syntaxis/commands/&lt;name&gt;.md</code>. Your own win over those with the same name.
       </p>
-      <div className="stack">
-        {cmds.map((c, i) => (
-          <div className="stack card-inner" key={i}>
+      {cmds.length === 0 ? (
+        <p className="muted">You have no commands of your own yet.</p>
+      ) : (
+        <ul className="list-rows">
+          {cmds.map((c, i) => (
+            <li key={`${c.name}-${i}`}>
+              <div className="grow">
+                <code>/{c.name}</code>
+                {c.description && <span className="muted"> {c.description}</span>}
+              </div>
+              <Button variant="ghost" onClick={() => setEdit({ at: i, cmd: { ...c } })}>
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label={`Delete /${c.name}`}
+                onClick={() => void store(cmds.filter((_, j) => j !== i))}
+              >
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button
+        variant="primary"
+        onClick={() => setEdit({ at: -1, cmd: { name: "", description: "", template: "" } })}
+      >
+        Add a command
+      </Button>
+      {edit && (
+        <Modal
+          title={edit.at < 0 ? "Add a command" : `Edit /${cmds[edit.at]?.name ?? ""}`}
+          onClose={() => setEdit(null)}
+          actions={
+            <>
+              <Button onClick={() => setEdit(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                disabled={!edit.cmd.name.trim() || !edit.cmd.template.trim()}
+                onClick={() =>
+                  void store(
+                    edit.at < 0
+                      ? [...cmds, edit.cmd]
+                      : cmds.map((c, j) => (j === edit.at ? edit.cmd : c)),
+                  )
+                }
+              >
+                Save
+              </Button>
+            </>
+          }
+        >
+          <div className="stack">
             <Input
               label="Name"
-              value={c.name}
-              onChange={(e) => set(i, { name: e.target.value })}
+              value={edit.cmd.name}
+              onChange={(e) => setEdit({ ...edit, cmd: { ...edit.cmd, name: e.target.value } })}
               placeholder="deploy-check"
             />
             <Input
               label="Description"
-              value={c.description}
-              onChange={(e) => set(i, { description: e.target.value })}
+              value={edit.cmd.description}
+              onChange={(e) =>
+                setEdit({ ...edit, cmd: { ...edit.cmd, description: e.target.value } })
+              }
             />
             <TextArea
               label="Text"
-              rows={4}
-              value={c.template}
-              onChange={(e) => set(i, { template: e.target.value })}
+              rows={6}
+              value={edit.cmd.template}
+              onChange={(e) => setEdit({ ...edit, cmd: { ...edit.cmd, template: e.target.value } })}
             />
-            <Button variant="ghost" onClick={() => setCmds(cmds.filter((_, j) => j !== i))}>
-              Remove /{c.name || "command"}
-            </Button>
           </div>
-        ))}
-        <div className="row">
-          <Button onClick={() => setCmds([...cmds, { name: "", description: "", template: "" }])}>
-            Add a command
-          </Button>
-          <Button variant="primary" onClick={() => void save()}>
-            Save commands
-          </Button>
-        </div>
-      </div>
+        </Modal>
+      )}
     </Card>
   );
 }
@@ -224,24 +280,51 @@ const HOOK_EXAMPLE = `{
   ]
 }`;
 
+export const HOOKS_HELP =
+  "https://github.com/kolonuk/syntaxis/blob/main/docs/agent.md#writing-hooks";
+
+interface HookItem {
+  event: "pre_tool" | "post_tool";
+  tools?: string[];
+  command: string;
+  timeout_seconds?: number;
+}
+
+/** The hooks list in the setting, or null when the text is not a valid hooks file. */
+export function parseHooks(text: string): HookItem[] | null {
+  if (!text.trim()) return [];
+  try {
+    const v = JSON.parse(text) as { hooks?: HookItem[] };
+    return Array.isArray(v.hooks) ? v.hooks : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Commands that run before or after the agent's tool calls. */
 export function HooksEditor() {
   const toast = useToast();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [raw, setRaw] = useState(false);
+  const [edit, setEdit] = useState<{ at: number; hook: HookItem; tools: string } | null>(null);
   useEffect(() => {
     void get<{ hooks: string }>("/hooks").then((r) => setText(r.hooks));
   }, []);
   if (text === null) return <Skeleton />;
-  async function save() {
+  const list = parseHooks(text);
+  async function save(next: string) {
     setError("");
     try {
-      await put("/hooks", { hooks: text });
+      await put("/hooks", { hooks: next });
+      setText(next);
+      setEdit(null);
       toast("Hooks saved.", "success");
     } catch (x) {
       setError(errText(x));
     }
   }
+  const write = (l: HookItem[]) => JSON.stringify({ hooks: l }, null, 2);
   return (
     <Card title="Hooks">
       <p className="muted">
@@ -252,24 +335,155 @@ export function HooksEditor() {
         repository can add its own in <code>.syntaxis/hooks.json</code> (you are told when a session
         uses them).
       </p>
+      <p>
+        <a href={HOOKS_HELP} target="_blank" rel="noreferrer">
+          How to write hooks, with examples
+        </a>
+      </p>
       {error && <Banner tone="danger">{error}</Banner>}
-      <TextArea
-        label="Hooks (JSON)"
-        className="textarea code-editor"
-        rows={10}
-        spellCheck={false}
-        value={text}
-        placeholder={HOOK_EXAMPLE}
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className="row">
-        <Button variant="primary" onClick={() => void save()}>
-          Save hooks
-        </Button>
-        <Button variant="ghost" onClick={() => setText(HOOK_EXAMPLE)}>
-          Show an example
-        </Button>
-      </div>
+      {raw || list === null ? (
+        <>
+          {list === null && (
+            <Banner tone="warn">
+              The saved hooks are not a list this screen can show, so they are shown as text.
+            </Banner>
+          )}
+          <TextArea
+            label="Hooks (JSON)"
+            className="textarea code-editor"
+            rows={10}
+            spellCheck={false}
+            value={text}
+            placeholder={HOOK_EXAMPLE}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="row">
+            <Button variant="primary" onClick={() => void save(text)}>
+              Save hooks
+            </Button>
+            <Button variant="ghost" onClick={() => setText(HOOK_EXAMPLE)}>
+              Show an example
+            </Button>
+            {list !== null && (
+              <Button variant="ghost" onClick={() => setRaw(false)}>
+                Back to the list
+              </Button>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {list.length === 0 ? (
+            <p className="muted">
+              You have no hooks. For example, run a formatter after every edit.
+            </p>
+          ) : (
+            <ul className="list-rows">
+              {list.map((h, i) => (
+                <li key={i}>
+                  <div className="grow">
+                    <code>{h.command}</code>
+                    <div className="muted">
+                      {h.event === "pre_tool" ? "before" : "after"}{" "}
+                      {h.tools && h.tools.length > 0 ? h.tools.join(", ") : "every tool"}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setEdit({ at: i, hook: { ...h }, tools: (h.tools ?? []).join(", ") })
+                    }
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    aria-label={`Delete hook ${h.command}`}
+                    onClick={() => void save(write(list.filter((_, j) => j !== i)))}
+                  >
+                    Delete
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="row">
+            <Button
+              variant="primary"
+              onClick={() =>
+                setEdit({ at: -1, hook: { event: "post_tool", command: "" }, tools: "" })
+              }
+            >
+              Add a hook
+            </Button>
+            <Button variant="ghost" onClick={() => setRaw(true)}>
+              Edit as JSON
+            </Button>
+          </div>
+          {edit && (
+            <Modal
+              title={edit.at < 0 ? "Add a hook" : "Edit hook"}
+              onClose={() => setEdit(null)}
+              actions={
+                <>
+                  <Button onClick={() => setEdit(null)}>Cancel</Button>
+                  <Button
+                    variant="primary"
+                    disabled={!edit.hook.command.trim()}
+                    onClick={() => {
+                      const tools = edit.tools
+                        .split(",")
+                        .map((t) => t.trim())
+                        .filter(Boolean);
+                      const h: HookItem = { ...edit.hook, command: edit.hook.command.trim() };
+                      if (tools.length) h.tools = tools;
+                      else delete h.tools;
+                      void save(
+                        write(
+                          edit.at < 0 ? [...list, h] : list.map((x, j) => (j === edit.at ? h : x)),
+                        ),
+                      );
+                    }}
+                  >
+                    Save
+                  </Button>
+                </>
+              }
+            >
+              <div className="stack">
+                <Select
+                  label="Runs"
+                  value={edit.hook.event}
+                  onChange={(e) =>
+                    setEdit({
+                      ...edit,
+                      hook: { ...edit.hook, event: e.target.value as HookItem["event"] },
+                    })
+                  }
+                  options={[
+                    { value: "post_tool", label: "After a tool (a formatter or linter)" },
+                    { value: "pre_tool", label: "Before a tool (a failing hook stops it)" },
+                  ]}
+                />
+                <Input
+                  label="Tools (optional)"
+                  hint="Comma separated, for example write_file, patch_file. Empty means every tool."
+                  value={edit.tools}
+                  onChange={(e) => setEdit({ ...edit, tools: e.target.value })}
+                />
+                <Input
+                  label="Command"
+                  hint="Runs in /workspace, for example gofmt -l ."
+                  value={edit.hook.command}
+                  onChange={(e) =>
+                    setEdit({ ...edit, hook: { ...edit.hook, command: e.target.value } })
+                  }
+                />
+              </div>
+            </Modal>
+          )}
+        </>
+      )}
     </Card>
   );
 }

@@ -2,7 +2,7 @@
 
 ## Where a value comes from
 
-Each option takes its first value from the Docker environment (the compose file or `.env`), falling back to the default. Most options can also be changed in the admin app under **Configuration**. A value saved there is stored in the database and replaces the environment's value.
+Each option takes its first value from the Docker environment (the compose file or `.env`), falling back to the default. Most options can also be changed in the admin app under **System → Configuration**, which has one tab for each group of options. A value saved there is stored in the database and replaces the environment's value.
 
 Each option on that screen shows its source: **from Docker**, **saved here** or **default**. Remove a saved value ("use the Docker value again") to go back to the environment's value. While a saved value exists, changing the same variable in Docker has no effect.
 

@@ -10,6 +10,22 @@ import (
 	"github.com/kolonuk/syntaxis/internal/store"
 )
 
+// A user who has set nothing up must still open: every list arrives as a list, never as null (the
+// admin app reads their length, and a null made its settings screen blank).
+func TestAdminUserSettingsListsAreNeverNull(t *testing.T) {
+	e := newEnv(t)
+	e.userSession("empty@example.com")
+	uid := userID(t, e, "empty@example.com")
+	adm := e.makeAdminSession()
+	code, _, raw := adm.do("GET", "/api/users/"+itoa(uid)+"/settings", nil)
+	if code != 200 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if strings.Contains(string(raw), ":null") {
+		t.Fatalf("a list is null: %s", raw)
+	}
+}
+
 func TestAdminSeesAndManagesEveryUserSetting(t *testing.T) {
 	e := newEnv(t)
 	seedModel(e)

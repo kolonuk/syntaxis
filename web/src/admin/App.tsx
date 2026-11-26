@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { del, get, patch, post, put, errText } from "../lib/api";
 import { applyTheme, loadPref } from "../lib/theme";
+import { GroupedTabs, type TabGroup } from "../ui/GroupedTabs";
 import {
   Badge,
   Banner,
@@ -11,7 +12,6 @@ import {
   Modal,
   Select,
   Skeleton,
-  Tabs,
   TextArea,
   ToastProvider,
   Toggle,
@@ -24,9 +24,35 @@ import { AdminsTab } from "./AdminsTab";
 import { AuditTab } from "./AuditTab";
 import { ConfigTab } from "./ConfigTab";
 import { McpTab } from "./McpTab";
+import { BenchmarksTab, ProvidersTab } from "./ProvidersTab";
 import { Table, tone, useLoad } from "./shared";
 import { UpdatesTab, type UpdateInfo } from "./UpdatesTab";
 import { SessionMessagesDialog, UserSettingsDialog } from "./UserSettings";
+
+interface EnvTpl {
+  name: string;
+  image: string;
+  matches: string[];
+  description: string;
+  present: boolean;
+}
+
+interface CatalogRow {
+  name: string;
+  adds: string;
+  size_gb: number;
+  minutes: string;
+  state: "not built" | "queued" | "building" | "removing" | "built" | "failed";
+  managed?: boolean;
+  last_used?: string;
+  message?: string;
+}
+interface Catalog {
+  environments: CatalogRow[];
+  agent_running: boolean;
+  idle_days: number;
+  manual: string;
+}
 
 interface Finding {
   check_id: string;
@@ -73,19 +99,6 @@ interface User {
   group_id?: number;
   quota_cpu_minutes?: number;
 }
-interface Prov {
-  id: number;
-  name: string;
-  kind: string;
-  base_url: string;
-  concurrency: number;
-  enabled: boolean;
-  has_key: boolean;
-  stream_probe: { ok?: boolean; detail?: string };
-  helper_model: string;
-  helper_assert: boolean;
-}
-
 /** A finding the admin can act on in another tab: where, and what to call the button. */
 const FIX_TABS: Record<string, { tab: string; label: string }> = {
   "security.admin-2fa": { tab: "admins", label: "Open Admins" },
@@ -144,9 +157,12 @@ function HealthTab({ go }: { go: (tab: string) => void }) {
   );
 }
 
-function UsersTab() {
+export function UsersTab() {
   const toast = useToast();
   const { data, reload } = useLoad<User[]>("/users");
+  const groups = useLoad<NamedPolicy[]>("/groups");
+  const groupName = (id?: number) =>
+    id ? (groups.data?.find((g) => g.id === id)?.name ?? `group ${id}`) : "";
   const [adding, setAdding] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -177,6 +193,8 @@ function UsersTab() {
           <thead>
             <tr>
               <th>User</th>
+              <th>Level</th>
+              <th>Group</th>
               <th>Status</th>
               <th>2FA</th>
               <th>Daily tokens</th>
@@ -194,6 +212,8 @@ function UsersTab() {
                   <br />
                   <span className="muted">{u.email}</span>
                 </td>
+                <td>{u.level || "user"}</td>
+                <td>{groupName(u.group_id) || <span className="muted">none</span>}</td>
                 <td>
                   {u.disabled ? (
                     <Badge tone="danger">disabled</Badge>
@@ -445,325 +465,6 @@ function EditUser({ u, onClose }: { u: User; onClose: () => void }) {
       </div>
     </Modal>
   );
-}
-
-interface ModFull {
-  id: number;
-  provider_id: number;
-  name: string;
-  enabled: boolean;
-  tools: number;
-  recommended: boolean;
-  context_override: number;
-  tool_probe: { ok?: boolean; detail?: string };
-}
-interface Bench {
-  id: number;
-  model_id: number;
-  time: string;
-  report: {
-    pass_rate: number;
-    tokens_per_sec: number;
-    ttft_ms: number;
-    tool_call_failure_rate: number;
-    tasks: { id: string; passed: boolean; detail: string; seconds: number }[];
-  };
-}
-
-function ProvidersTab() {
-  const toast = useToast();
-  const provs = useLoad<Prov[]>("/providers");
-  const models = useLoad<ModFull[]>("/models");
-  const bench = useLoad<Bench[]>("/benchmarks");
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({
-    name: "",
-    kind: "ollama",
-    base_url: "",
-    api_key: "",
-    concurrency: "1",
-  });
-  async function add(e: FormEvent) {
-    e.preventDefault();
-    try {
-      await post("/providers", { ...f, concurrency: Number(f.concurrency) });
-      setF({ ...f, name: "", base_url: "", api_key: "" });
-      setAdding(false);
-      provs.reload();
-    } catch (x) {
-      toast(errText(x), "error");
-    }
-  }
-  if (!provs.data || !models.data) return <Skeleton />;
-  const latest = (id: number) => bench.data?.find((b) => b.model_id === id);
-  return (
-    <div className="stack">
-      <div className="row">
-        <p className="muted grow">
-          Syntaxis never downloads or deletes models on your LLM server. It can make the server load
-          a model, simply by asking for it by name when a session, probe or benchmark uses it.
-        </p>
-        <Button variant="primary" onClick={() => setAdding(true)}>
-          Add provider
-        </Button>
-      </div>
-      {provs.data.length === 0 && (
-        <Banner>
-          No provider yet. Add your Ollama, llama.cpp, LiteLLM or OpenAI-compatible server.
-        </Banner>
-      )}
-      {provs.data.map((p) => (
-        <Card key={p.id} title={`${p.name} (${p.kind})`}>
-          <p className="muted">
-            {p.base_url} · concurrency {p.concurrency} {p.has_key && "· key stored"}
-          </p>
-          <Select
-            label="Helper model for cheap jobs (titles, summaries)"
-            value={p.helper_model}
-            onChange={async (e) => {
-              try {
-                const r = await put<{ notice?: string }>(`/providers/${p.id}/helper`, {
-                  model: e.target.value,
-                  assert_resident: p.helper_assert,
-                });
-                toast(r.notice ?? "Saved.", r.notice ? "info" : "success");
-                provs.reload();
-              } catch (x) {
-                toast(errText(x), "error");
-              }
-            }}
-            options={[
-              { value: "", label: "None (the session's own model does everything)" },
-              ...(models.data ?? [])
-                .filter((m) => m.provider_id === p.id)
-                .map((m) => ({ value: m.name, label: m.name })),
-            ]}
-          />
-          <p className="muted">
-            Used only while the server reports it is already loaded: Syntaxis does not ask the
-            server to load the helper just for these jobs. If it is not loaded, or fails, the
-            session&apos;s own model does the job.
-          </p>
-          <div className="row">
-            <Button
-              onClick={async () => {
-                try {
-                  const r = await post<{ models: number }>(`/providers/${p.id}/refresh`);
-                  toast(`Found ${r.models} models.`, "success");
-                  models.reload();
-                } catch (x) {
-                  toast(errText(x), "error");
-                }
-              }}
-            >
-              Discover models
-            </Button>
-            <Button
-              variant="danger"
-              onClick={async () => {
-                await del(`/providers/${p.id}`);
-                provs.reload();
-                models.reload();
-              }}
-            >
-              Remove
-            </Button>
-          </div>
-          <div className="table-wrap" tabIndex={0} role="region" aria-label={`Models of ${p.name}`}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Model</th>
-                  <th>Enabled</th>
-                  <th>Recommended</th>
-                  <th>Context override</th>
-                  <th>Live probe</th>
-                  <th>Last benchmark</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {models
-                  .data!.filter((m) => m.provider_id === p.id)
-                  .map((m) => {
-                    const b = latest(m.id);
-                    return (
-                      <tr key={m.id}>
-                        <td>
-                          {m.name} {m.tools === 0 && <Badge tone="warn">no tools</Badge>}
-                        </td>
-                        <td>
-                          <Toggle
-                            label={`Enable ${m.name}`}
-                            checked={m.enabled}
-                            onChange={async (v) => {
-                              await post(`/models/${m.id}/enabled`, { enabled: v });
-                              models.reload();
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <Toggle
-                            label={`Recommend ${m.name} for agents`}
-                            checked={m.recommended}
-                            onChange={async (v) => {
-                              await post(`/models/${m.id}/recommended`, { recommended: v });
-                              models.reload();
-                            }}
-                          />
-                        </td>
-                        <td>{m.context_override || <span className="muted">detected</span>}</td>
-                        <td title={m.tool_probe.detail ?? "Not probed yet"}>
-                          {m.tool_probe.ok === undefined ? (
-                            <span className="muted">not probed</span>
-                          ) : m.tool_probe.ok ? (
-                            "calls tools"
-                          ) : (
-                            "does not call tools"
-                          )}
-                          {p.stream_probe.ok === false && (
-                            <>
-                              {" · "}
-                              <strong title={p.stream_probe.detail}>stream is buffered</strong>
-                            </>
-                          )}
-                        </td>
-                        <td>
-                          {b ? (
-                            `${Math.round(b.report.pass_rate * 100)}% · ${b.report.tokens_per_sec.toFixed(1)} tok/s`
-                          ) : (
-                            <span className="muted">never</span>
-                          )}
-                        </td>
-                        <td>
-                          <Button
-                            onClick={async () => {
-                              try {
-                                await post(`/models/${m.id}/probe`);
-                                toast(
-                                  "Probe started. It may load the model, so it runs in the background.",
-                                  "success",
-                                );
-                                setTimeout(() => {
-                                  models.reload();
-                                  provs.reload();
-                                }, 30000);
-                              } catch (x) {
-                                toast(errText(x), "error");
-                              }
-                            }}
-                          >
-                            Probe
-                          </Button>{" "}
-                          <Button
-                            onClick={async () => {
-                              try {
-                                await post(`/models/${m.id}/benchmark`);
-                                toast(
-                                  "Benchmark started. It runs in the background at the lowest priority.",
-                                  "success",
-                                );
-                                setTimeout(bench.reload, 15000);
-                              } catch (x) {
-                                toast(errText(x), "error");
-                              }
-                            }}
-                          >
-                            Benchmark
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ))}
-      {adding && (
-        <Modal
-          title="Add provider"
-          onClose={() => setAdding(false)}
-          actions={
-            <>
-              <Button onClick={() => setAdding(false)}>Cancel</Button>
-              <Button variant="primary" type="submit" form="provider-form">
-                Add
-              </Button>
-            </>
-          }
-        >
-          <form id="provider-form" onSubmit={add}>
-            <Input
-              label="Name"
-              placeholder="workstation-ollama"
-              value={f.name}
-              onChange={(e) => setF({ ...f, name: e.target.value })}
-              required
-            />
-            <Select
-              label="Kind"
-              value={f.kind}
-              onChange={(e) => setF({ ...f, kind: e.target.value })}
-              options={[
-                { value: "ollama", label: "Ollama" },
-                { value: "llamacpp", label: "llama.cpp server" },
-                { value: "litellm", label: "LiteLLM" },
-                { value: "openai", label: "OpenAI-compatible" },
-              ]}
-            />
-            <Input
-              label="Base URL"
-              placeholder="http://llm.internal:11434"
-              value={f.base_url}
-              onChange={(e) => setF({ ...f, base_url: e.target.value })}
-              required
-            />
-            <Input
-              label="API key (optional)"
-              type="password"
-              value={f.api_key}
-              onChange={(e) => setF({ ...f, api_key: e.target.value })}
-            />
-            <Input
-              label="Concurrency"
-              placeholder="2"
-              hint="Match your server's parallel setting; Syntaxis never exceeds it."
-              value={f.concurrency}
-              onChange={(e) => setF({ ...f, concurrency: e.target.value })}
-            />
-          </form>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-interface EnvTpl {
-  name: string;
-  image: string;
-  matches: string[];
-  description: string;
-  present: boolean;
-}
-
-interface CatalogRow {
-  name: string;
-  adds: string;
-  size_gb: number;
-  minutes: string;
-  state: "not built" | "queued" | "building" | "removing" | "built" | "failed";
-  managed?: boolean;
-  last_used?: string;
-  message?: string;
-}
-interface Catalog {
-  environments: CatalogRow[];
-  agent_running: boolean;
-  idle_days: number;
-  manual: string;
 }
 
 function EnvironmentCatalog({ onChange }: { onChange: () => void }) {
@@ -1027,47 +728,6 @@ function EnvironmentsTab() {
         </Button>
       </Card>
     </>
-  );
-}
-
-function BenchmarksTab() {
-  const { data } = useLoad<Bench[]>("/benchmarks");
-  const models = useLoad<ModFull[]>("/models");
-  if (!data || !models.data) return <Skeleton />;
-  if (data.length === 0)
-    return (
-      <Banner>
-        No benchmark has been run. Start one from Providers &amp; models. Results are visible to
-        admins only.
-      </Banner>
-    );
-  const name = (id: number) => models.data!.find((m) => m.id === id)?.name ?? `model ${id}`;
-  return (
-    <div className="stack">
-      {data.map((b) => (
-        <Card
-          key={b.id}
-          title={`${name(b.model_id)} — ${Math.round(b.report.pass_rate * 100)}% passed`}
-        >
-          <p className="muted">
-            {new Date(b.time).toLocaleString()} · {b.report.tokens_per_sec.toFixed(1)} tok/s · first
-            token {Math.round(b.report.ttft_ms)} ms · tool failures{" "}
-            {Math.round(b.report.tool_call_failure_rate * 100)}%
-          </p>
-          <ul>
-            {b.report.tasks.map((t) => (
-              <li key={t.id}>
-                <Badge tone={t.passed ? "success" : "danger"}>{t.passed ? "pass" : "fail"}</Badge>{" "}
-                <strong>{t.id}</strong>{" "}
-                <span className="muted">
-                  {t.seconds.toFixed(0)}s — {t.detail}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ))}
-    </div>
   );
 }
 
@@ -1448,6 +1108,57 @@ function GroupsTab() {
   );
 }
 
+/** The admin menu: related screens are grouped, and each group has its own row of tabs. */
+export function navGroups(updateAvailable: boolean): TabGroup[] {
+  return [
+    {
+      id: "health-updates",
+      label: updateAvailable ? "Health & updates ●" : "Health & updates",
+      tabs: [
+        { id: "health", label: "Health" },
+        { id: "updates", label: updateAvailable ? "Updates ●" : "Updates" },
+      ],
+    },
+    {
+      id: "people",
+      label: "Users",
+      tabs: [
+        { id: "users", label: "Users" },
+        { id: "groups", label: "Levels & groups" },
+        { id: "admins", label: "Admins" },
+      ],
+    },
+    {
+      id: "models",
+      label: "Models & tools",
+      tabs: [
+        { id: "providers", label: "Providers & models" },
+        { id: "bench", label: "Benchmarks" },
+        { id: "envs", label: "Environments" },
+        { id: "mcp", label: "MCP servers" },
+      ],
+    },
+    {
+      id: "sessions",
+      label: "Sessions & egress",
+      tabs: [
+        { id: "sessions", label: "Sessions" },
+        { id: "egress", label: "Egress" },
+        { id: "settings", label: "Policies" },
+      ],
+    },
+    {
+      id: "system",
+      label: "System",
+      tabs: [
+        { id: "config", label: "Configuration" },
+        { id: "audit", label: "Audit" },
+        { id: "kill", label: "Kill switch" },
+      ],
+    },
+  ];
+}
+
 function Console({
   name,
   signOut,
@@ -1499,26 +1210,11 @@ function Console({
         </Button>
       </header>
       <main className="main">
-        <Tabs
+        <GroupedTabs
+          groups={navGroups(!!upd?.release_available)}
           value={tab}
           onChange={setTab}
-          tabs={[
-            { id: "health", label: "Health" },
-            { id: "users", label: "Users" },
-            { id: "groups", label: "Levels & groups" },
-            { id: "admins", label: "Admins" },
-            { id: "providers", label: "Providers & models" },
-            { id: "bench", label: "Benchmarks" },
-            { id: "envs", label: "Environments" },
-            { id: "mcp", label: "MCP servers" },
-            { id: "settings", label: "Policies" },
-            { id: "egress", label: "Egress" },
-            { id: "sessions", label: "Sessions" },
-            { id: "audit", label: "Audit" },
-            { id: "config", label: "Configuration" },
-            { id: "updates", label: upd?.release_available ? "Updates ●" : "Updates" },
-            { id: "kill", label: "Kill switch" },
-          ]}
+          label="Admin sections"
         />
         {tab === "health" && <HealthTab go={setTab} />}
         {tab === "users" && <UsersTab />}

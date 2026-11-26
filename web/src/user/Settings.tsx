@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { useEffect, useState, type FormEvent } from "react";
+import "./user.css";
 import { del, get, post, put, errText } from "../lib/api";
 import { compact } from "../lib/format";
 import { Connections } from "./Connections";
@@ -14,8 +15,8 @@ import {
   Card,
   Input,
   Meter,
+  Modal,
   Skeleton,
-  Tabs,
   useToast,
   VersionLabel,
 } from "../ui/ui";
@@ -63,17 +64,20 @@ export function UsagePanel() {
 function Secrets() {
   const toast = useToast();
   const [names, setNames] = useState<string[] | null>(null);
-  const [name, setName] = useState("");
+  // the secret being added (name "") or changed, in the pop-up
+  const [edit, setEdit] = useState<{ name: string; isNew: boolean } | null>(null);
   const [value, setValue] = useState("");
+  const [removing, setRemoving] = useState<string | null>(null);
   const load = () => get<string[]>("/secrets").then(setNames);
   useEffect(() => {
     void load();
   }, []);
-  async function add(e: FormEvent) {
+  async function save(e: FormEvent) {
     e.preventDefault();
+    if (!edit) return;
     try {
-      await put(`/secrets/${name}`, { value });
-      setName("");
+      await put(`/secrets/${edit.name}`, { value });
+      setEdit(null);
       setValue("");
       toast("Secret saved.", "success");
       void load();
@@ -94,46 +98,117 @@ function Secrets() {
       ) : names.length === 0 ? (
         <p className="muted">No secrets yet.</p>
       ) : (
-        <ul>
+        <ul className="list-rows">
           {names.map((n) => (
-            <li key={n} className="row">
+            <li key={n}>
               <code className="grow">{n}</code>
-              <Button
-                variant="danger"
-                onClick={async () => {
-                  await del(`/secrets/${n}`);
-                  void load();
-                }}
-              >
+              <Button variant="ghost" onClick={() => setEdit({ name: n, isNew: false })}>
+                Replace value
+              </Button>
+              <Button variant="danger" onClick={() => setRemoving(n)}>
                 Delete
               </Button>
             </li>
           ))}
         </ul>
       )}
-      <form onSubmit={add}>
-        <Input
-          label="Name"
-          hint="UPPER_SNAKE_CASE, e.g. GITHUB_TOKEN"
-          value={name}
-          onChange={(e) => setName(e.target.value.toUpperCase())}
-          required
-        />
-        <Input
-          label="Value"
-          type="password"
-          autoComplete="off"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          required
-        />
-        <Button variant="primary" type="submit">
-          Save secret
-        </Button>
-      </form>
+      <Button variant="primary" onClick={() => setEdit({ name: "", isNew: true })}>
+        Add a secret
+      </Button>
+      {edit && (
+        <Modal
+          title={edit.isNew ? "Add a secret" : `Replace ${edit.name}`}
+          onClose={() => setEdit(null)}
+          actions={
+            <>
+              <Button onClick={() => setEdit(null)}>Cancel</Button>
+              <Button variant="primary" type="submit" form="secret-form">
+                Save secret
+              </Button>
+            </>
+          }
+        >
+          <form id="secret-form" className="stack" onSubmit={(e) => void save(e)}>
+            {edit.isNew && (
+              <Input
+                label="Name"
+                hint="UPPER_SNAKE_CASE, e.g. GITHUB_TOKEN"
+                value={edit.name}
+                onChange={(e) => setEdit({ ...edit, name: e.target.value.toUpperCase() })}
+                required
+              />
+            )}
+            <Input
+              label="Value"
+              type="password"
+              autoComplete="off"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+            />
+          </form>
+        </Modal>
+      )}
+      {removing && (
+        <Modal
+          title={`Delete ${removing}?`}
+          onClose={() => setRemoving(null)}
+          actions={
+            <>
+              <Button onClick={() => setRemoving(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  try {
+                    await del(`/secrets/${removing}`);
+                    setRemoving(null);
+                    void load();
+                  } catch (x) {
+                    toast(errText(x), "error");
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p>Sandbox commands lose access to this secret straight away.</p>
+        </Modal>
+      )}
     </Card>
   );
 }
+
+export const SETTINGS_GROUPS: { label: string; items: { id: string; label: string }[] }[] = [
+  {
+    label: "Account",
+    items: [
+      { id: "profile", label: "Profile" },
+      { id: "password", label: "Password" },
+      { id: "2fa", label: "Two-factor" },
+      { id: "usage", label: "Usage" },
+    ],
+  },
+  {
+    label: "Services and keys",
+    items: [
+      { id: "connections", label: "Connections" },
+      { id: "secrets", label: "Secrets" },
+      { id: "tokens", label: "API tokens" },
+    ],
+  },
+  {
+    label: "Agent",
+    items: [
+      { id: "tools", label: "Tools" },
+      { id: "notes", label: "Notes" },
+      { id: "commands", label: "Commands" },
+      { id: "hooks", label: "Hooks" },
+    ],
+  },
+  { label: "Sharing", items: [{ id: "shared", label: "Shared links" }] },
+];
 
 export function Settings({
   me,
@@ -147,76 +222,76 @@ export function Settings({
   const toast = useToast();
   const [tab, setTab] = useState("profile");
   return (
-    <div className="stack" style={{ maxWidth: 720 }}>
-      <Tabs
-        tabs={[
-          { id: "profile", label: "Profile" },
-          { id: "password", label: "Password" },
-          { id: "2fa", label: "Two-factor" },
-          { id: "connections", label: "Connections" },
-          { id: "tools", label: "Tools" },
-          { id: "notes", label: "Notes" },
-          { id: "commands", label: "Commands" },
-          { id: "hooks", label: "Hooks" },
-          { id: "shared", label: "Shared links" },
-          { id: "secrets", label: "Secrets" },
-          { id: "tokens", label: "API tokens" },
-          { id: "usage", label: "Usage" },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-      {tab === "profile" && (
-        <Card title="Profile">
-          <p>
-            {me.name} <span className="muted">({me.email})</span>
-          </p>
-          <Button
-            onClick={async () => {
-              await post("/logout-all");
-              onLogout();
-            }}
-          >
-            Sign out everywhere
-          </Button>
-          <p>
-            <VersionLabel />
-          </p>
-        </Card>
-      )}
-      {tab === "password" && (
-        <Card title="Change password">
-          <ChangePassword
-            onDone={() => {
-              toast("Password changed. Please sign in again.", "success");
-              onLogout();
-            }}
-          />
-        </Card>
-      )}
-      {tab === "2fa" && (
-        <Card title="Two-factor authentication">
-          {me.totp_enabled ? (
-            <Badge tone="success">Enabled</Badge>
-          ) : (
-            <TwoFactorSetup onDone={reload} />
-          )}
-          {!me.totp_enabled && (
-            <Banner>
-              Accounts with two-factor authentication are never asked to rotate their password.
-            </Banner>
-          )}
-        </Card>
-      )}
-      {tab === "connections" && <Connections />}
-      {tab === "tools" && <McpTools />}
-      {tab === "notes" && <Notes />}
-      {tab === "commands" && <CommandsEditor />}
-      {tab === "hooks" && <HooksEditor />}
-      {tab === "shared" && <SharedLinks />}
-      {tab === "secrets" && <Secrets />}
-      {tab === "tokens" && <ApiTokens />}
-      {tab === "usage" && <UsagePanel />}
+    <div className="settings">
+      <nav className="settings-nav" aria-label="Settings">
+        {SETTINGS_GROUPS.map((g) => (
+          <div key={g.label}>
+            <h2>{g.label}</h2>
+            {g.items.map((i) => (
+              <button
+                key={i.id}
+                aria-current={i.id === tab ? "page" : undefined}
+                onClick={() => setTab(i.id)}
+              >
+                {i.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="settings-body stack">
+        {tab === "profile" && (
+          <Card title="Profile">
+            <p>
+              {me.name} <span className="muted">({me.email})</span>
+            </p>
+            <Button
+              onClick={async () => {
+                await post("/logout-all");
+                onLogout();
+              }}
+            >
+              Sign out everywhere
+            </Button>
+            <p>
+              <VersionLabel />
+            </p>
+          </Card>
+        )}
+        {tab === "password" && (
+          <Card title="Change password">
+            <ChangePassword
+              onDone={() => {
+                toast("Password changed. Please sign in again.", "success");
+                onLogout();
+              }}
+            />
+          </Card>
+        )}
+        {tab === "2fa" && (
+          <Card title="Two-factor authentication">
+            {me.totp_enabled ? (
+              <Badge tone="success">Enabled</Badge>
+            ) : (
+              <TwoFactorSetup onDone={reload} />
+            )}
+            {!me.totp_enabled && (
+              <Banner>
+                Accounts with two-factor authentication are never asked to rotate their password.
+              </Banner>
+            )}
+          </Card>
+        )}
+        {tab === "connections" && <Connections />}
+        {tab === "tools" && <McpTools />}
+        {tab === "notes" && <Notes />}
+        {tab === "commands" && <CommandsEditor />}
+        {tab === "hooks" && <HooksEditor />}
+        {tab === "shared" && <SharedLinks />}
+        {tab === "secrets" && <Secrets />}
+        {tab === "tokens" && <ApiTokens />}
+        {tab === "usage" && <UsagePanel />}
+      </div>
     </div>
   );
 }

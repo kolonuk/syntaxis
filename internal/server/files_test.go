@@ -3,6 +3,8 @@
 package server
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +70,51 @@ func TestCleanUploadName(t *testing.T) {
 		if _, ok := cleanUploadName(bad); ok {
 			t.Errorf("accepted %q", bad)
 		}
+	}
+}
+
+// A tar from a workspace is rewritten as a zip that keeps only folders and regular files, under
+// names that stay inside the folder the user unpacks it into.
+func TestTarToZipKeepsOnlySafeEntries(t *testing.T) {
+	var tb bytes.Buffer
+	tw := tar.NewWriter(&tb)
+	add := func(name string, typ byte, body string) {
+		h := &tar.Header{Name: name, Typeflag: typ, Mode: 0o644, Size: int64(len(body)), Linkname: "/etc/passwd"}
+		if typ != tar.TypeSymlink {
+			h.Linkname = ""
+		}
+		if typ == tar.TypeSymlink || typ == tar.TypeDir {
+			h.Size = 0
+			body = ""
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = tw.Write([]byte(body))
+	}
+	add("./", tar.TypeDir, "")
+	add("./src/", tar.TypeDir, "")
+	add("./src/main.go", tar.TypeReg, "package main\n")
+	add("./link", tar.TypeSymlink, "")
+	add("../escape.txt", tar.TypeReg, "x")
+	add("/abs.txt", tar.TypeReg, "x")
+	add("./a/../../up.txt", tar.TypeReg, "x")
+	_ = tw.Close()
+	data, err := tarToZip(tb.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	sort.Strings(names)
+	if strings.Join(names, ",") != "src/,src/main.go" {
+		t.Fatalf("entries: %v", names)
 	}
 }
 
@@ -186,6 +234,42 @@ func TestIntegrationFileBrowser(t *testing.T) {
 		t.Fatalf("download: %v %q", resp.Header, got)
 	}
 
+	// the whole workspace, and one folder, download as zip files with the right contents
+	zipOf := func(q string) map[string][]byte {
+		req, _ := http.NewRequest("GET", u.base+base+"/files/zip"+q, nil)
+		resp, err := u.hc.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/zip" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") {
+			t.Fatalf("zip %s: %d %v %q", q, resp.StatusCode, resp.Header, body)
+		}
+		zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := map[string][]byte{}
+		for _, f := range zr.File {
+			rc, _ := f.Open()
+			b, _ := io.ReadAll(rc)
+			rc.Close()
+			files[f.Name] = b
+		}
+		return files
+	}
+	all := zipOf("")
+	if string(all["docs/notes.txt"]) != "changed\n" || !bytes.Equal(all["pic.png"], bin) {
+		t.Fatalf("workspace zip: %v", all)
+	}
+	if one := zipOf("?path=/workspace/docs"); string(one["notes.txt"]) != "changed\n" || len(one["pic.png"]) != 0 {
+		t.Fatalf("folder zip: %v", one)
+	}
+	if code, _, _ := u.do("GET", base+"/files/zip?path=/workspace/nope", nil); code != 404 {
+		t.Errorf("zip of a missing folder: %d", code)
+	}
+
 	// paths outside the workspace are refused, for every operation
 	for _, p := range []string{"/etc/passwd", "../../etc/passwd", "/workspace/../etc/passwd"} {
 		q := "?path=" + url.QueryEscape(p)
@@ -197,6 +281,9 @@ func TestIntegrationFileBrowser(t *testing.T) {
 		}
 		if code, _, _ := u.do("GET", base+"/files/download"+q, nil); code != 400 {
 			t.Errorf("download %s: %d", p, code)
+		}
+		if code, _, _ := u.do("GET", base+"/files/zip"+q, nil); code != 400 {
+			t.Errorf("zip %s: %d", p, code)
 		}
 		if code, _, _ := u.do("PUT", base+"/files/content", map[string]string{"path": p, "text": "x"}); code != 400 {
 			t.Errorf("edit %s: %d", p, code)

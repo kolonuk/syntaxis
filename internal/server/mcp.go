@@ -153,6 +153,7 @@ func (a *App) adminMCPApprove(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.clearMCPRequests(ctx, b.Name)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

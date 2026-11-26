@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { del, errText, get, post } from "../lib/api";
 import { copyText } from "../lib/fences";
-import { Banner, Button, Card, Input, Select, Skeleton, useToast } from "../ui/ui";
+import { Banner, Button, Card, Input, Modal, Select, Skeleton, useToast } from "../ui/ui";
 
 interface Token {
   id: number;
@@ -36,6 +36,7 @@ export function ApiTokens() {
   const [scope, setScope] = useState("read");
   const [days, setDays] = useState("90");
   const [fresh, setFresh] = useState<Token | null>(null);
+  const [creating, setCreating] = useState(false);
   const load = useCallback(() => {
     get<Token[]>("/tokens")
       .then(setList)
@@ -49,6 +50,7 @@ export function ApiTokens() {
       const t = await post<Token>("/tokens", { name, scope, expires_days: Number(days) });
       setFresh(t);
       setName("");
+      setCreating(false);
       load();
     } catch (x) {
       toast(errText(x), "error");
@@ -80,9 +82,9 @@ export function ApiTokens() {
       ) : list.length === 0 ? (
         <p className="muted">No tokens yet.</p>
       ) : (
-        <ul>
+        <ul className="list-rows">
           {list.map((t) => (
-            <li key={t.id} className="row">
+            <li key={t.id}>
               <span className="grow">
                 <strong>{t.name}</strong> <code>{t.prefix}…</code>{" "}
                 <span className="muted">
@@ -116,31 +118,46 @@ export function ApiTokens() {
           ))}
         </ul>
       )}
-      <form onSubmit={(e) => void create(e)}>
-        <Input
-          label="Name"
-          hint="What it is for, for example CI reader"
-          value={name}
-          maxLength={60}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <Select
-          label="Scope"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
-          options={SCOPES}
-        />
-        <Select
-          label="Expires"
-          value={days}
-          onChange={(e) => setDays(e.target.value)}
-          options={EXPIRY}
-        />
-        <Button variant="primary" type="submit">
-          Create token
-        </Button>
-      </form>
+      <Button variant="primary" onClick={() => setCreating(true)}>
+        Create a token
+      </Button>
+      {creating && (
+        <Modal
+          title="Create a token"
+          onClose={() => setCreating(false)}
+          actions={
+            <>
+              <Button onClick={() => setCreating(false)}>Cancel</Button>
+              <Button variant="primary" type="submit" form="token-form">
+                Create token
+              </Button>
+            </>
+          }
+        >
+          <form id="token-form" className="stack" onSubmit={(e) => void create(e)}>
+            <Input
+              label="Name"
+              hint="What it is for, for example CI reader"
+              value={name}
+              maxLength={60}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <Select
+              label="Scope"
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              options={SCOPES}
+            />
+            <Select
+              label="Expires"
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              options={EXPIRY}
+            />
+          </form>
+        </Modal>
+      )}
     </Card>
   );
 }

@@ -39,9 +39,19 @@ Open the printed link (valid once, for 24 hours), choose a password and set up t
 
 The admin app listens only on the machine itself, `http://127.0.0.1:8081`. To use it from elsewhere, open an SSH tunnel, or set `SYNTAXIS_ADMIN_BIND` to a LAN or VPN address.
 
+The admin menu has five groups, each with its own row of tabs:
+
+| Group | Tabs |
+| --- | --- |
+| Health & updates | Health, Updates |
+| Users | Users, Levels & groups, Admins |
+| Models & tools | Providers & models, Benchmarks, Environments, MCP servers |
+| Sessions & egress | Sessions, Egress, Policies |
+| System | Configuration, Audit, Kill switch |
+
 ## 3. Connect your LLM server
 
-Open **Providers & models → Add provider** and enter the server's address. Set **concurrency** to the number of requests the server handles at once, click **Discover models**, and enable the models users may use.
+Open **Models & tools → Providers & models → Add provider** and enter the server's address. Set **concurrency** to the number of requests the server handles at once, click **Discover models**, and enable the models users may use.
 
 ## 4. Invite a user
 
@@ -76,6 +86,8 @@ The update runs through `syntaxis-update-agent`, a service the installer sets up
 ```sh
 sudo systemctl start syntaxis-update-agent
 ```
+
+If Syntaxis runs in a container and the update service is not running, the top of the Updates page warns that an update made by hand is temporary: deploying the container again from your Compose file or Kubernetes manifest returns it to the image written there. To keep an update, change the image version in that file and deploy it.
 
 After updating from 0.1.3 or earlier, restart the service once so it picks up the new script and can switch streams: `sudo systemctl restart syntaxis-update-agent`. Later updates restart it themselves.
 
