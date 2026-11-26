@@ -4,7 +4,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-26
+## [0.2.2] - 2026-11-26
 
 ### Added
 - **Admin app menu in groups.** Health & updates, Users, Models & tools, Sessions & egress and System each have a second row of tabs. Configuration has one tab per group.
