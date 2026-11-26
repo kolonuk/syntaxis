@@ -70,7 +70,7 @@ describe("the chat app's title bar and new-session dialog", () => {
     // with no git service connected, the dialog says why there is no repository list
     expect(await within(dialog).findByText(/No git service is connected/)).toBeTruthy();
     const moe = within(dialog).getByRole("link", {
-      name: /Mixture of experts/,
+      name: /mixture of experts/,
     }) as HTMLAnchorElement;
     const quant = within(dialog).getByRole("link", { name: /quantisation/ }) as HTMLAnchorElement;
     expect(moe.href).toBe(MODEL_NAMES_HELP);

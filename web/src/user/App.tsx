@@ -179,16 +179,14 @@ function NewSession({
             }))}
           />
           <p className="muted">
-            What a model name means: a size such as 27B is billions of parameters; &quot;MoE&quot;
-            models use only part of them for each word, so 30B-A3B has 30B in total and 3B active.{" "}
+            Model names:{" "}
             <a href={MODEL_NAMES_HELP} target="_blank" rel="noreferrer">
-              Mixture of experts explained
+              sizes and mixture of experts
             </a>
             ,{" "}
             <a href={MODEL_QUANT_HELP} target="_blank" rel="noreferrer">
-              quantisation (Q4 and similar) explained
+              quantisation
             </a>
-            .
           </p>
           <RepoPicker onChange={setRepo} />
           <Select
