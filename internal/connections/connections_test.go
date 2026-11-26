@@ -97,6 +97,10 @@ func TestGitLabWithARealToken(t *testing.T) {
 func TestCloudflareRejectsAWrongToken(t *testing.T) {
 	testenv.Network(t, "api.cloudflare.com:443")
 	_, err := svc(t, "cloudflare").Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "0000000000000000000000000000000000000000"})
+	if err != nil && strings.Contains(err.Error(), "HTTP 429") {
+		// Cloudflare rate-limits wrong tokens from shared addresses such as CI runners
+		testenv.NotTested(t, "Cloudflare is limiting requests from this address; try again later")
+	}
 	if !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("%v", err)
 	}
