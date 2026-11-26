@@ -179,12 +179,14 @@ describe("Notes", () => {
     });
     wrap(<Notes />);
     fireEvent.change(await screen.findByLabelText("About"), { target: { value: "repo" } });
-    const repo = await screen.findByRole("option", { name: /ann\/site/ });
-    expect(screen.queryByLabelText("Repository", { selector: "input" })).toBeNull();
+    const repo = (await screen.findByLabelText("Repository")) as HTMLSelectElement;
+    expect(repo.tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Git provider").tagName).toBe("SELECT");
+    await screen.findByRole("option", { name: /ann\/site \(private\)/ });
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "run make test" } });
     const add = screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement;
     expect(add.disabled).toBe(true); // a repository note needs a repository
-    fireEvent.click(repo);
+    fireEvent.change(repo, { target: { value: "ann/site" } });
     await waitFor(() => expect(add.disabled).toBe(false));
     fireEvent.click(add);
     await waitFor(() =>

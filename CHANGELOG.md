@@ -9,6 +9,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - The admin users table no longer makes the page wider than a phone, and the log and command boxes on admin screens can be scrolled from the keyboard.
 
 ### Changed
+- Choosing a repository (new session, notes, automations) is two dropdowns: the git provider, then the repository, with "Create a new repository…" at the end of the list.
 - The browser tests sign in and open every admin screen and every settings screen, in light and dark and on a phone width, checking the layout and accessibility.
 
 ## [0.2.2] - 2026-11-26

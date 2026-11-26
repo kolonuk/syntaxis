@@ -19,6 +19,8 @@ interface Repo {
   default_branch: string;
 }
 
+const NEW = "__new__";
+
 /** Optional: start the session from one of the user's repositories, or from a new one. */
 export function RepoPicker({
   onChange,
@@ -36,15 +38,15 @@ export function RepoPicker({
 }) {
   const { data } = useConnections();
   const [kind, setKind] = useState("");
-  const [mode, setMode] = useState<"existing" | "new">("existing");
-  const [q, setQ] = useState("");
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [err, setErr] = useState("");
+  // a repository's full name, NEW for "create a new one", or empty for none yet
   const [picked, setPicked] = useState("");
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [priv, setPriv] = useState(true);
   const git = (data ?? []).filter((c) => c.kind.git && c.connected);
+  const creating = picked === NEW;
 
   useEffect(() => {
     if (autoSelect && !kind && git.length === 1) setKind(git[0]!.kind.id);
@@ -52,20 +54,17 @@ export function RepoPicker({
   }, [autoSelect, data]);
 
   useEffect(() => {
-    if (!kind || mode !== "existing") return;
+    if (!kind) return;
     setRepos(null);
     setErr("");
-    const t = setTimeout(() => {
-      get<Repo[]>(`/connections/${kind}/repos?q=${encodeURIComponent(q)}`)
-        .then(setRepos)
-        .catch((e) => setErr(e instanceof Error ? e.message : "Could not load repositories"));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [kind, mode, q]);
+    get<Repo[]>(`/connections/${kind}/repos`)
+      .then(setRepos)
+      .catch((e) => setErr(e instanceof Error ? e.message : "Could not load repositories"));
+  }, [kind]);
 
   useEffect(() => {
     if (!kind) return onChange(null);
-    if (mode === "new") {
+    if (creating) {
       onChange(name ? { kind, create: { name, description: desc, private: priv } } : null);
       return;
     }
@@ -76,7 +75,7 @@ export function RepoPicker({
         : null,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, mode, picked, name, desc, priv, repos]);
+  }, [kind, creating, picked, name, desc, priv, repos]);
 
   if (!data) return <Skeleton lines={1} />;
   if (git.length === 0)
@@ -92,7 +91,7 @@ export function RepoPicker({
         {legend}
       </legend>
       <Select
-        label="Service"
+        label="Git provider"
         value={kind}
         onChange={(e) => {
           setKind(e.target.value);
@@ -105,47 +104,25 @@ export function RepoPicker({
       />
       {kind && (
         <>
+          {err && <Banner tone="warn">{err}</Banner>}
           <Select
             label="Repository"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as "existing" | "new")}
+            value={picked}
+            disabled={repos === null && !err}
+            onChange={(e) => setPicked(e.target.value)}
             options={[
-              { value: "existing", label: "Use one of mine" },
-              ...(allowCreate ? [{ value: "new", label: "Create a new one" }] : []),
+              {
+                value: "",
+                label: repos === null && !err ? "Loading repositories…" : "Choose a repository",
+              },
+              ...(repos ?? []).map((r) => ({
+                value: r.full_name,
+                label: `${r.full_name} (${r.private ? "private" : "public"})`,
+              })),
+              ...(allowCreate ? [{ value: NEW, label: "Create a new repository…" }] : []),
             ]}
           />
-          {mode === "existing" ? (
-            <>
-              <Input
-                label="Search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="name or description"
-              />
-              {err && <Banner tone="warn">{err}</Banner>}
-              {repos === null && !err && <Skeleton lines={2} />}
-              <div role="listbox" aria-label="Repositories" className="repo-list">
-                {(repos ?? []).map((r) => (
-                  <button
-                    key={r.full_name}
-                    type="button"
-                    role="option"
-                    aria-selected={picked === r.full_name}
-                    className="choice"
-                    aria-pressed={picked === r.full_name}
-                    onClick={() => setPicked(r.full_name)}
-                  >
-                    <strong>{r.full_name}</strong>
-                    <small>
-                      {r.private ? "private" : "public"}
-                      {r.description ? ` · ${r.description}` : ""}
-                    </small>
-                  </button>
-                ))}
-                {repos && repos.length === 0 && <p className="muted">No repositories found.</p>}
-              </div>
-            </>
-          ) : (
+          {creating && (
             <>
               <Input
                 label="Name"
