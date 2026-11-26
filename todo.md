@@ -6,6 +6,48 @@ Goal: as close a drop-in replacement for Jules and Claude Code as a self-hosted,
 
 Rules for contributors: no environment-specific values in the repo (use `example.com`, `llm.internal`), no secrets, every behaviour change has tests, and security behaviour has a test that fails if the protection is removed. Tests use real services (see CONTRIBUTING.md); where one is not available the test says `NOT TESTED` rather than pretend.
 
+## 0. Found in manual testing (2026-11-26)
+
+Admin app:
+
+- [ ] 2FA sign-in: focus and highlight the code input.
+- [ ] Why can Syntaxis not download images when it runs in a container? Find the cause and fix it or explain it on screen.
+- [ ] Other MCP servers: say why they are "hosted only", and what to do about it.
+- [ ] Menu: group the items into sub-menus (Users: users, levels, groups. Models: providers and models, environments, MCP servers. Sessions and egress. Health and updates. And so on).
+- [ ] Configuration: a sub-menu for its groups.
+- [ ] Update service not running: detect a container install and show a warning at the top that an update is temporary and is reverted when the container is deployed again (Compose, Kubernetes).
+- [ ] The "check benchmark" button shows nothing on the benchmark screen after a run.
+- [ ] Recommended model column: keep only the toggle, drop the text.
+- [ ] Model name column: show features as pills (like "no tools"), then remove the live probe column.
+- [ ] Add provider: links to how to create an API token for Claude, OpenAI and the other hosted providers.
+- [ ] Invite a user: typing in the email field jumps to the name field.
+- [ ] User settings option shows a blank screen.
+- [ ] Users list: show the user's level and group.
+
+User app:
+
+- [ ] Settings: full width, and the same sub-menu grouping as the admin app.
+- [ ] Connections settings: "Connect" opens an entry with values already filled in. Rename the buttons ("Connect" to expand and collapse; "Check and save" clearer).
+- [ ] Check and save: a prominent message for errors and success, not only the corner toast.
+- [ ] MCP server requests: every user can search for and request an MCP server (where is it?).
+- [ ] Notes: choose the repository from the user's git connections, with help, pre-filled with the provider/repository list.
+- [ ] Commands, secrets and tokens: a list with a pop-up editor.
+- [ ] Hooks settings: a better screen, with a help link and simple examples.
+- [ ] Move the sessions/automations toggle to the left of the title bar and give it a border.
+- [ ] New session pop-up: link to outside documentation explaining model names (sizes, MoE, "A3B").
+- [ ] New session: choose a repository (provider/repository list, or a provider and a new repository), and an environment.
+- [ ] Session screen: the right-hand panel can be resized against the chat.
+- [ ] Stop button next to the send button, and a small stop square next to the spinning status circle.
+- [ ] Output panel shows the sandbox being created, so the status circle is not just stuck.
+- [ ] The owner's chat stays on "getting the sandbox ready" while the shared view updates; leaving and returning is needed. After returning, the spinner is gone; after a refresh the spinner and task list are right.
+- [ ] A minimised task list keeps showing the green progress bar.
+- [ ] Date and time on chat messages.
+- [ ] The output panel shows nothing while the model is working.
+- [ ] The context meter is missing while the model is working.
+- [ ] Workspace files: remove the refresh button and keep the list current.
+- [ ] Workspace files: download the whole workspace as a zip, and each directory as a zip.
+- [ ] The whole screen jumped about until a refresh; the chat sometimes shows a message about "older chats" (compaction?). Find the cause.
+
 ## 1. Fixes and verification
 
 - [ ] Test and document building images inside a sandbox (no claim without a passing test).
