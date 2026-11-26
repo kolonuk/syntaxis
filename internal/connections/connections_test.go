@@ -4,11 +4,14 @@ package connections
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +77,74 @@ func TestGitHubWithARealToken(t *testing.T) {
 	t.Log("NOT TESTED: creating a GitHub repository and opening a pull request (they would change the real account)")
 }
 
+// TestGitHubPullRequestFlow runs the connection side of the pull-request flow against real GitHub:
+// create a repository, branch, commit, open a pull request, read it back. It changes the real
+// account (a private repository named syntaxis-test-<random> that is deleted at the end), so it
+// runs only when SYNTAXIS_TEST_GITHUB_WRITE=1 and the token may create and delete repositories.
+func TestGitHubPullRequestFlow(t *testing.T) {
+	tok := testenv.Env(t, "SYNTAXIS_TEST_GITHUB_TOKEN", "the GitHub connection")
+	if os.Getenv("SYNTAXIS_TEST_GITHUB_WRITE") != "1" {
+		testenv.NotTested(t, "set SYNTAXIS_TEST_GITHUB_WRITE=1 to create and delete a throwaway GitHub repository")
+	}
+	g, ok := git(t, "github").(*GitHub)
+	if !ok {
+		t.Fatal("the github provider is not *GitHub")
+	}
+	if g.HC == nil {
+		g.HC = http.DefaultClient
+	}
+	c := Creds{"GITHUB_TOKEN": tok}
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
+	repo, err := g.CreateRepo(ctx, c, NewRepo{Name: "syntaxis-test-" + hex.EncodeToString(suffix), Description: "throwaway, made by a test", Private: true})
+	if err != nil {
+		t.Fatalf("create the repository: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := call(ctx, g.HC, "DELETE", g.base()+"/repos/"+repo.FullName, g.hdr(c), nil, nil); err != nil {
+			t.Errorf("DELETE THE TEST REPOSITORY %s BY HAND: %v", repo.FullName, err)
+		}
+	})
+	// the repository is listed with the token that made it
+	rs, err := g.ListRepos(ctx, c, repo.FullName)
+	if err != nil || len(rs) == 0 {
+		t.Fatalf("list: %+v %v", rs, err)
+	}
+	var head struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	var herr error
+	for i := 0; i < 10; i++ { // the first commit can take a moment to appear
+		if _, herr = call(ctx, g.HC, "GET", g.base()+"/repos/"+repo.FullName+"/git/ref/heads/"+repo.DefaultBranch, g.hdr(c), nil, &head); herr == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if herr != nil {
+		t.Fatalf("read the default branch: %v", herr)
+	}
+	branch := "syntaxis-change"
+	if _, err := call(ctx, g.HC, "POST", g.base()+"/repos/"+repo.FullName+"/git/refs", g.hdr(c), jsonBody(map[string]any{"ref": "refs/heads/" + branch, "sha": head.Object.SHA}), nil); err != nil {
+		t.Fatalf("create the branch: %v", err)
+	}
+	file := jsonBody(map[string]any{"message": "a small change", "content": base64.StdEncoding.EncodeToString([]byte("hello from a test\n")), "branch": branch})
+	if _, err := call(ctx, g.HC, "PUT", g.base()+"/repos/"+repo.FullName+"/contents/change.txt", g.hdr(c), file, nil); err != nil {
+		t.Fatalf("commit to the branch: %v", err)
+	}
+	url, err := g.OpenPR(ctx, c, PullRequest{Repo: repo.FullName, Title: "A small change", Body: "opened by a test", Head: branch})
+	if err != nil || !strings.Contains(url, "/pull/") {
+		t.Fatalf("open the pull request: %q %v", url, err)
+	}
+	var prs []struct {
+		Title string `json:"title"`
+	}
+	if _, err := call(ctx, g.HC, "GET", g.base()+"/repos/"+repo.FullName+"/pulls?state=open", g.hdr(c), nil, &prs); err != nil || len(prs) != 1 || prs[0].Title != "A small change" {
+		t.Fatalf("read the pull request back: %+v %v", prs, err)
+	}
+}
+
 func TestGitLabRejectsAWrongToken(t *testing.T) {
 	testenv.Network(t, "gitlab.com:443")
 	_, err := svc(t, "gitlab").Test(ctx, Creds{"GITLAB_TOKEN": "glpat-0000000000000000000x"})
@@ -108,8 +179,30 @@ func TestCloudflareRejectsAWrongToken(t *testing.T) {
 
 func TestCloudflareWithARealToken(t *testing.T) {
 	tok := testenv.Env(t, "SYNTAXIS_TEST_CLOUDFLARE_TOKEN", "the Cloudflare connection")
-	if id, err := svc(t, "cloudflare").Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": tok}); err != nil || id.Account == "" {
+	// an account-owned token verifies only through its account: set the account ID for one
+	cr := Creds{"CLOUDFLARE_API_TOKEN": tok, "CLOUDFLARE_ACCOUNT_ID": os.Getenv("SYNTAXIS_TEST_CLOUDFLARE_ACCOUNT_ID")}
+	if id, err := svc(t, "cloudflare").Test(ctx, cr); err != nil || id.Account == "" {
 		t.Fatalf("%+v %v", id, err)
+	}
+}
+
+func TestCloudflareVerifiesAnAccountTokenThroughItsAccount(t *testing.T) {
+	const account = "0123456789abcdef0123456789abcdef"
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_, _ = w.Write([]byte(`{"success":true,"result":{"id":"tok1","status":"active"}}`))
+	}))
+	defer srv.Close()
+	c := &Cloudflare{HC: srv.Client(), APIBase: srv.URL}
+	if _, err := c.Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "x"}); err != nil || path != "/user/tokens/verify" {
+		t.Fatalf("user token: %q %v", path, err)
+	}
+	if _, err := c.Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": account}); err != nil || path != "/accounts/"+account+"/tokens/verify" {
+		t.Fatalf("account token: %q %v", path, err)
+	}
+	if _, err := c.Test(ctx, Creds{"CLOUDFLARE_API_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": "../../x"}); err == nil {
+		t.Fatal("an account ID that is not 32 hex characters was used in a URL")
 	}
 }
 

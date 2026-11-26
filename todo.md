@@ -15,7 +15,6 @@ Rules for contributors: no environment-specific values in the repo (use `example
 - [ ] **Master key check at start-up (Easy).** A wrong master key is not noticed at start-up: secrets just fail to decrypt. Store a small encrypted canary and have `syntaxis doctor` and the Health page report a key that cannot open it.
 - [ ] **Per-user, per-level and per-group upload limits (Easy to Medium).** Uploads have a global switch, size and allowed kinds only. Add a daily upload total per user and let level and group policies lower or switch off uploads, like the other limits.
 - [ ] **Restore on a clean machine (Medium).** The restore was drilled on the real host, in a temporary data directory and on spare ports, and by a test comparing every table. A full restore on a clean virtual machine (volumes, master key and the update service) can now use the test VMs in `test/vm`, but has not been done.
-- [ ] **A macOS test host (Medium).** macOS cannot be tested in the VM harness (it cannot run under KVM). Add a Mac as a second test host, or GitHub-hosted macOS runners.
 
 ## 2. Agent and workflow
 
@@ -25,14 +24,8 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 These work as far as a test can show, but the test needs something this project does not have. Each skips as `NOT TESTED` and is listed in the CI summary.
 
-- [ ] Connections to real GitLab, Cloudflare, AWS, Azure, Google Cloud and IFTTT accounts, and a real GitHub token in CI (set the `SYNTAXIS_TEST_*` secrets). Only wrong-credential behaviour and the SigV4 signing test vector are checked today.
-- [ ] The pull-request flow end to end: the agent pushes a branch from a sandbox and a pull request is opened. Sandboxes cannot reach a private forge by design, so this needs a public test repository.
-- [ ] SMTP login and STARTTLS against a real relay.
-- [ ] The llama.cpp and LiteLLM adapters against real servers.
 - [ ] The update and the roll-back after a failed update on a physical host, not a VM (the VM test covers both on the five Linux distros).
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
-- [ ] Web search against a real SearXNG server (the parser is tested; the live test needs `SYNTAXIS_TEST_SEARXNG_URL`).
-- [ ] Pictures sent to a vision model through the llama.cpp and LiteLLM adapters (checked with Ollama's native and OpenAI-compatible APIs only), and OCR of languages other than English.
 - [ ] The new web screens (Files tab, attachments, slash commands, task list, Notes, Commands and Hooks settings, API tokens, the repository hooks banner, the admin Policies upload switches and the admin user settings dialog) in the Playwright flows against a running instance: they pass type checks, lint, unit tests and the bundle budget, and the server behind each one is tested against a real sandbox, but no browser flow covers them yet.
 
 - [ ] **Prompt injection with a model that falls for it.** `TestLivePromptInjection` (opt-in) plants hostile text in a repository file, an attached PDF and command output and checks what happened in a real sandbox. The one model tried (a 27B) resisted all three, so approvals, hook trust and secret redaction were not exercised end to end by a real attempt; they are covered by their own tests. Run it on a weaker or older model that attempts the attacks.
@@ -87,7 +80,7 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 - [ ] **Sandbox web browser for developing web apps (Medium to Hard).** View a dev server running in the sandbox and see the agent's changes live: a preview tab in the app (the authenticated preview proxy exists) with reload on change, and optionally a headless browser in the sandbox that takes screenshots for the user (and, with image input, for a vision model) and shows console errors.
 - [ ] **Choice of sandbox runtime (Medium).** gVisor is the only runtime today. Make the runtime a setting (gVisor, Kata Containers, Firecracker, plain runc with a clear warning) with a health check per runtime and tests for each against real hosts.
 - [ ] **An alternative to nftables (Medium).** The egress firewall needs nftables. Support iptables, and firewalld or a Docker-network-only mode, behind one interface, and say in the health page which is in use.
-- [ ] **macOS and Windows support (Hard).** Today Linux only, because gVisor needs it. Options: run the whole stack in a Linux VM (Docker Desktop, WSL2, Colima) with an installer for each, then test the sandbox, firewall and update path there. Depends on the runtime choice and the firewall alternative above.
+- [ ] **Windows support (Hard).** Today Linux only, because gVisor needs it. Option: run the whole stack in a Linux VM (WSL2 or Docker Desktop) with an installer for it, then test the sandbox, firewall and update path there with the Windows VM from the test harness. Depends on the runtime choice and the firewall alternative above.
 - [ ] **Chat integration (Medium).** Start and follow sessions from Slack, Microsoft Teams, Discord or Matrix: a message or `@syntaxis` mention starts a session, replies and approval requests come back in the thread, using each person's own Syntaxis account.
 - [ ] **Generic guest invite (Medium).** One invite link, not tied to an email address, that lets anyone who has it create a limited account: expiry, use count, a default level and group with tight quotas, optional admin approval, and revocation. Opt-in, off by default (there are no sign-ups today).
 - [ ] **Tailscale and Cloudflare Tunnel inside the app (Medium to Hard).** Share the instance without opening ports or running a reverse proxy: set up and show the status of a Tailscale node (Serve or Funnel) or a Cloudflare Tunnel from the admin app, with the secure-cookie, base URL, trusted-proxy and `SYNTAXIS_PROXY_AUTH` settings adjusted to match, and a health check for each. Must not weaken the rule that the admin app is never on the public address.

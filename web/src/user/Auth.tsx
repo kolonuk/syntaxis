@@ -316,7 +316,9 @@ export function TwoFactorSetup({ onDone, mandatory }: { onDone: () => void; mand
         <Banner tone="warn">
           Save these recovery codes somewhere safe. Each works once and they are shown only now.
         </Banner>
-        <pre aria-label="Recovery codes">{codes.join("\n")}</pre>
+        <pre aria-label="Recovery codes" tabIndex={0}>
+          {codes.join("\n")}
+        </pre>
         <Button variant="primary" onClick={onDone}>
           I have saved them
         </Button>

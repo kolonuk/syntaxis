@@ -513,7 +513,7 @@ export function McpTab() {
                     ? "It is on the Docker host. To fetch it again:"
                     : "Make sure it is on the Docker host:"}
               </p>
-              <pre className="output" aria-label="Command to pull the image">
+              <pre className="output" tabIndex={0} aria-label="Command to pull the image">
                 {review.pkg.review.pull_command}
               </pre>
               <Button onClick={() => void recheckImage()}>Check again</Button>

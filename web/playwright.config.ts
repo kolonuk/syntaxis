@@ -6,6 +6,7 @@ import { defineConfig } from "@playwright/test";
 // BASE_URL / ADMIN_URL point at it. Not run as part of `npm test`.
 export default defineConfig({
   testDir: "e2e",
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 60_000,
   use: { baseURL: process.env.BASE_URL ?? "http://127.0.0.1:8080", trace: "off" },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],

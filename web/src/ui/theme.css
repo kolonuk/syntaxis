@@ -443,6 +443,7 @@ th {
 }
 .table-wrap {
   overflow-x: auto;
+  position: relative; /* keeps screen-reader-only text inside the table from widening the page */
 }
 code,
 pre {
@@ -1455,7 +1456,7 @@ a.btn {
 }
 @media (max-width: 720px) {
   .settings {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr); /* not 1fr: a wide table inside would widen the column */
   }
   .settings-nav {
     position: static;

@@ -32,12 +32,13 @@ If something real is unavailable, the test skips with `NOT TESTED: <reason>`; it
 
 - Needs Docker and gVisor (`runsc`) and the sandbox image (`docker build -t syntaxis-sandbox:latest images/sandbox`): skips without them. The OCR tests also need an image that has poppler and Tesseract (the current Dockerfile does); to test a freshly built image without replacing the one a running instance uses, build it under another tag and set `SYNTAXIS_TEST_SANDBOX_IMAGE`.
 - Web search: set `SYNTAXIS_TEST_SEARXNG_URL` to a SearXNG server with the json format enabled, or the live test skips.
-- Needs an account: set `SYNTAXIS_TEST_GITHUB_TOKEN`, `SYNTAXIS_TEST_GITLAB_TOKEN`, `SYNTAXIS_TEST_CLOUDFLARE_TOKEN`, `SYNTAXIS_TEST_IFTTT_KEY`, `SYNTAXIS_TEST_AWS_ACCESS_KEY_ID` with `..._SECRET_ACCESS_KEY`, the `SYNTAXIS_TEST_AZURE_*` set, or the `SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON` with `SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT`.
+- Needs an account: set `SYNTAXIS_TEST_GITHUB_TOKEN`, `SYNTAXIS_TEST_GITLAB_TOKEN`, `SYNTAXIS_TEST_CLOUDFLARE_TOKEN` (and `SYNTAXIS_TEST_CLOUDFLARE_ACCOUNT_ID` for an account-owned token), `SYNTAXIS_TEST_IFTTT_KEY`, `SYNTAXIS_TEST_AWS_ACCESS_KEY_ID` with `..._SECRET_ACCESS_KEY`, the `SYNTAXIS_TEST_AZURE_*` set, or the `SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON` with `SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT`.
+- Pull-request flow: with `SYNTAXIS_TEST_GITHUB_TOKEN` and `SYNTAXIS_TEST_GITHUB_WRITE=1`, `TestGitHubPullRequestFlow` and `TestIntegrationGitPushFromASandbox` create a private repository named `syntaxis-test-<random>`, push a branch (the second from a real sandbox) and open a pull request, then delete the repository. The token needs the `repo` and `delete_repo` scopes. Keep the token in the test's environment only.
 - Needs a model: set `SYNTAXIS_LIVE=1` and point `SYNTAXIS_TEST_ENV` at a file with `OLLAMA_URL`, `OLLAMA_KIND` and `MODEL_TINY`, `MODEL_SMALL`, `MODEL_MAIN` (default `~/.config/syntaxis-test/env`, outside the repository). Model tests ask for simple checkable results and assert on what happened in the sandbox.
 
 Tests that start sandboxes use user ids far above any real user's and clean up after themselves. Whole-host operations (the reaper, the kill switch) are scoped to the test's own containers, so a Syntaxis running on the same Docker host is not affected.
 
-The web checks: `npm run e2e` (Playwright flows and axe accessibility) and `npm run lighthouse` need a running instance (CI runs them against the one the installer creates; see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
+The web checks: `npm run e2e` (Playwright flows, and every admin and settings screen signed in, with axe accessibility on desktop and phone widths) and `npm run lighthouse` need a running instance (CI runs them against the one the installer creates; see `web/playwright.config.ts`); `npm run budget` checks the built bundle sizes.
 
 ## Skills for contributors
 

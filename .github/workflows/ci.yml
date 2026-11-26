@@ -258,6 +258,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Playwright flows and accessibility (axe) against the installed instance
         run: |
+          # the installer's single-use admin link lets the tests make a signed-in admin and user
+          export E2E_SETUP_TOKEN=$(grep -o '#setup=[A-Za-z0-9_-]*' install.log | head -1 | cut -d= -f2)
           cd web && npm ci && npx playwright install --with-deps chromium
           npm run e2e
       - name: Lighthouse (accessibility, best practices, SEO, performance) against the installed instance

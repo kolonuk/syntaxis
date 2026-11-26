@@ -246,7 +246,9 @@ export function SessionMessagesDialog({ id, onClose }: { id: string; onClose: ()
           {msgs.map((m, i) => (
             <div key={i}>
               <strong>{m.role}</strong>
-              <pre className="output">{m.content}</pre>
+              <pre className="output" tabIndex={0}>
+                {m.content}
+              </pre>
             </div>
           ))}
         </div>

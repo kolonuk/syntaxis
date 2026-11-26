@@ -26,7 +26,9 @@ go build -o /tmp/syx ./cmd/syntaxis
 DOCKER_HOST=tcp://127.0.0.1:1 SYNTAXIS_MASTER_KEY=$(/tmp/syx keygen) SYNTAXIS_DATA_DIR=$(mktemp -d) \
   SYNTAXIS_LISTEN=127.0.0.1:28080 SYNTAXIS_ADMIN_LISTEN=127.0.0.1:28081 /tmp/syx serve &
 cd web && npx playwright install chromium
-BASE_URL=http://127.0.0.1:28080 ADMIN_URL=http://127.0.0.1:28081 npm run e2e
+# the screen tests sign in: give the admin password of a bootstrap admin (SYNTAXIS_BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+# and SYNTAXIS_BOOTSTRAP_ADMIN_PASSWORD when starting the server) or the installer's setup token (E2E_SETUP_TOKEN)
+E2E_ADMIN_PASSWORD='the bootstrap password' BASE_URL=http://127.0.0.1:28080 ADMIN_URL=http://127.0.0.1:28081 npm run e2e
 CHROME_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())") BASE_URL=http://127.0.0.1:28080/ npm run lighthouse
 ```
 

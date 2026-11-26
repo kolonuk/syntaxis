@@ -4,6 +4,14 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- Cloudflare connections accept a token made under an account: enter the account ID with it. Before, only a token made under My Profile was accepted.
+- The admin users table no longer makes the page wider than a phone, and the log and command boxes on admin screens can be scrolled from the keyboard.
+
+### Changed
+- The browser tests sign in and open every admin screen and every settings screen, in light and dark and on a phone width, checking the layout and accessibility.
+- New tests run the pull-request flow against real GitHub, from a connection and from a real sandbox, using a throwaway repository that is deleted afterwards (opt-in; see CONTRIBUTING.md).
+
 ## [0.2.2] - 2026-11-26
 
 ### Added

@@ -85,7 +85,7 @@ export function AuditTab() {
             Download the log
           </a>
         </p>
-        <pre className="output" aria-label="Command to verify the downloaded log">
+        <pre className="output" tabIndex={0} aria-label="Command to verify the downloaded log">
           docker compose exec -T syntaxis syntaxis audit verify - &lt; syntaxis-audit.jsonl
         </pre>
       </Card>

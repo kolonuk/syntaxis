@@ -220,7 +220,7 @@ export function AdminsTab() {
             Give this to them directly. It works once and expires in {link.hours} hours. They choose
             a password and then set up two-factor authentication.
           </p>
-          <pre className="output" aria-label="Setup link">
+          <pre className="output" tabIndex={0} aria-label="Setup link">
             {link.url}
           </pre>
         </Modal>
