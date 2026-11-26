@@ -24,11 +24,9 @@ Rules for contributors: no environment-specific values in the repo (use `example
 
 These work as far as a test can show, but the test needs something this project does not have. Each skips as `NOT TESTED` and is listed in the CI summary.
 
-- [ ] The update and the roll-back after a failed update on a physical host, not a VM (the VM test covers both on the five Linux distros).
 - [ ] Parallel attempts with real model runs side by side, and what "keep this one" should do with the kept branch (today it removes the others and leaves pushing to the user).
 
 - [ ] **Prompt injection with a model that falls for it.** `TestLivePromptInjection` (opt-in) plants hostile text in a repository file, an attached PDF and command output and checks what happened in a real sandbox. The one model tried (a 27B) resisted all three, so approvals, hook trust and secret redaction were not exercised end to end by a real attempt; they are covered by their own tests. Run it on a weaker or older model that attempts the attacks.
-- [ ] **Prompt injection through a hostile web page.** The end-to-end test with a real model (`TestLivePromptInjection`, opt-in) covers a repository file, an attached PDF and command output. A page read with `fetch_url` is not covered: the tool refuses loopback and the local network, so the page has to be public.
 
 ## 4. Features
 
@@ -87,3 +85,6 @@ Ordered by priority within each tier. Effort is relative to the existing code: *
 - [ ] **VS Code extension (unknown scope, needs a design pass).** Capabilities not yet decided. Candidates: a sessions view, starting a session on the open repository and branch, showing the agent's changes as a diff in the editor, approvals and questions as notifications, and sending the selection or a file as context. Likely built on the same API as the MCP server above, so decide the two together.
 - [ ] **Move away from Bash scripts (Medium to Hard).** About 940 lines of shell (`scripts/install.sh`, `update.sh`, `update-agent.sh`, `apply-egress.sh`, `firewall-sync.sh`, `install-gvisor.sh`, `build-templates.sh` and others) do the install, update, roll-back and firewall work, and are hard to test and to port to macOS and Windows. Move that logic into the Go binary as subcommands (`syntaxis install`, `update`, `firewall apply`), with real-host tests, keeping a tiny bootstrap script that only fetches and runs the binary. Do the firewall and update paths first; it is also a prerequisite for the macOS and Windows item.
 
+### Later
+
+- [ ] **Prompt injection through a hostile web page.** The end-to-end test with a real model (`TestLivePromptInjection`, opt-in) covers a repository file, an attached PDF and command output. A page read with `fetch_url` is not covered: the tool refuses loopback and the local network, so the page has to be public.
