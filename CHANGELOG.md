@@ -7,7 +7,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [0.2.2] - 2026-11-26
 
 ### Added
-- **Admin app menu in groups.** Health & updates, Users, Models & tools, Sessions & egress and System each have a second row of tabs. Configuration has one tab per group.
+- **Admin app menu in groups.** Health & updates, Users, Models & tools, Sessions & egress and System are listed in a vertical menu under headings, like the user settings. Configuration has one tab per group.
 - **Updates page warns about containers.** When Syntaxis runs in a container and the update service is not running, a warning says that an update made by hand is reverted when the container is deployed again from Compose or Kubernetes.
 - **Requests for MCP servers.** Every user can search the catalogue and request a server (Settings → Tools → Find more tools). Admins see the requests on the MCP page, review them and approve or dismiss them.
 - **Workspace zip downloads.** The Files view downloads the whole workspace, or any folder, as a zip.

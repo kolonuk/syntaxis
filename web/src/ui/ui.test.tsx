@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { GroupedTabs } from "./GroupedTabs";
+import { SideMenu } from "./SideMenu";
 import {
   Badge,
   Button,
@@ -210,31 +210,30 @@ describe("useShortcuts", () => {
   });
 });
 
-describe("GroupedTabs", () => {
+describe("SideMenu", () => {
   const groups = [
     {
-      id: "a",
       label: "Alpha",
-      tabs: [
+      items: [
         { id: "a1", label: "First" },
         { id: "a2", label: "Second" },
       ],
     },
-    { id: "b", label: "Beta", tabs: [{ id: "b1", label: "Only" }] },
+    { label: "Beta", items: [{ id: "b1", label: "Only" }] },
   ];
-  it("shows the tabs of the current group, and opens a group on its first tab", () => {
+  it("lists the items under their group, marks the current one and reports a choice", () => {
     const onChange = vi.fn();
-    render(<GroupedTabs groups={groups} value="a2" onChange={onChange} />);
-    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByRole("tab", { name: "Beta" }));
+    render(
+      <SideMenu groups={groups} value="a2" onChange={onChange} label="Sections">
+        <p>the screen</p>
+      </SideMenu>,
+    );
+    expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Beta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Second" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "First" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByText("the screen")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Only" }));
     expect(onChange).toHaveBeenCalledWith("b1");
-    fireEvent.click(screen.getByRole("tab", { name: "First" }));
-    expect(onChange).toHaveBeenCalledWith("a1");
-  });
-  it("has no second row for a group with one tab", () => {
-    render(<GroupedTabs groups={groups} value="b1" onChange={() => undefined} />);
-    expect(screen.queryByRole("tab", { name: "Only" })).toBeNull();
-    expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 });

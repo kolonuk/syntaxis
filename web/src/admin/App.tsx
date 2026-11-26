@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { del, get, patch, post, put, errText } from "../lib/api";
 import { applyTheme, loadPref } from "../lib/theme";
-import { GroupedTabs, type TabGroup } from "../ui/GroupedTabs";
+import { SideMenu, type MenuGroup } from "../ui/SideMenu";
 import {
   Badge,
   Banner,
@@ -1108,30 +1108,27 @@ function GroupsTab() {
   );
 }
 
-/** The admin menu: related screens are grouped, and each group has its own row of tabs. */
-export function navGroups(updateAvailable: boolean): TabGroup[] {
+/** The admin menu: related screens are grouped under a heading. */
+export function navGroups(updateAvailable: boolean): MenuGroup[] {
   return [
     {
-      id: "health-updates",
-      label: updateAvailable ? "Health & updates ●" : "Health & updates",
-      tabs: [
+      label: "Health & updates",
+      items: [
         { id: "health", label: "Health" },
         { id: "updates", label: updateAvailable ? "Updates ●" : "Updates" },
       ],
     },
     {
-      id: "people",
       label: "Users",
-      tabs: [
+      items: [
         { id: "users", label: "Users" },
         { id: "groups", label: "Levels & groups" },
         { id: "admins", label: "Admins" },
       ],
     },
     {
-      id: "models",
       label: "Models & tools",
-      tabs: [
+      items: [
         { id: "providers", label: "Providers & models" },
         { id: "bench", label: "Benchmarks" },
         { id: "envs", label: "Environments" },
@@ -1139,18 +1136,16 @@ export function navGroups(updateAvailable: boolean): TabGroup[] {
       ],
     },
     {
-      id: "sessions",
       label: "Sessions & egress",
-      tabs: [
+      items: [
         { id: "sessions", label: "Sessions" },
         { id: "egress", label: "Egress" },
         { id: "settings", label: "Policies" },
       ],
     },
     {
-      id: "system",
       label: "System",
-      tabs: [
+      items: [
         { id: "config", label: "Configuration" },
         { id: "audit", label: "Audit" },
         { id: "kill", label: "Kill switch" },
@@ -1210,27 +1205,28 @@ function Console({
         </Button>
       </header>
       <main className="main">
-        <GroupedTabs
+        <SideMenu
           groups={navGroups(!!upd?.release_available)}
           value={tab}
           onChange={setTab}
           label="Admin sections"
-        />
-        {tab === "health" && <HealthTab go={setTab} />}
-        {tab === "users" && <UsersTab />}
-        {tab === "groups" && <GroupsTab />}
-        {tab === "admins" && <AdminsTab />}
-        {tab === "providers" && <ProvidersTab />}
-        {tab === "envs" && <EnvironmentsTab />}
-        {tab === "updates" && <UpdatesTab />}
-        {tab === "bench" && <BenchmarksTab />}
-        {tab === "mcp" && <McpTab />}
-        {tab === "sessions" && <SessionsTab />}
-        {tab === "audit" && <AuditTab />}
-        {tab === "egress" && <EgressTab />}
-        {tab === "settings" && <SettingsTab />}
-        {tab === "config" && <ConfigTab />}
-        {tab === "kill" && <KillTab />}
+        >
+          {tab === "health" && <HealthTab go={setTab} />}
+          {tab === "users" && <UsersTab />}
+          {tab === "groups" && <GroupsTab />}
+          {tab === "admins" && <AdminsTab />}
+          {tab === "providers" && <ProvidersTab />}
+          {tab === "envs" && <EnvironmentsTab />}
+          {tab === "updates" && <UpdatesTab />}
+          {tab === "bench" && <BenchmarksTab />}
+          {tab === "mcp" && <McpTab />}
+          {tab === "sessions" && <SessionsTab />}
+          {tab === "audit" && <AuditTab />}
+          {tab === "egress" && <EgressTab />}
+          {tab === "settings" && <SettingsTab />}
+          {tab === "config" && <ConfigTab />}
+          {tab === "kill" && <KillTab />}
+        </SideMenu>
       </main>
     </div>
   );

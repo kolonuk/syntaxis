@@ -39,7 +39,7 @@ Open the printed link (valid once, for 24 hours), choose a password and set up t
 
 The admin app listens only on the machine itself, `http://127.0.0.1:8081`. To use it from elsewhere, open an SSH tunnel, or set `SYNTAXIS_ADMIN_BIND` to a LAN or VPN address.
 
-The admin menu has five groups, each with its own row of tabs:
+The admin menu is a vertical list with five groups:
 
 | Group | Tabs |
 | --- | --- |

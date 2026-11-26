@@ -1404,16 +1404,65 @@ a.btn {
 }
 
 /* The second row of a grouped tab bar: lighter than the first. */
-.tab-groups {
-  gap: 4px;
-}
-.sub-tabs .tabs {
-  border-bottom: 1px solid var(--border, #d0d4dc);
-}
-.sub-tabs .tab {
-  font-size: 0.9rem;
-}
 .ctx-mini {
   margin: 0 0 var(--s1);
   font-size: var(--fs-sm);
+}
+
+/* A vertical menu with the chosen screen beside it (user settings, admin app). */
+.settings {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+  width: 100%;
+}
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.settings-nav h2 {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.settings-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 0;
+  border-radius: var(--radius, 6px);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.settings-nav button:hover {
+  background: var(--surface);
+}
+.settings-nav button[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-weight: 600;
+}
+.settings-body {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .settings {
+    grid-template-columns: 1fr;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .settings-nav button {
+    width: auto;
+  }
 }

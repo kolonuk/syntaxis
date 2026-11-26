@@ -621,7 +621,7 @@ describe("MCP servers tab", () => {
 describe("Admin menu", () => {
   it("groups related screens and reaches every screen once", () => {
     const groups = navGroups(false);
-    const ids = groups.flatMap((g) => g.tabs.map((t) => t.id));
+    const ids = groups.flatMap((g) => g.items.map((t) => t.id));
     expect(new Set(ids).size).toBe(ids.length);
     for (const want of [
       "health",
@@ -641,16 +641,16 @@ describe("Admin menu", () => {
       "kill",
     ])
       expect(ids).toContain(want);
-    const of = (id: string) => groups.find((g) => g.tabs.some((t) => t.id === id))!.id;
+    const of = (id: string) => groups.find((g) => g.items.some((t) => t.id === id))!.label;
     expect(of("users")).toBe(of("groups"));
     expect(of("providers")).toBe(of("envs"));
     expect(of("providers")).toBe(of("mcp"));
     expect(of("health")).toBe(of("updates"));
     expect(of("sessions")).toBe(of("egress"));
   });
-  it("marks the health and updates group when a release is available", () => {
-    expect(navGroups(true)[0]!.label).toContain("●");
-    expect(navGroups(false)[0]!.label).not.toContain("●");
+  it("marks the updates item when a release is available", () => {
+    expect(navGroups(true)[0]!.items[1]!.label).toContain("●");
+    expect(navGroups(false)[0]!.items[1]!.label).not.toContain("●");
   });
 });
 

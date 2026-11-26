@@ -8,6 +8,7 @@ import { McpTools } from "./McpTools";
 import { CommandsEditor, HooksEditor, Notes } from "./AgentSettings";
 import { SharedLinks } from "./Shared";
 import { ApiTokens } from "./ApiTokens";
+import { SideMenu } from "../ui/SideMenu";
 import {
   Badge,
   Banner,
@@ -222,76 +223,58 @@ export function Settings({
   const toast = useToast();
   const [tab, setTab] = useState("profile");
   return (
-    <div className="settings">
-      <nav className="settings-nav" aria-label="Settings">
-        {SETTINGS_GROUPS.map((g) => (
-          <div key={g.label}>
-            <h2>{g.label}</h2>
-            {g.items.map((i) => (
-              <button
-                key={i.id}
-                aria-current={i.id === tab ? "page" : undefined}
-                onClick={() => setTab(i.id)}
-              >
-                {i.label}
-              </button>
-            ))}
-          </div>
-        ))}
-      </nav>
-      <div className="settings-body stack">
-        {tab === "profile" && (
-          <Card title="Profile">
-            <p>
-              {me.name} <span className="muted">({me.email})</span>
-            </p>
-            <Button
-              onClick={async () => {
-                await post("/logout-all");
-                onLogout();
-              }}
-            >
-              Sign out everywhere
-            </Button>
-            <p>
-              <VersionLabel />
-            </p>
-          </Card>
-        )}
-        {tab === "password" && (
-          <Card title="Change password">
-            <ChangePassword
-              onDone={() => {
-                toast("Password changed. Please sign in again.", "success");
-                onLogout();
-              }}
-            />
-          </Card>
-        )}
-        {tab === "2fa" && (
-          <Card title="Two-factor authentication">
-            {me.totp_enabled ? (
-              <Badge tone="success">Enabled</Badge>
-            ) : (
-              <TwoFactorSetup onDone={reload} />
-            )}
-            {!me.totp_enabled && (
-              <Banner>
-                Accounts with two-factor authentication are never asked to rotate their password.
-              </Banner>
-            )}
-          </Card>
-        )}
-        {tab === "connections" && <Connections />}
-        {tab === "tools" && <McpTools />}
-        {tab === "notes" && <Notes />}
-        {tab === "commands" && <CommandsEditor />}
-        {tab === "hooks" && <HooksEditor />}
-        {tab === "shared" && <SharedLinks />}
-        {tab === "secrets" && <Secrets />}
-        {tab === "tokens" && <ApiTokens />}
-        {tab === "usage" && <UsagePanel />}
-      </div>
-    </div>
+    <SideMenu groups={SETTINGS_GROUPS} value={tab} onChange={setTab} label="Settings">
+      {tab === "profile" && (
+        <Card title="Profile">
+          <p>
+            {me.name} <span className="muted">({me.email})</span>
+          </p>
+          <Button
+            onClick={async () => {
+              await post("/logout-all");
+              onLogout();
+            }}
+          >
+            Sign out everywhere
+          </Button>
+          <p>
+            <VersionLabel />
+          </p>
+        </Card>
+      )}
+      {tab === "password" && (
+        <Card title="Change password">
+          <ChangePassword
+            onDone={() => {
+              toast("Password changed. Please sign in again.", "success");
+              onLogout();
+            }}
+          />
+        </Card>
+      )}
+      {tab === "2fa" && (
+        <Card title="Two-factor authentication">
+          {me.totp_enabled ? (
+            <Badge tone="success">Enabled</Badge>
+          ) : (
+            <TwoFactorSetup onDone={reload} />
+          )}
+          {!me.totp_enabled && (
+            <Banner>
+              Accounts with two-factor authentication are never asked to rotate their password.
+            </Banner>
+          )}
+        </Card>
+      )}
+      {tab === "connections" && <Connections />}
+      {tab === "tools" && <McpTools />}
+      {tab === "notes" && <Notes />}
+      {tab === "commands" && <CommandsEditor />}
+      {tab === "hooks" && <HooksEditor />}
+      {tab === "shared" && <SharedLinks />}
+      {tab === "secrets" && <Secrets />}
+      {tab === "tokens" && <ApiTokens />}
+      {tab === "usage" && <UsagePanel />}
+    </SideMenu>
   );
 }
