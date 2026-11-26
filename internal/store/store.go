@@ -206,6 +206,10 @@ type Provider struct {
 	APIKeyEnc   []byte
 	Concurrency int
 	Enabled     bool
+	// OwnerID is 0 for a provider the admin manages, or the user who brought it (a hosted service
+	// with that user's own key). Name is unique across both; a user's is "@<id>:<DisplayName>".
+	OwnerID     int64
+	DisplayName string
 }
 
 // ImageTemplate is an environment an admin has approved.
@@ -439,12 +443,17 @@ type Store interface {
 	TouchImageTemplate(ctx context.Context, image string, at time.Time) error
 	ImageInUse(ctx context.Context, image string) (bool, error)
 	ListProbes(ctx context.Context) ([]Probe, error)
+	// ListProviders returns the admin's providers only; a user's own are never in it.
 	ListProviders(ctx context.Context) ([]Provider, error)
+	// ListUserProviders returns the providers users brought: one user's (ownerID > 0) or everyone's (0).
+	ListUserProviders(ctx context.Context, ownerID int64) ([]Provider, error)
 	GetProvider(ctx context.Context, id int64) (*Provider, error)
 	DeleteProvider(ctx context.Context, id int64) error
 	UpsertModel(ctx context.Context, m Model) (int64, error)
+	// ListModels lists one provider's models; providerID 0 lists the admin providers' models only.
 	ListModels(ctx context.Context, providerID int64) ([]Model, error)
 	SetModelEnabled(ctx context.Context, id int64, enabled bool) error
+	SetModelContext(ctx context.Context, id int64, tokens int) error
 	SetModelRecommended(ctx context.Context, id int64, rec bool) error
 	GetModel(ctx context.Context, id int64) (*Model, error)
 

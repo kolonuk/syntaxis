@@ -829,6 +829,18 @@ function SettingsTab() {
         value={s.upload_kinds ?? ""}
         onChange={(e) => setS({ ...s, upload_kinds: e.target.value })}
       />
+      <Toggle
+        label="Let users add their own model provider"
+        checked={s.user_providers === "true"}
+        onChange={(v) => setS({ ...s, user_providers: String(v) })}
+      />
+      <p className="muted">
+        A user can bring a hosted model service (an OpenAI-compatible API) with their own key.
+        Prompts sent to it leave this machine. Only public addresses are accepted; local and network
+        servers are added by you under Providers &amp; models. Turning this off stops those sessions
+        at once. You can also allow or refuse it for one user, and see and remove what users added,
+        under Models &amp; tools.
+      </p>
       <div className="row">
         <Button
           variant="primary"
@@ -844,6 +856,7 @@ function SettingsTab() {
                 "uploads_enabled",
                 "upload_max_mb",
                 "upload_kinds",
+                "user_providers",
               ];
               await put(
                 "/settings",

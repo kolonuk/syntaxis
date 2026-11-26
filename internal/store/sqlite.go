@@ -594,31 +594,32 @@ func (s *SQLite) ClearAttempt(ctx context.Context, key string) error {
 // UpsertProvider inserts or updates a provider (by id, or by name when id==0).
 func (s *SQLite) UpsertProvider(ctx context.Context, p Provider) (int64, error) {
 	if p.ID == 0 {
-		res, err := s.db.ExecContext(ctx, `INSERT INTO providers (name,kind,base_url,api_key_enc,concurrency,enabled) VALUES (?,?,?,?,?,?)`,
-			p.Name, p.Kind, p.BaseURL, p.APIKeyEnc, p.Concurrency, b2i(p.Enabled))
+		res, err := s.db.ExecContext(ctx, `INSERT INTO providers (name,kind,base_url,api_key_enc,concurrency,enabled,owner_id,display_name) VALUES (?,?,?,?,?,?,?,?)`,
+			p.Name, p.Kind, p.BaseURL, p.APIKeyEnc, p.Concurrency, b2i(p.Enabled), p.OwnerID, p.DisplayName)
 		if err != nil {
 			return 0, mapErr(err)
 		}
 		return res.LastInsertId()
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE providers SET name=?,kind=?,base_url=?,api_key_enc=?,concurrency=?,enabled=? WHERE id=?`,
-		p.Name, p.Kind, p.BaseURL, p.APIKeyEnc, p.Concurrency, b2i(p.Enabled), p.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE providers SET name=?,kind=?,base_url=?,api_key_enc=?,concurrency=?,enabled=?,display_name=? WHERE id=?`,
+		p.Name, p.Kind, p.BaseURL, p.APIKeyEnc, p.Concurrency, b2i(p.Enabled), p.DisplayName, p.ID)
 	return p.ID, affected(res, err)
 }
 
 func scanProvider(row interface{ Scan(...any) error }) (*Provider, error) {
 	var p Provider
 	var en int
-	if err := row.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.APIKeyEnc, &p.Concurrency, &en); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.APIKeyEnc, &p.Concurrency, &en, &p.OwnerID, &p.DisplayName); err != nil {
 		return nil, mapErr(err)
 	}
 	p.Enabled = en == 1
 	return &p, nil
 }
 
-// ListProviders returns all providers.
-func (s *SQLite) ListProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,kind,base_url,api_key_enc,concurrency,enabled FROM providers ORDER BY id`)
+const providerCols = `id,name,kind,base_url,api_key_enc,concurrency,enabled,owner_id,display_name`
+
+func (s *SQLite) queryProviders(ctx context.Context, where string, args ...any) ([]Provider, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+providerCols+` FROM providers WHERE `+where+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -634,9 +635,23 @@ func (s *SQLite) ListProviders(ctx context.Context) ([]Provider, error) {
 	return out, rows.Err()
 }
 
+// ListProviders returns the admin's providers. A provider a user brought is not in it, so no admin
+// screen, health check or model list picks one up by accident.
+func (s *SQLite) ListProviders(ctx context.Context) ([]Provider, error) {
+	return s.queryProviders(ctx, `owner_id=0`)
+}
+
+// ListUserProviders returns the providers users brought: one user's, or everyone's when ownerID is 0.
+func (s *SQLite) ListUserProviders(ctx context.Context, ownerID int64) ([]Provider, error) {
+	if ownerID > 0 {
+		return s.queryProviders(ctx, `owner_id=?`, ownerID)
+	}
+	return s.queryProviders(ctx, `owner_id>0`)
+}
+
 // GetProvider fetches one provider.
 func (s *SQLite) GetProvider(ctx context.Context, id int64) (*Provider, error) {
-	return scanProvider(s.db.QueryRowContext(ctx, `SELECT id,name,kind,base_url,api_key_enc,concurrency,enabled FROM providers WHERE id=?`, id))
+	return scanProvider(s.db.QueryRowContext(ctx, `SELECT `+providerCols+` FROM providers WHERE id=?`, id))
 }
 
 // ListImageTemplates returns the approved environments.
@@ -797,6 +812,8 @@ func (s *SQLite) ListModels(ctx context.Context, providerID int64) ([]Model, err
 	if providerID != 0 {
 		q += ` WHERE provider_id=?`
 		args = append(args, providerID)
+	} else {
+		q += ` WHERE provider_id IN (SELECT id FROM providers WHERE owner_id=0)`
 	}
 	rows, err := s.db.QueryContext(ctx, q+` ORDER BY provider_id,name`, args...)
 	if err != nil {
@@ -823,6 +840,12 @@ func (s *SQLite) SetModelEnabled(ctx context.Context, id int64, enabled bool) er
 	return affected(res, err)
 }
 
+// SetModelContext sets the context window Syntaxis assumes for a model (0 = the default).
+func (s *SQLite) SetModelContext(ctx context.Context, id int64, tokens int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE models SET context_override=? WHERE id=?`, tokens, id)
+	return affected(res, err)
+}
+
 // SetModelRecommended sets the admin's "recommended for agents" flag.
 func (s *SQLite) SetModelRecommended(ctx context.Context, id int64, rec bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE models SET recommended=? WHERE id=?`, b2i(rec), id)
@@ -831,16 +854,16 @@ func (s *SQLite) SetModelRecommended(ctx context.Context, id int64, rec bool) er
 
 // GetModel fetches one model.
 func (s *SQLite) GetModel(ctx context.Context, id int64) (*Model, error) {
-	ms, err := s.ListModels(ctx, 0)
+	var m Model
+	var en, rec int
+	var seen int64
+	err := s.db.QueryRowContext(ctx, `SELECT id,provider_id,name,enabled,context_override,digest,tools_supported,recommended,seen_at FROM models WHERE id=?`, id).
+		Scan(&m.ID, &m.ProviderID, &m.Name, &en, &m.ContextOverride, &m.Digest, &m.ToolsSupported, &rec, &seen)
 	if err != nil {
-		return nil, err
+		return nil, mapErr(err)
 	}
-	for i := range ms {
-		if ms[i].ID == id {
-			return &ms[i], nil
-		}
-	}
-	return nil, ErrNotFound
+	m.Enabled, m.Recommended, m.SeenAt = en == 1, rec == 1, fromTS(seen)
+	return &m, nil
 }
 
 // ---- chat sessions & messages ----

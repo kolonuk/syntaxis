@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+import { API_KEY_LINKS } from "../lib/keylinks";
 import { useEffect, useState, type FormEvent } from "react";
 import { del, errText, post, put } from "../lib/api";
 import {
@@ -52,13 +53,6 @@ export interface Bench {
 }
 
 /** Where an admin creates an API key for a hosted provider. */
-export const API_KEY_LINKS = [
-  { name: "Claude (Anthropic)", url: "https://console.anthropic.com/settings/keys" },
-  { name: "OpenAI", url: "https://platform.openai.com/api-keys" },
-  { name: "Google Gemini", url: "https://aistudio.google.com/apikey" },
-  { name: "Groq", url: "https://console.groq.com/keys" },
-  { name: "OpenRouter", url: "https://openrouter.ai/settings/keys" },
-];
 
 /** What is known about a model, as short labels for the Model column. */
 export function modelFeatures(
@@ -105,6 +99,56 @@ export function modelFeatures(
       title: "The context window is set by hand.",
     });
   return out;
+}
+
+interface UserProvider {
+  id: number;
+  user: string;
+  name: string;
+  base_url: string;
+  models: number;
+  models_on: number;
+}
+
+/** Hosted services users brought with their own keys: names and addresses, never the keys. */
+function UserProviders() {
+  const toast = useToast();
+  const list = useLoad<UserProvider[]>("/user-providers");
+  if (!list.data || list.data.length === 0) return null;
+  return (
+    <Card title={`Providers added by users (${list.data.length})`}>
+      <p className="muted">
+        Each is a hosted service with the user&rsquo;s own key; prompts sent to it leave this
+        machine. Removing one stops sessions using it.
+      </p>
+      <ul>
+        {list.data.map((p) => (
+          <li key={p.id} className="row">
+            <span className="grow">
+              <strong>{p.name}</strong> <span className="muted">{p.base_url}</span>
+              <br />
+              <span className="muted">
+                {p.user} · {p.models_on} of {p.models} models on
+              </span>
+            </span>
+            <Button
+              variant="danger"
+              onClick={async () => {
+                try {
+                  await del(`/user-providers/${p.id}`);
+                  list.reload();
+                } catch (x) {
+                  toast(errText(x), "error");
+                }
+              }}
+            >
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
 }
 
 export function ProvidersTab() {
@@ -312,6 +356,7 @@ export function ProvidersTab() {
           </div>
         </Card>
       ))}
+      <UserProviders />
       {adding && (
         <Modal
           title="Add provider"

@@ -470,7 +470,6 @@ describe("MCP servers tab", () => {
   };
   const routes = (approved: unknown[] = []) => ({
     "GET /mcp/approved": approved,
-    "GET /secrets": ["SHARED_KEY"],
     "GET /mcp/suggestions": {
       user_credentials: ["GITHUB_TOKEN"],
       suggestions: [
@@ -479,7 +478,6 @@ describe("MCP servers tab", () => {
     },
     "GET /mcp/search": { servers: [entry] },
     "POST /mcp/approve": { ok: true },
-    "PUT /secrets/DOCS_KEY": { ok: true },
   });
   it("explains the three steps and starts with what is approved", async () => {
     api(routes());
@@ -494,7 +492,8 @@ describe("MCP servers tab", () => {
     expect(headings.findIndex((h) => h?.startsWith("Approved servers"))).toBeLessThan(
       headings.indexOf("Add a server"),
     );
-    expect(headings.indexOf("Add a server")).toBeLessThan(headings.indexOf("Shared credentials"));
+    // a server never takes an admin's credential, so there is nothing to manage here
+    expect(headings).not.toContain("Shared credentials");
   });
   it("lists what users requested and opens the review for it", async () => {
     api({
@@ -522,7 +521,7 @@ describe("MCP servers tab", () => {
           name: "gh",
           package: "x@1",
           type: "npm",
-          env_secrets: { T: "user:GITHUB_TOKEN" },
+          env_secrets: { T: "GITHUB_TOKEN" },
           approved_by: "admin:1",
         },
       ]),
@@ -531,32 +530,57 @@ describe("MCP servers tab", () => {
     expect(
       await screen.findByText(/credentials: each user's own GITHUB_TOKEN/),
     ).toBeInTheDocument();
-    expect(describeMapping("SHARED")).toBe("shared credential SHARED");
+    expect(describeMapping("SHARED")).toBe("each user's own SHARED");
+    expect(describeMapping("user:SHARED")).toBe("each user's own SHARED");
   });
-  it("searches, reviews, makes a credential on the spot and approves", async () => {
+  it("tells the admin once about servers that used a shared credential", async () => {
+    const calls = api({
+      ...routes([
+        {
+          name: "gh",
+          package: "x@1",
+          type: "npm",
+          env_secrets: { KEY: "KEY" },
+          shared_before: ["KEY"],
+          approved_by: "admin:1",
+        },
+      ]),
+      "DELETE /mcp/shared-notice": { ok: true },
+    });
+    wrap(<McpTab />);
+    expect(await screen.findByText(/no longer sent to a server/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "DELETE" && c.path === "/mcp/shared-notice")).toBe(
+        true,
+      ),
+    );
+  });
+  it("searches, reviews, names the credential each user supplies and approves", async () => {
     const calls = api(routes());
     wrap(<McpTab />);
     fireEvent.click(await screen.findByRole("tab", { name: "Search the registry" }));
     fireEvent.change(screen.getByLabelText("Search"), { target: { value: "docs" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     fireEvent.click(await screen.findByRole("button", { name: /Review npm: docs-mcp@1.2.3/ }));
-    const approve = screen.getByRole("button", { name: "Approve" });
-    expect(approve).toBeDisabled(); // a required credential is not chosen yet
     expect(screen.getByText("API token")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/DOCS_TOKEN/), { target: { value: "__new__" } });
-    const dialog = within(screen.getByRole("dialog"));
-    fireEvent.change(dialog.getByLabelText("Credential name"), { target: { value: "docs_key" } });
-    fireEvent.change(dialog.getByLabelText("Value"), { target: { value: "the-secret" } });
-    expect(approve).toBeEnabled();
-    fireEvent.click(approve);
+    expect(
+      screen.getByText(/Nothing here is shared, and you never see a value/),
+    ).toBeInTheDocument();
+    // no shared credential can be chosen or created: only the name each user supplies
+    expect(screen.queryByText(/shared credential/i)).toBeNull();
+    const field = screen.getByLabelText(/DOCS_TOKEN/);
+    expect(field).toHaveValue("DOCS_TOKEN"); // a required variable takes its own name by default
+    fireEvent.change(field, { target: { value: "MY_DOCS_KEY" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/mcp/approve")).toBe(true));
-    // the credential is saved first, then mapped by name; the value is not sent with the approval
-    const order = calls.filter((c) => c.method !== "GET").map((c) => c.method + " " + c.path);
-    expect(order).toEqual(["PUT /secrets/DOCS_KEY", "POST /mcp/approve"]);
+    expect(calls.filter((c) => c.method !== "GET").map((c) => c.method + " " + c.path)).toEqual([
+      "POST /mcp/approve",
+    ]);
     expect(calls.find((c) => c.path === "/mcp/approve")?.body).toEqual({
       name: "io.github.example/docs",
       package: 0,
-      env_secrets: { DOCS_TOKEN: "DOCS_KEY" },
+      env_secrets: { DOCS_TOKEN: "MY_DOCS_KEY" },
     });
   });
   it("tells the admin to pull a container image first, and approves once it is there", async () => {
@@ -605,14 +629,15 @@ describe("MCP servers tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/mcp/approve")).toBe(true));
   });
-  it("offers each user's own credential first, and can be cancelled", async () => {
+  it("suggests the names of the connections users already have, and can be cancelled", async () => {
     const calls = api(routes());
     wrap(<McpTab />);
     fireEvent.click(await screen.findByRole("button", { name: "Review and approve" }));
-    const select = await screen.findByLabelText(/DOCS_TOKEN/);
+    const field = await screen.findByLabelText(/DOCS_TOKEN/);
+    expect(field).toHaveAttribute("list", "user-credential-names");
     expect(
-      within(select).getByText("Each user's own GITHUB_TOKEN (recommended)"),
-    ).toBeInTheDocument();
+      document.querySelector('#user-credential-names option[value="GITHUB_TOKEN"]'),
+    ).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(calls.some((c) => c.path === "/mcp/approve")).toBe(false);
   });
@@ -817,6 +842,44 @@ describe("User settings dialog", () => {
     wrap(<UserSettingsDialog user={{ id: 3, name: "Alex" }} onClose={() => undefined} />);
     expect(await screen.findByText("Notes")).toBeInTheDocument();
     expect(screen.getAllByText("None.").length).toBeGreaterThan(2);
+  });
+  it("shows the providers a user brought, with no key, and sets the per-user switch", async () => {
+    const calls = api({
+      "GET /users/3/settings": {
+        user: { id: 3, email: "a@example.com", name: "Alex" },
+        notes: [],
+        commands: [],
+        hooks: "",
+        trusted_repo_hooks: 0,
+        connections: [],
+        mcp: [],
+        automations: [],
+        tokens: [],
+        secret_names: [],
+        own_providers: "off",
+        own_providers_on: false,
+        providers: [{ id: 9, name: "hosted", base_url: "https://api.example.com" }],
+      },
+      "PUT /users/3/own-providers": { value: "on" },
+      "DELETE /user-providers/9": { ok: true },
+    });
+    wrap(<UserSettingsDialog user={{ id: 3, name: "Alex" }} onClose={() => undefined} />);
+    expect(await screen.findByText("https://api.example.com")).toBeInTheDocument();
+    expect(screen.getByText(/Now: not allowed/)).toBeInTheDocument();
+    const sel = screen.getByLabelText("May add and use their own provider") as HTMLSelectElement;
+    expect(sel.value).toBe("off");
+    fireEvent.change(sel, { target: { value: "on" } });
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.method === "PUT" && c.path === "/users/3/own-providers")?.body,
+      ).toEqual({
+        value: "on",
+      }),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1)!);
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "DELETE" && c.path === "/user-providers/9")).toBe(true),
+    );
   });
 });
 

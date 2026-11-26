@@ -34,8 +34,8 @@ type mcpSearchResult struct {
 }
 
 // An admin adds an MCP server the way the screen does: find it in the real registry, review it,
-// approve it with the credentials it needs mapped, and a chat user then sees it and can switch it on.
-// A credential that belongs to Syntaxis itself can never be handed to a server.
+// approve it, and a chat user then sees it and can switch it on once they have supplied their own
+// credentials. No instance-wide credential is ever handed to a server.
 func TestAdminAddsAnMCPServerAndAUserSwitchesItOn(t *testing.T) {
 	testenv.Network(t, "registry.modelcontextprotocol.io:443")
 	e := newEnv(t)
@@ -76,13 +76,9 @@ func TestAdminAddsAnMCPServerAndAUserSwitchesItOn(t *testing.T) {
 		testenv.NotTested(t, name+" is not in the registry with a pinned package right now")
 	}
 
-	// a mapping to a credential that does not exist, or that belongs to Syntaxis, is refused
-	if code, m, _ := adm.do("POST", "/api/mcp/approve", map[string]any{"name": name, "package": idx, "env_secrets": map[string]string{"X": "NO_SUCH_SECRET"}}); code != 400 || !strings.Contains(m["error"].(string), "does not exist") {
-		t.Fatalf("an unknown shared credential: %d %v", code, m)
-	}
-	adm.do("PUT", "/api/config", map[string]string{"smtp_password": "the-mail-password"})
-	if code, m, _ := adm.do("POST", "/api/mcp/approve", map[string]any{"name": name, "package": idx, "env_secrets": map[string]string{"X": "SYNTAXIS_SMTP_PASSWORD"}}); code != 400 || !strings.Contains(m["error"].(string), "reserved") {
-		t.Fatalf("the mail password must never be given to a server: %d %v", code, m)
+	// a credential name that is not a plain name is refused: credentials are names in each user's own vault
+	if code, m, _ := adm.do("POST", "/api/mcp/approve", map[string]any{"name": name, "package": idx, "env_secrets": map[string]string{"X": "../NO_SUCH"}}); code != 400 {
+		t.Fatalf("a bad credential name: %d %v", code, m)
 	}
 	// nothing is approved by a refused request
 	if _, _, raw := adm.do("GET", "/api/mcp/approved", nil); strings.Contains(string(raw), name) {
@@ -114,6 +110,17 @@ func TestAdminAddsAnMCPServerAndAUserSwitchesItOn(t *testing.T) {
 	}
 	if len(mapping) > 0 && mine[0]["ready"] != false {
 		t.Fatalf("a server that needs the user's own credential is not ready without it: %v", mine[0])
+	}
+	// it cannot be switched on until the user has their own credentials; then it can
+	if len(mapping) > 0 {
+		if code, _, _ := usr.do("PUT", "/api/mcp", map[string]any{"name": name, "enabled": true}); code != 409 {
+			t.Fatalf("switched on without the user's own credentials: %d", code)
+		}
+		for _, cred := range mapping {
+			if code, _, _ := usr.do("PUT", "/api/secrets/"+cred, map[string]string{"value": "the-users-own-value"}); code != 200 {
+				t.Fatalf("the user adds %s: %d", cred, code)
+			}
+		}
 	}
 	if code, _, _ := usr.do("PUT", "/api/mcp", map[string]any{"name": name, "enabled": true}); code != 200 {
 		t.Fatalf("the user switches it on: %d", code)

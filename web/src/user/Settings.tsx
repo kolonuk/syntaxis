@@ -8,6 +8,7 @@ import { McpTools } from "./McpTools";
 import { CommandsEditor, HooksEditor, Notes } from "./AgentSettings";
 import { SharedLinks } from "./Shared";
 import { ApiTokens } from "./ApiTokens";
+import { MyProviders } from "./MyProviders";
 import { SideMenu } from "../ui/SideMenu";
 import {
   Badge,
@@ -195,6 +196,7 @@ export const SETTINGS_GROUPS: { label: string; items: { id: string; label: strin
     label: "Services and keys",
     items: [
       { id: "connections", label: "Connections" },
+      { id: "providers", label: "My model providers" },
       { id: "secrets", label: "Secrets" },
       { id: "tokens", label: "API tokens" },
     ],
@@ -274,6 +276,7 @@ export function Settings({
       {tab === "shared" && <SharedLinks />}
       {tab === "secrets" && <Secrets />}
       {tab === "tokens" && <ApiTokens />}
+      {tab === "providers" && <MyProviders />}
       {tab === "usage" && <UsagePanel />}
     </SideMenu>
   );

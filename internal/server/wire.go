@@ -133,6 +133,10 @@ func (a *App) runSession(ctx context.Context, run *Run, s *store.ChatSession, u 
 		fail("The model provider for this session is not available.")
 		return
 	}
+	if prov.OwnerID > 0 && (prov.OwnerID != u.ID || !a.userProvidersAllowed(bg, u.ID)) {
+		fail("Providers of your own are turned off by an admin.")
+		return
+	}
 	pr, err := a.ProviderFor(prov)
 	if err != nil {
 		fail("Could not connect to the model provider.")

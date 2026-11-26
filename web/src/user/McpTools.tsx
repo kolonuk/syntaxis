@@ -20,6 +20,8 @@ interface Server {
   enabled: boolean;
   missing: string[];
   ready: boolean;
+  /** What the server needs from this user: the credential's name and whether they have supplied it. */
+  credentials?: { name: string; env: string; set: boolean }[];
 }
 interface Found {
   name: string;
@@ -84,6 +86,7 @@ export function FindServers() {
       <p className="muted">
         Search the public MCP catalogue for a server you would like. Your admin reviews it before
         anyone can switch it on, so asking costs nothing and changes nothing until it is approved.
+        Once it is approved you give it your own credentials.
       </p>
       <form className="row" onSubmit={(e) => void search(e)}>
         <Input
@@ -179,6 +182,55 @@ export function FindServers() {
   );
 }
 
+/** One credential a server needs: say it is set, or take its value (write-only, kept in your own vault). */
+function CredentialRow({
+  name,
+  set,
+  onSaved,
+}: {
+  name: string;
+  set: boolean;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!value) return;
+    setSaving(true);
+    try {
+      await put(`/secrets/${encodeURIComponent(name)}`, { value });
+      setValue("");
+      toast(`${name} is saved in your vault.`, "success");
+      onSaved();
+    } catch (x) {
+      toast(errText(x), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <form className="row" onSubmit={(e) => void save(e)}>
+      <div className="grow">
+        <code>{name}</code>{" "}
+        {set ? <Badge tone="success">yours is set</Badge> : <Badge tone="warn">needed</Badge>}
+      </div>
+      <Input
+        label={set ? `Replace your ${name}` : `Your ${name}`}
+        type="password"
+        autoComplete="off"
+        value={value}
+        placeholder="the key or token itself"
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <Button type="submit" loading={saving} disabled={!value}>
+        {set ? "Replace" : "Save"}
+      </Button>
+    </form>
+  );
+}
+
 /** Extra tools (MCP servers) your admin has approved. Each runs only for you, with your own credentials. */
 export function McpTools() {
   const toast = useToast();
@@ -199,8 +251,7 @@ export function McpTools() {
         <>
           <Banner>
             These tools are approved by your admin and run in their own sandbox, only when you
-            switch them on, with your own connected credentials. State-changing tools ask before
-            they run.
+            switch them on, with your own credentials. State-changing tools ask before they run.
           </Banner>
           {list.map((s) => (
             <Card key={s.name} title={s.name}>
@@ -220,11 +271,17 @@ export function McpTools() {
                   }}
                 />
               </div>
-              {!s.ready && (
-                <p className="muted">
-                  Connect the matching service in Settings, Connections first; until then it will
-                  not start.
-                </p>
+              {(s.credentials ?? []).length > 0 && (
+                <>
+                  <p className="muted">
+                    This server uses your own credentials, kept in your vault and never shown again.
+                    You can also connect the matching service under Connections. It will not turn on
+                    or start until all of them are set.
+                  </p>
+                  {(s.credentials ?? []).map((c) => (
+                    <CredentialRow key={c.name} name={c.name} set={c.set} onSaved={load} />
+                  ))}
+                </>
               )}
             </Card>
           ))}

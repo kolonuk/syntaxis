@@ -367,3 +367,61 @@ describe("Files", () => {
     expect(screen.queryByRole("link", { name: "Download a.txt as a zip" })).toBeNull();
   }, 15000);
 });
+
+describe("MCP tools: your own credentials", () => {
+  it("shows what each server needs from you, saves it write-only, and never shows a value", async () => {
+    let have = false;
+    const calls = api({
+      "GET /mcp": () => [
+        {
+          name: "io.example/notes",
+          package: "notes-mcp@1.0.0",
+          enabled: false,
+          missing: have ? [] : ["NOTES_TOKEN"],
+          ready: have,
+          credentials: [{ name: "NOTES_TOKEN", env: "NOTES_TOKEN", set: have }],
+        },
+      ],
+      "GET /mcp/requests": [],
+      "PUT /secrets/NOTES_TOKEN": () => {
+        have = true;
+        return { ok: true };
+      },
+    });
+    wrap(<McpTools />);
+    expect(await screen.findByText("needed")).toBeTruthy();
+    expect(screen.getByText(/needs NOTES_TOKEN/)).toBeTruthy();
+    const field = screen.getByLabelText("Your NOTES_TOKEN") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    fireEvent.change(field, { target: { value: "my-own-value" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByText("yours is set")).toBeTruthy());
+    expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "my-own-value" });
+    // the value is cleared from the box and not shown anywhere
+    expect(screen.queryByDisplayValue("my-own-value")).toBeNull();
+    expect(screen.queryByText("my-own-value")).toBeNull();
+  });
+  it("tells the user why a server will not switch on until the credentials are theirs", async () => {
+    api({
+      "GET /mcp": [
+        {
+          name: "io.example/notes",
+          package: "notes-mcp@1.0.0",
+          enabled: false,
+          missing: ["NOTES_TOKEN"],
+          ready: false,
+          credentials: [{ name: "NOTES_TOKEN", env: "NOTES_TOKEN", set: false }],
+        },
+      ],
+      "GET /mcp/requests": [],
+      "PUT /mcp": {
+        __status: 409,
+        body: { error: "add your own NOTES_TOKEN first (Settings, Tools, or Connections)" },
+      },
+    });
+    wrap(<McpTools />);
+    fireEvent.click(await screen.findByRole("switch", { name: "On" }));
+    expect(await screen.findByText(/add your own NOTES_TOKEN first/)).toBeTruthy();
+    expect(screen.getByText(/will not turn on/)).toBeTruthy();
+  });
+});

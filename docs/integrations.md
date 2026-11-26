@@ -9,6 +9,18 @@ The pages are grouped in the left menu of **Settings**: Account (Profile, Passwo
 
 Use accounts and projects that belong to you, with a budget alert. The model sees command output, so anything a command prints can reach it. Redaction is best effort.
 
+## Your own model provider
+
+If an admin has turned it on, **Settings → My model providers** lets you add a hosted model service of your own.
+
+1. Create an API key on the service's site. The list in the dialog links to the usual ones.
+2. Choose **Add a provider**. Enter a name, the address from the service's documentation (for example `https://api.example.com/v1`) and the key. The service must offer an OpenAI-compatible API, and the address must be `https` and public.
+3. **Check and save** connects with the key. If it does not work, nothing is stored.
+4. Choose **Models** and turn on the ones you want. Set the context window of a model if you know it.
+5. In the new-session dialog the model appears as `@name/model (leaves this machine)`.
+
+What you send to the service leaves this machine and is billed to you by the service. Your key is stored encrypted, is never shown again, and is not visible to the admin. Removing the provider deletes the key and stops sessions that use it.
+
 ## Starting from a repository
 
 In **New session**, pick a repository from a connected git service, or create one. Syntaxis clones it into the sandbox on its own working branch, leaving your branches untouched. The agent commits, pushes and opens a pull request (merge request on GitLab) using your connection. The token never appears in a command the model writes. Commits use your account name, not your sign-in email.
@@ -33,22 +45,31 @@ Limits: 20 automations per user, 48 runs per automation per day, one run at a ti
 [MCP](https://modelcontextprotocol.io/) servers give the agent extra tools.
 
 - An admin approves a server from the official registry, pinned to one exact version.
-- Each user switches on the servers they want under **Settings → Tools**. A server runs only for users who did, with that user's own connected credentials.
+- Every credential a server uses is the user's own. No admin or instance-wide credential is ever sent to a server, and one user's credential never reaches another user's server.
+- Each user switches on the servers they want under **Settings → Tools**, after supplying their own credentials. A server cannot be switched on, or started, until all of them are set.
 - Any user can find a server that is not approved yet: **Settings → Tools → Find more tools** searches the public catalogue, and **Request** sends the admin a request with an optional reason. A request changes nothing until an admin approves the server, which clears it. Withdraw your own requests from the same screen.
 - Each server runs in its own gVisor container with no workspace, no host access and only that user's credentials.
 - Only servers that run as a local program are supported. A server marked "hosted only" is run by its publisher on its own infrastructure (the official GitLab and Cloudflare servers are examples). Syntaxis does not connect to those, so that nothing the agent sends goes to a third party's server. Choose a server that publishes a package, or connect the service under **Settings → Connections**.
 - Server output is treated as untrusted, and tools that are not read-only ask the user first.
 
-### Adding a server
+### Adding a server (admin)
 
-In the admin app, open the **MCP servers** tab:
+In the admin app, open **Models & tools → MCP servers**:
 
-1. See what is approved now.
-2. Choose **Add a server**: a recommended one, or a search of the public registry.
-3. Review what the server can do and choose where each credential comes from: each user's own connected account (recommended), a shared credential, or a new shared credential made there. For example, map the official GitHub server's token to each user's GitHub connection.
+1. Look at **Requests from users**, if any, and choose **Review** on one.
+2. Or choose **Add a server**: a recommended one, or a search of the public registry.
+3. Review what the server can do. For each environment variable it takes, set the name of the credential each user supplies. The default is the variable's own name; the suggested GitHub server uses `GITHUB_TOKEN`, which is the token in each user's GitHub connection. You choose only a name, never a value.
 4. Approve. A server can only be approved when pinned to one exact version.
 
-Shared credentials are listed on the same tab.
+Approvals made before each user had their own credentials took a shared admin secret for some variables. That secret is no longer sent. The tab lists those servers once, with the variables, until you choose **Dismiss**. Each user now supplies their own value, and the server stays off for them until they do.
+
+### Supplying credentials (user)
+
+In the chat app, open **Settings → Tools**:
+
+1. Under each approved server, see the credentials it needs. A credential already in one of your connections (for example `GITHUB_TOKEN` from your GitHub connection) shows as set.
+2. For any marked **needed**, type your value and choose **Save**. It is stored encrypted in your own vault and never shown again. **Replace** saves a new one.
+3. Switch the server **On**. Until every credential is set, the switch is refused and the server does not start.
 
 ### Servers shipped as container images
 

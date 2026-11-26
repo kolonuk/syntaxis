@@ -12,11 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/kolonuk/syntaxis/internal/agent"
 	"github.com/kolonuk/syntaxis/internal/mcp"
-	"github.com/kolonuk/syntaxis/internal/secrets"
-	"github.com/kolonuk/syntaxis/internal/settings"
 )
 
 func (a *App) mcpApprovals() *mcp.Approvals { return &mcp.Approvals{Store: a.Store, Now: a.Now} }
@@ -86,8 +83,9 @@ func (a *App) imageOnHost(ctx context.Context, image string) (present, ok bool) 
 }
 
 // adminMCPApprove approves a server. The server details are re-fetched from the
-// catalogue by exact name: the client only picks which package and which
-// secrets to map, it cannot supply its own command.
+// catalogue by exact name: the client only picks which package and which credential name each
+// env var takes (a credential in the user's own vault, never an instance secret), it cannot supply
+// its own command.
 func (a *App) adminMCPApprove(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		Name       string            `json:"name"`
@@ -122,23 +120,10 @@ func (a *App) adminMCPApprove(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "server not found in the catalogue")
 		return
 	}
-	// a credential comes either from an instance secret (shared by everyone who uses the server) or,
-	// preferably, from each user's own connection ("user:NAME"), so the server runs as the user
-	known := a.userCredentialNames()
-	for _, sn := range b.EnvSecrets {
-		if name, ok := strings.CutPrefix(sn, mcpUserPrefix); ok {
-			if !known[name] {
-				writeErr(w, http.StatusBadRequest, name+" is not a credential that users can connect")
-				return
-			}
-			continue
-		}
-		if settings.ReservedSecret(sn) {
-			writeErr(w, http.StatusBadRequest, sn+" is reserved for Syntaxis's own settings and cannot be given to a server")
-			return
-		}
-		if _, err := a.Secrets.Get(ctx, secrets.ScopeInstance, 0, sn); err != nil {
-			writeErr(w, http.StatusBadRequest, "instance secret "+sn+" does not exist; add it first")
+	// every credential is the user's own: the admin only says which credential name each env var takes
+	for _, c := range b.EnvSecrets {
+		if !mcp.ValidCredentialName(strings.TrimPrefix(c, "user:")) {
+			writeErr(w, http.StatusBadRequest, c+" is not a valid credential name")
 			return
 		}
 	}
@@ -165,7 +150,7 @@ func (a *App) adminMCPApproved(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, ap := range l {
-		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "type": ap.Package.RegistryType, "env_secrets": ap.EnvSecrets, "approved_by": ap.ApprovedBy, "at": ap.At})
+		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "type": ap.Package.RegistryType, "env_secrets": ap.EnvSecrets, "shared_before": ap.SharedBefore, "approved_by": ap.ApprovedBy, "at": ap.At})
 	}
 	writeJSON(w, 200, out)
 }
@@ -179,52 +164,16 @@ func (a *App) adminMCPRevoke(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-// instance secrets (admin-owned: provider keys, MCP credentials). Names only.
-func (a *App) adminSecretNames(w http.ResponseWriter, r *http.Request) {
-	all, _ := a.Secrets.Names(r.Context(), secrets.ScopeInstance, 0)
-	n := []string{}
-	for _, name := range all {
-		if !settings.ReservedSecret(name) { // the mail password and the like belong to Syntaxis, not to a server
-			n = append(n, name)
-		}
-	}
-	writeJSON(w, 200, n)
-}
-
-func (a *App) adminSecretPut(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		Value string `json:"value"`
-	}
-	if !decode(w, r, &b) || b.Value == "" {
-		return
-	}
-	if settings.ReservedSecret(chi.URLParam(r, "name")) {
-		writeErr(w, 400, "that name is reserved for Syntaxis's own settings")
-		return
-	}
-	if err := a.Secrets.Put(r.Context(), secrets.ScopeInstance, 0, chi.URLParam(r, "name"), b.Value); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
-}
-
-func (a *App) adminSecretDelete(w http.ResponseWriter, r *http.Request) {
-	if settings.ReservedSecret(chi.URLParam(r, "name")) {
-		writeErr(w, 400, "that name is reserved for Syntaxis's own settings")
-		return
-	}
-	if err := a.Secrets.Delete(r.Context(), secrets.ScopeInstance, 0, chi.URLParam(r, "name")); err != nil {
-		writeErr(w, 404, "not found")
+// adminMCPSharedNoticeDismiss clears the note about approvals that used to take a shared secret.
+func (a *App) adminMCPSharedNoticeDismiss(w http.ResponseWriter, r *http.Request) {
+	if err := a.mcpApprovals().ClearSharedNotice(r.Context(), a.actor(r)); err != nil {
+		writeErr(w, 500, "could not save")
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // ---- users: which approved servers they use ----
-
-// mcpUserPrefix marks an approval's credential as coming from each user's own connection.
-const mcpUserPrefix = "user:"
 
 // userCredentialNames are the credential names users can connect (GITHUB_TOKEN, AWS_ACCESS_KEY_ID, ...).
 func (a *App) userCredentialNames() map[string]bool {
@@ -249,10 +198,10 @@ func (a *App) adminMCPSuggestions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_credentials": creds,
 		"suggestions": []map[string]any{
-			{"title": "GitHub (official)", "description": "Read and work with repositories, issues and pull requests as each user.", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": mcpUserPrefix + "GITHUB_TOKEN"}},
+			{"title": "GitHub (official)", "description": "Read and work with repositories, issues and pull requests as each user, with their own GitHub connection.", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN"}},
 			{"title": "Microsoft Azure (official)", "description": "Look at and manage Azure resources with each user's own service principal.", "search": "com.microsoft/azure", "env_secrets": map[string]string{
-				"AZURE_TENANT_ID": mcpUserPrefix + "AZURE_TENANT_ID", "AZURE_CLIENT_ID": mcpUserPrefix + "AZURE_CLIENT_ID",
-				"AZURE_CLIENT_SECRET": mcpUserPrefix + "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID": mcpUserPrefix + "AZURE_SUBSCRIPTION_ID"}},
+				"AZURE_TENANT_ID": "AZURE_TENANT_ID", "AZURE_CLIENT_ID": "AZURE_CLIENT_ID",
+				"AZURE_CLIENT_SECRET": "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID": "AZURE_SUBSCRIPTION_ID"}},
 		},
 	})
 }
@@ -270,20 +219,32 @@ func (a *App) userMCP(ctx context.Context, userID int64) map[string]bool {
 	return m
 }
 
-// missingCredentials lists the user credentials an approved server needs that this user has not connected.
-func (a *App) missingCredentials(ctx context.Context, userID int64, ap mcp.Approval) []string {
+// mcpCredentials resolves the credentials an approved server needs from ONE user's own vault (their
+// connections and the secrets they added). It is the only source of an MCP server's environment:
+// no instance-wide secret and no other user's value is ever read. missing names the credentials this
+// user has not supplied.
+func (a *App) mcpCredentials(ctx context.Context, userID int64, ap mcp.Approval) (values map[string]string, missing []string) {
 	env, _, _ := a.Secrets.Snapshot(ctx, userID)
-	var missing []string
-	for _, sn := range ap.EnvSecrets {
-		if name, ok := strings.CutPrefix(sn, mcpUserPrefix); ok && env[name] == "" {
+	values = map[string]string{}
+	for _, name := range ap.EnvSecrets {
+		if v := env[name]; v != "" {
+			values[name] = v
+		} else {
 			missing = append(missing, name)
 		}
 	}
 	sort.Strings(missing)
+	return values, missing
+}
+
+// missingCredentials lists the credentials an approved server needs that this user has not supplied.
+func (a *App) missingCredentials(ctx context.Context, userID int64, ap mcp.Approval) []string {
+	_, missing := a.mcpCredentials(ctx, userID, ap)
 	return missing
 }
 
-// handleMyMCP lists the approved servers with whether this user has switched each on and can run it.
+// handleMyMCP lists the approved servers with whether this user has switched each on and can run it,
+// and the credentials each needs from them (names only, and whether they have supplied it).
 func (a *App) handleMyMCP(w http.ResponseWriter, r *http.Request) {
 	u := a.user(r)
 	on := a.userMCP(r.Context(), u.ID)
@@ -293,8 +254,22 @@ func (a *App) handleMyMCP(w http.ResponseWriter, r *http.Request) {
 		if !ap.Enabled {
 			continue
 		}
-		missing := a.missingCredentials(r.Context(), u.ID, ap)
-		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "enabled": on[ap.Name], "missing": missing, "ready": len(missing) == 0})
+		_, missing := a.mcpCredentials(r.Context(), u.ID, ap)
+		isMissing := map[string]bool{}
+		for _, m := range missing {
+			isMissing[m] = true
+		}
+		creds := []map[string]any{}
+		seen := map[string]bool{}
+		for env, name := range ap.EnvSecrets {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			creds = append(creds, map[string]any{"name": name, "env": env, "set": !isMissing[name]})
+		}
+		sort.Slice(creds, func(i, j int) bool { return creds[i]["name"].(string) < creds[j]["name"].(string) })
+		out = append(out, map[string]any{"name": ap.Name, "package": ap.Package.Ref(), "enabled": on[ap.Name], "missing": missing, "ready": len(missing) == 0, "credentials": creds})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -310,14 +285,18 @@ func (a *App) handleMyMCPSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	approved, _ := a.mcpApprovals().List(r.Context())
-	found := false
-	for _, ap := range approved {
-		if ap.Name == b.Name && ap.Enabled {
-			found = true
+	var found *mcp.Approval
+	for i := range approved {
+		if approved[i].Name == b.Name && approved[i].Enabled {
+			found = &approved[i]
 		}
 	}
-	if !found {
+	if found == nil {
 		writeErr(w, http.StatusNotFound, "that server is not approved")
+		return
+	}
+	if missing := a.missingCredentials(r.Context(), u.ID, *found); b.Enabled && len(missing) > 0 {
+		writeErr(w, http.StatusConflict, "add your own "+strings.Join(missing, ", ")+" first (Settings, Tools, or Connections)")
 		return
 	}
 	on := a.userMCP(r.Context(), u.ID)
@@ -396,7 +375,6 @@ func (a *App) startMCP(ctx context.Context, userID int64, sessionID string, emit
 	}
 	off := a.disabledMCP(ctx, sessionID)
 	on := a.userMCP(ctx, userID) // a server runs only for users who have switched it on
-	userEnv, _, _ := a.Secrets.Snapshot(ctx, userID)
 	b := mcp.NewBridge(a.Sandbox.RT, a.Sandbox.Config())
 	// the servers run for this user: their egress mode applies to them as to their sandboxes
 	mode := a.Cfg.EgressMode
@@ -410,17 +388,10 @@ func (a *App) startMCP(ctx context.Context, userID int64, sessionID string, emit
 		if !ap.Enabled || off[ap.Name] || !on[ap.Name] {
 			continue
 		}
-		if missing := a.missingCredentials(ctx, userID, ap); len(missing) > 0 {
-			emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": "MCP server " + ap.Name + " was not started: it needs your " + strings.Join(missing, ", ") + " (Settings, Connections)."}})
+		vals, missing := a.mcpCredentials(ctx, userID, ap) // this user's own credentials, never anyone else's
+		if len(missing) > 0 {
+			emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": "MCP server " + ap.Name + " was not started: it needs your " + strings.Join(missing, ", ") + " (Settings, Tools)."}})
 			continue
-		}
-		vals := map[string]string{}
-		for _, sn := range ap.EnvSecrets {
-			if name, ok := strings.CutPrefix(sn, mcpUserPrefix); ok {
-				vals[sn] = userEnv[name] // this user's own credential, never anyone else's
-			} else if v, err := a.Secrets.Get(ctx, secrets.ScopeInstance, 0, sn); err == nil {
-				vals[sn] = v
-			}
 		}
 		if err := b.Start(ctx, ap, vals); err != nil {
 			emit(agent.Event{Kind: agent.EvNotice, Data: map[string]any{"message": fmt.Sprintf("MCP server %s could not start: %s", ap.Name, strings.TrimSpace(err.Error()))}})

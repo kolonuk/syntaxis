@@ -59,6 +59,12 @@ func (a *App) UserHandler() http.Handler {
 			r.Post("/2fa/confirm", a.handle2FAConfirm)
 			r.Post("/2fa/disable", a.handle2FADisable)
 			r.Get("/models", a.handleModels)
+			r.Get("/my/providers", a.handleMyProviders)
+			r.Post("/my/providers", a.handleMyProviderSave)
+			r.Put("/my/providers/{id}", a.handleMyProviderSave)
+			r.Delete("/my/providers/{id}", a.handleMyProviderDelete)
+			r.Post("/my/providers/{id}/refresh", a.handleMyProviderRefresh)
+			r.Put("/my/providers/{id}/models/{model}", a.handleMyModelSet)
 			r.Get("/usage", a.handleUsage)
 			r.Get("/egress", a.handleMyEgress)
 			r.Get("/tokens", a.handleTokensList)
@@ -331,6 +337,14 @@ func (a *App) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, map[string]any{"id": id, "name": m.Name, "provider": pn, "tools": pt.toolsUsable(m), "recommended": m.Recommended})
 	}
+	// the user's own hosted providers, marked as leaving this machine; the admin's allow-list for
+	// this user (when there is one) names these too
+	for _, m := range a.myModels(r.Context(), u) {
+		if len(allowed) > 0 && !allowed[m["id"].(string)] {
+			continue
+		}
+		out = append(out, m)
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -506,6 +520,10 @@ func (a *App) newSession(ctx context.Context, u *store.User, b SessionParams) (s
 	}
 	now := a.Now().UTC()
 	s := store.ChatSession{ID: newID(), UserID: u.ID, Title: title, ProviderID: provID, Model: modelName, Autonomy: b.Autonomy, State: "idle", CreatedAt: now, UpdatedAt: now, PlanMode: b.Plan, BatchID: b.batchID}
+	if p, err := a.Store.GetProvider(ctx, provID); err == nil && p.OwnerID > 0 {
+		// prompts to this one leave the machine: the audit log says which provider a session used
+		_, _ = a.Store.AppendAudit(ctx, "user:"+itoa(u.ID), "userprovider.use", "session:"+s.ID, p.DisplayName+" "+p.BaseURL)
+	}
 	if b.Repo != nil {
 		rp, err := a.resolveRepo(ctx, u.ID, b.Repo.Kind, b.Repo.FullName, b.Repo.CloneURL, b.Repo.Branch, b.Repo.Create)
 		if err != nil {
@@ -566,6 +584,9 @@ func (a *App) resolveModel(ctx context.Context, u *store.User, id string) (int64
 		if !found {
 			return 0, "", false
 		}
+	}
+	if strings.HasPrefix(pn, "@") {
+		return a.resolveUserModel(ctx, u, id) // a user's own provider; never an admin one
 	}
 	provs, _ := a.Store.ListProviders(ctx)
 	for _, p := range provs {

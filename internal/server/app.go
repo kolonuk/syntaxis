@@ -82,6 +82,8 @@ type App struct {
 	Lifecycle   *lifecycle.Job
 	AdminWeb    http.Handler
 	NewProvider func(p *store.Provider) (provider.Provider, error)
+	// userProviderTest lets tests run a user's provider on this machine (http, loopback). Never set in production.
+	userProviderTest bool
 	// TerminalRecheck is how often open terminals re-check their sign-in (0 = default).
 	TerminalRecheck time.Duration
 

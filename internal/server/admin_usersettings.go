@@ -75,8 +75,17 @@ func (a *App) adminUserSettings(w http.ResponseWriter, r *http.Request) {
 	if cmds == nil {
 		cmds = []Command{}
 	}
+	// providers the user brought: names and addresses, never keys
+	provOut := []map[string]any{}
+	own, _ := a.Store.ListUserProviders(ctx, u.ID)
+	for _, p := range own {
+		provOut = append(provOut, map[string]any{"id": p.ID, "name": p.DisplayName, "base_url": p.BaseURL})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":               map[string]any{"id": u.ID, "email": u.Email, "name": u.Name},
+		"own_providers":      a.setting(ctx, settingUserProvidersUser+itoa(u.ID), ""),
+		"own_providers_on":   a.userProvidersAllowed(ctx, u.ID),
+		"providers":          provOut,
 		"notes":              noteOut,
 		"commands":           cmds,
 		"hooks":              a.setting(ctx, userHooksKey(u.ID), ""),

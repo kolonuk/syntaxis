@@ -281,7 +281,7 @@ func Summarise(e Entry, pkg int) (Review, error) {
 	sort.Strings(r.NeedsCredential)
 	r.Capabilities = append(r.Capabilities, "executes third-party code in its own sandbox", "its tool output is untrusted content for the agent")
 	if len(r.NeedsCredential) > 0 {
-		r.Capabilities = append(r.Capabilities, "receives the credentials you map to: "+strings.Join(r.NeedsCredential, ", "))
+		r.Capabilities = append(r.Capabilities, "receives each user's own credentials for: "+strings.Join(r.NeedsCredential, ", ")+" (every user supplies their own; no shared credential is ever sent)")
 	}
 	r.Capabilities = append(r.Capabilities, "uses the sandbox egress policy for network access")
 	if p.Transport != "stdio" {
@@ -309,12 +309,18 @@ func Summarise(e Entry, pkg int) (Review, error) {
 
 // Approval records an admin decision to run a server.
 type Approval struct {
-	Name       string            `json:"name"`
-	Package    Package           `json:"package"`
-	EnvSecrets map[string]string `json:"env_secrets"` // server env var -> instance secret name
-	ApprovedBy string            `json:"approved_by"`
-	At         time.Time         `json:"at"`
-	Enabled    bool              `json:"enabled"`
+	Name    string  `json:"name"`
+	Package Package `json:"package"`
+	// EnvSecrets maps each server env var to the NAME of a credential in the vault of the user the
+	// server runs for (a connection field such as GITHUB_TOKEN, or a secret that user added). It holds
+	// no value, and no instance-wide secret is ever involved.
+	EnvSecrets map[string]string `json:"env_secrets"`
+	// SharedBefore lists env vars that took an instance-wide secret before releases that gave every
+	// user their own credentials. Those secrets are no longer sent; the admin is told once.
+	SharedBefore []string  `json:"shared_before,omitempty"`
+	ApprovedBy   string    `json:"approved_by"`
+	At           time.Time `json:"at"`
+	Enabled      bool      `json:"enabled"`
 }
 
 // ErrNotApprovable explains why an entry cannot be approved.
@@ -335,10 +341,64 @@ func (a *Approvals) load(ctx context.Context) (map[string]Approval, error) {
 	}
 	m := map[string]Approval{}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mcp: corrupt approvals: %w", err)
+	}
+	// approvals written before every credential became per-user are converted once
+	if done, _ := a.Store.GetSetting(ctx, migratedKey, ""); done == "" {
+		for name, ap := range m {
+			migrateCredentials(&ap)
+			m[name] = ap
+		}
+		if err := a.save(ctx, m); err != nil {
+			return nil, err
+		}
+		if err := a.Store.SetSetting(ctx, migratedKey, "1"); err != nil {
+			return nil, err
+		}
 	}
 	return m, nil
 }
+
+// migratedKey records that older approvals have been converted to per-user credentials.
+const migratedKey = "mcp_credentials_per_user"
+
+// userPrefix marked a credential that came from each user's connection, before every credential did.
+const userPrefix = "user:"
+
+// migrateCredentials turns an approval written for an older release into the per-user form: a
+// "user:NAME" mapping becomes NAME, and a mapping to an instance secret becomes the env var's own
+// name, which each user now supplies themselves (the env var is listed in SharedBefore).
+func migrateCredentials(ap *Approval) {
+	for env, c := range ap.EnvSecrets {
+		if name, ok := strings.CutPrefix(c, userPrefix); ok {
+			ap.EnvSecrets[env] = name
+		} else if c != "" {
+			ap.EnvSecrets[env] = env
+			ap.SharedBefore = append(ap.SharedBefore, env)
+		}
+	}
+	sort.Strings(ap.SharedBefore)
+}
+
+// ClearSharedNotice forgets which env vars used a shared secret, once the admin has been told.
+func (a *Approvals) ClearSharedNotice(ctx context.Context, admin string) error {
+	m, err := a.load(ctx)
+	if err != nil {
+		return err
+	}
+	for name, ap := range m {
+		ap.SharedBefore = nil
+		m[name] = ap
+	}
+	_, _ = a.Store.AppendAudit(ctx, admin, "mcp.shared-notice-dismissed", "", "")
+	return a.save(ctx, m)
+}
+
+// credentialName is the form of a credential name in a user's vault.
+var credentialName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+// ValidCredentialName reports whether s can name a credential in a user's vault.
+func ValidCredentialName(s string) bool { return credentialName.MatchString(s) }
 
 func (a *Approvals) save(ctx context.Context, m map[string]Approval) error {
 	b, _ := json.Marshal(m)
@@ -356,11 +416,29 @@ func (a *Approvals) Approve(ctx context.Context, admin string, e Entry, pkg int,
 	if !rv.Pinnable || p.Transport != "stdio" || (p.RegistryType != "npm" && p.RegistryType != "pypi" && p.RegistryType != "oci") {
 		return fmt.Errorf("%w: %s", ErrNotApprovable, strings.Join(rv.Warnings, "; "))
 	}
+	// each value names a credential in the vault of the user the server runs for; an env var the
+	// package needs and the admin left unmapped takes the credential of its own name
+	creds := map[string]string{}
+	declared := map[string]EnvVar{}
 	for _, ev := range p.Env {
-		if ev.Required && envSecrets[ev.Name] == "" && ev.Default == "" {
-			return fmt.Errorf("%w: required variable %s has no secret mapped", ErrNotApprovable, ev.Name)
+		declared[ev.Name] = ev
+	}
+	for env, c := range envSecrets {
+		if !ValidCredentialName(env) { // an environment variable name has the same plain form
+			return fmt.Errorf("%w: %q is not a valid environment variable name", ErrNotApprovable, env)
+		}
+		c = strings.TrimPrefix(c, userPrefix)
+		if !ValidCredentialName(c) {
+			return fmt.Errorf("%w: %q is not a valid credential name", ErrNotApprovable, c)
+		}
+		creds[env] = c
+	}
+	for _, ev := range p.Env {
+		if creds[ev.Name] == "" && ev.Required && ev.Default == "" {
+			creds[ev.Name] = ev.Name
 		}
 	}
+	envSecrets = creds
 	m, err := a.load(ctx)
 	if err != nil {
 		return err

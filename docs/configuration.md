@@ -64,6 +64,17 @@ Add providers (Ollama, llama.cpp, LiteLLM, OpenAI-compatible) with an optional A
 
 **Probe** (per model): asks the model to call a trivial tool, and asks for a long reply to check whether it streams or arrives as one block. It can load the model, so it runs only when you press it. The result decides whether agent mode is offered for that model. A buffered stream raises a health warning.
 
+### Providers users add themselves
+
+Turn on **Let users add their own model provider** under **Policies** (off by default). A user can then add a hosted, OpenAI-compatible service with their own API key under **Settings → My model providers**. Local and network servers stay yours to add above.
+
+- The address must be `https` and public. Loopback, private, link-local and cloud-metadata addresses are refused when it is saved and again at every connection, including after a redirect. No private range can be allowed for these providers.
+- The key is stored encrypted and never shown again. Only that user sees or uses the provider and its models. Models start off; the user turns on the ones to use and can set each one's context window (32768 tokens until they do).
+- The model list shows these models as `@name/model` marked "leaves this machine". Secrets are still redacted before anything is sent, and the audit log records `userprovider.add`, `userprovider.use` (with the session), `userprovider.update`, `userprovider.remove` and `userprovider.switch`. A user is limited to 5 providers and 2 requests at once per provider; 429 and gateway errors are retried after the pause the service asks for.
+- A user's per-user allow-list of models (in their settings) applies to these models too: list `@name/model` there to permit one.
+- **Models & tools → Providers & models** lists what users added (name, address, owner, models on; never keys) with a **Remove** button. Removing a provider stops the sessions using it. Each user's settings dialog has **May add and use their own provider**: follow the instance setting, always, or never. Turning the feature off, for everyone or one user, stops their sessions on these providers at once.
+- Probes and benchmarks are not run on these models, because they would spend the user's key.
+
 ## Web search, pictures and repository content
 
 Set these under **Policies**:

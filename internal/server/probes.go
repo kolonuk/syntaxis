@@ -58,7 +58,7 @@ func (a *App) adminModelProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prov, err := a.Store.GetProvider(r.Context(), m.ProviderID)
-	if err != nil {
+	if err != nil || prov.OwnerID > 0 { // a user's own provider: the admin does not spend their key
 		writeErr(w, 404, "not found")
 		return
 	}

@@ -7,11 +7,14 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -144,6 +147,9 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Client  *http.Client // optional
+	// Retries is how many times a request is tried again, after a pause, when the service answers
+	// 429 (slow down) or a gateway error before any of the reply has been read. 0 = never.
+	Retries int
 }
 
 // New builds the adapter for cfg.Kind.
@@ -165,35 +171,55 @@ func New(cfg Config) (Provider, error) {
 }
 
 func (c Config) do(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	var rdr *strings.Reader
-	if body != nil {
-		rdr = strings.NewReader(string(body))
+	for attempt := 0; ; attempt++ {
+		var rdr io.Reader
+		if body != nil {
+			rdr = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if c.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
+		resp, err := c.Client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
+		}
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			_ = resp.Body.Close()
+			return nil, ErrAuth
+		}
+		if attempt < c.Retries && retryable(resp.StatusCode) {
+			wait := retryDelay(resp, attempt)
+			_ = resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		return resp, nil
 	}
-	var req *http.Request
-	var err error
-	if rdr != nil {
-		req, err = http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
-	} else {
-		req, err = http.NewRequestWithContext(ctx, method, c.BaseURL+path, nil)
+}
+
+// retryable reports whether a status is worth asking again after a pause.
+func retryable(code int) bool {
+	return code == http.StatusTooManyRequests || code == http.StatusBadGateway || code == http.StatusServiceUnavailable || code == http.StatusGatewayTimeout
+}
+
+// retryDelay honours the service's Retry-After (in seconds, at most 20) and otherwise backs off
+// from one second, doubling each time.
+func retryDelay(resp *http.Response, attempt int) time.Duration {
+	if n, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && n >= 0 {
+		return time.Duration(min(n, 20)) * time.Second
 	}
-	if err != nil {
-		return nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	}
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
-	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		_ = resp.Body.Close()
-		return nil, ErrAuth
-	}
-	return resp, nil
+	return time.Duration(1<<uint(min(attempt, 4))) * time.Second
 }
 
 func decodeJSON(resp *http.Response, v any) error {

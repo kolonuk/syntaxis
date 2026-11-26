@@ -44,6 +44,9 @@ const (
 	SettingUploadsEnabled = "uploads_enabled"
 	SettingUploadMaxMB    = "upload_max_mb"
 	SettingUploadKinds    = "upload_kinds"
+	// SettingUserProviders lets users bring a hosted model service of their own (off until an admin
+	// turns it on); see userproviders.go.
+	SettingUserProviders = settingUserProviders
 )
 
 // AdminHandler returns the admin app: separate routes, cookie and credentials.
@@ -106,6 +109,9 @@ func (a *App) AdminHandler() http.Handler {
 			r.Put("/providers/{id}", a.adminProviderSave)
 			r.Delete("/providers/{id}", a.adminProviderDelete)
 			r.Post("/providers/{id}/refresh", a.adminProviderRefresh)
+			r.Get("/user-providers", a.adminUserProviders)
+			r.Delete("/user-providers/{id}", a.adminUserProviderRemove)
+			r.Put("/users/{id}/own-providers", a.adminUserProvidersSwitch)
 			r.Get("/models", a.adminModels)
 			r.Post("/models/{id}/enabled", a.adminModelEnabled)
 			r.Post("/models/{id}/recommended", a.adminModelRecommended)
@@ -130,9 +136,7 @@ func (a *App) AdminHandler() http.Handler {
 			r.Delete("/mcp/approved", a.adminMCPRevoke)
 			r.Get("/mcp/requests", a.adminMCPRequests)
 			r.Delete("/mcp/requests/{id}", a.adminMCPRequestDismiss)
-			r.Get("/secrets", a.adminSecretNames)
-			r.Put("/secrets/{name}", a.adminSecretPut)
-			r.Delete("/secrets/{name}", a.adminSecretDelete)
+			r.Delete("/mcp/shared-notice", a.adminMCPSharedNoticeDismiss)
 
 			r.Get("/sessions", a.adminSessions)
 			r.Get("/sessions/{id}/messages", a.adminMessages)
@@ -437,6 +441,9 @@ func (a *App) ProviderFor(p *store.Provider) (provider.Provider, error) {
 	if a.NewProvider != nil {
 		return a.NewProvider(p)
 	}
+	if p.OwnerID > 0 {
+		return a.userProviderFor(p) // a user's own: public addresses only, checked at every connection
+	}
 	key := ""
 	if len(p.APIKeyEnc) > 0 {
 		pt, err := a.Secrets.Vault.Open(p.APIKeyEnc, "provider:"+p.Name)
@@ -671,6 +678,7 @@ var settingDefaults = map[string]string{
 	SettingRotationDays: "30", SettingScanMode: "warn", SettingUserOverride: "true", SettingDailyTokens: "0", SettingMonthlyTokens: "0",
 	SettingVisionModels: "", SettingSearchURL: "",
 	SettingUploadsEnabled: "false", SettingUploadMaxMB: "10", SettingUploadKinds: "images,pdf,documents,text",
+	SettingUserProviders: "false",
 }
 
 func validSetting(k, v string) bool {
@@ -683,7 +691,7 @@ func validSetting(k, v string) bool {
 		return len(v) <= 2000 && !strings.ContainsAny(v, "\n\r")
 	case SettingSearchURL:
 		return v == "" || validSearchURL(v)
-	case SettingUploadsEnabled:
+	case SettingUploadsEnabled, SettingUserProviders:
 		return v == "true" || v == "false"
 	case SettingUploadMaxMB:
 		n, err := strconv.Atoi(v)
@@ -712,6 +720,9 @@ func (a *App) adminSettingsPut(w http.ResponseWriter, r *http.Request) {
 	for k, v := range b {
 		_ = a.Store.SetSetting(r.Context(), k, v)
 		_, _ = a.Store.AppendAudit(r.Context(), a.actor(r), "setting.change", k, v)
+	}
+	if _, ok := b[SettingUserProviders]; ok {
+		a.stopRunsOfDisallowed(r.Context()) // switching it off takes effect at once
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
@@ -792,6 +803,10 @@ func (a *App) adminBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prov, err := a.Store.GetProvider(r.Context(), m.ProviderID)
+	if err == nil && prov.OwnerID > 0 {
+		writeErr(w, 404, "not found") // a user's own provider: the admin does not spend their key
+		return
+	}
 	if err != nil || a.Sandbox == nil {
 		writeErr(w, 503, "benchmarks need a provider and sandboxes")
 		return

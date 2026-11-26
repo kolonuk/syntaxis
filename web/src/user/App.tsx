@@ -50,6 +50,8 @@ interface ModelOpt {
   provider: string;
   tools: boolean;
   recommended: boolean;
+  /** A hosted service the user brought: what is sent to it leaves this machine. */
+  external?: boolean;
 }
 
 export const MODEL_NAMES_HELP = "https://huggingface.co/blog/moe";
@@ -175,7 +177,10 @@ function NewSession({
             options={models.map((m) => ({
               value: m.id,
               label:
-                m.id + (m.recommended ? " — recommended" : "") + (m.tools ? "" : " (chat only)"),
+                m.id +
+                (m.recommended ? " — recommended" : "") +
+                (m.tools ? "" : " (chat only)") +
+                (m.external ? " (leaves this machine)" : ""),
             }))}
           />
           <p className="muted">

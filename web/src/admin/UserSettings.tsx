@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { useCallback, useEffect, useState } from "react";
 import { del, errText, get, put } from "../lib/api";
-import { Button, Modal, Skeleton, TextArea, useToast } from "../ui/ui";
+import { Button, Modal, Select, Skeleton, TextArea, useToast } from "../ui/ui";
 
 interface Settings {
   user: { id: number; email: string; name: string };
@@ -20,6 +20,9 @@ interface Settings {
   }[];
   tokens: { id: number; name: string; prefix: string; scope: string; revoked: boolean }[];
   secret_names: string[];
+  own_providers: string;
+  own_providers_on: boolean;
+  providers: { id: number; name: string; base_url: string }[];
 }
 
 /**
@@ -51,6 +54,8 @@ export function UserSettingsDialog({
           automations: raw.automations ?? [],
           tokens: raw.tokens ?? [],
           secret_names: raw.secret_names ?? [],
+          providers: raw.providers ?? [],
+          own_providers: raw.own_providers ?? "",
         };
         setS(r);
         setHooks(r.hooks);
@@ -137,6 +142,41 @@ export function UserSettingsDialog({
           >
             Save commands
           </Button>
+          <h3>Model providers of their own</h3>
+          <Select
+            label="May add and use their own provider"
+            value={s.own_providers}
+            onChange={(e) =>
+              void act(() => put(`${base}/own-providers`, { value: e.target.value }), "Saved.")
+            }
+            options={[
+              { value: "", label: "Follow the instance setting" },
+              { value: "on", label: "Always allowed" },
+              { value: "off", label: "Never allowed" },
+            ]}
+          />
+          <p className="muted">
+            Now: {s.own_providers_on ? "allowed" : "not allowed"}. Names and addresses only; keys
+            are never shown.
+          </p>
+          {s.providers.length === 0 && <p className="muted">None.</p>}
+          <ul>
+            {s.providers.map((p) => (
+              <li key={p.id} className="row">
+                <span className="grow">
+                  {p.name} <span className="muted">{p.base_url}</span>
+                </span>
+                <Button
+                  variant="danger"
+                  onClick={() =>
+                    void act(() => del(`/user-providers/${p.id}`), "Provider removed.")
+                  }
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
           <h3>Connections</h3>
           {s.connections.length === 0 && <p className="muted">None.</p>}
           <ul>

@@ -48,7 +48,7 @@ func (a *App) routeModel(ctx context.Context, prov *store.Provider, pr provider.
 // the helper when it is usable and on the session's own model otherwise (also if the helper fails).
 func (a *App) helperChat(ctx context.Context, u *store.User, s *store.ChatSession, task routing.Task, system, text string) (string, error) {
 	prov, err := a.Store.GetProvider(ctx, s.ProviderID)
-	if err != nil || !prov.Enabled {
+	if err != nil || !prov.Enabled || (prov.OwnerID > 0 && (prov.OwnerID != u.ID || !a.userProvidersAllowed(ctx, u.ID))) {
 		return "", errors.New("the provider is not available")
 	}
 	pr, err := a.ProviderFor(prov)

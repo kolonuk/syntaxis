@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { useState, type FormEvent } from "react";
-import { del, errText, get, post, put } from "../lib/api";
+import { del, errText, get, post } from "../lib/api";
 import {
   Badge,
   Banner,
@@ -9,7 +9,6 @@ import {
   EmptyState,
   Input,
   Modal,
-  Select,
   Skeleton,
   Tabs,
   useToast,
@@ -48,7 +47,10 @@ interface McpApproved {
   name: string;
   package: string;
   type: string;
+  /** Each server variable and the name of the credential every user supplies for it. */
   env_secrets: Record<string, string>;
+  /** Variables that used a shared credential before each user had their own. */
+  shared_before?: string[];
   approved_by: string;
 }
 interface Suggestions {
@@ -61,13 +63,11 @@ interface Suggestions {
   }[];
 }
 
-const NEW = "__new__";
-const credName = /^[A-Z][A-Z0-9_]*$/;
+const credName = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** What an environment variable is mapped to, in words. */
+/** What an environment variable takes, in words: always the running user's own credential. */
 export function describeMapping(v: string): string {
-  if (v.startsWith("user:")) return `each user's own ${v.slice(5)}`;
-  return `shared credential ${v}`;
+  return `each user's own ${v.replace(/^user:/, "")}`;
 }
 
 /**
@@ -77,7 +77,6 @@ export function describeMapping(v: string): string {
 export function McpTab() {
   const toast = useToast();
   const approved = useLoad<McpApproved[]>("/mcp/approved");
-  const secrets = useLoad<string[]>("/secrets");
   const sugg = useLoad<Suggestions>("/mcp/suggestions");
   const requests =
     useLoad<{ id: string; user?: string; name: string; title?: string; reason?: string }[]>(
@@ -89,14 +88,10 @@ export function McpTab() {
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<{ server: McpServerEntry; pkg: McpPkg } | null>(null);
   const [map, setMap] = useState<Record<string, string>>({});
-  const [fresh, setFresh] = useState<Record<string, { name: string; value: string }>>({});
-  const [newName, setNewName] = useState("");
-  const [newValue, setNewValue] = useState("");
 
   const close = () => {
     setReview(null);
     setMap({});
-    setFresh({});
   };
   async function search(e?: FormEvent, term = q) {
     e?.preventDefault();
@@ -124,7 +119,7 @@ export function McpTab() {
         toast("That server is not in the registry right now.", "error");
         return;
       }
-      setMap(s.env_secrets);
+      setMap({ ...s.env_secrets });
       setReview({ server: hit, pkg });
     } catch (x) {
       toast(errText(x), "error");
@@ -176,39 +171,35 @@ export function McpTab() {
   async function approve() {
     if (!review) return;
     try {
-      const mapping = { ...map };
-      // a credential made here is saved first, then mapped
-      for (const [env, f] of Object.entries(fresh)) {
-        if (mapping[env] !== NEW) continue;
-        if (!credName.test(f.name) || f.name.startsWith("SYNTAXIS_"))
-          throw new Error(`"${f.name}" is not a valid credential name`);
-        await put(`/secrets/${f.name}`, { value: f.value });
-        mapping[env] = f.name;
+      const mapping: Record<string, string> = {};
+      for (const ev of review.pkg.package.env ?? []) {
+        const name = (map[ev.name] ?? (ev.required ? ev.name : "")).trim();
+        if (!name) continue;
+        if (!credName.test(name)) throw new Error(`"${name}" is not a valid credential name`);
+        mapping[ev.name] = name;
       }
-      for (const k of Object.keys(mapping))
-        if (mapping[k] === NEW || mapping[k] === "") delete mapping[k];
+      // a variable mapped from a suggestion that the package does not list keeps its mapping
+      for (const [env, name] of Object.entries(map))
+        if (!(env in mapping) && name) mapping[env] = name;
       await post("/mcp/approve", {
         name: review.server.name,
         package: review.pkg.index,
         env_secrets: mapping,
       });
       toast(
-        `${review.server.name} is approved. Users can now switch it on under Settings → Tools.`,
+        `${review.server.name} is approved. Users switch it on under Settings → Tools, with their own credentials.`,
         "success",
       );
       close();
       approved.reload();
       requests.reload();
-      secrets.reload();
     } catch (x) {
       toast(errText(x), "error");
     }
   }
   const imageMissing = review?.pkg.image_present === false;
   const missingRequired = (review?.pkg.package.env ?? []).some(
-    (ev) =>
-      ev.required &&
-      (!map[ev.name] || (map[ev.name] === NEW && !(fresh[ev.name]?.name && fresh[ev.name]?.value))),
+    (ev) => ev.required && !(map[ev.name] ?? ev.name).trim(),
   );
 
   return (
@@ -217,21 +208,22 @@ export function McpTab() {
         <p>
           An MCP server adds tools the agent can call: read a GitHub repository&apos;s issues, query
           a database, search documentation. Each one is a third-party program, so nothing runs until
-          you approve it, and an approved server only starts, in its own gVisor sandbox with just
-          the credentials you give it, when a session uses it. Anything it asks to change still asks
-          the user first.
+          you approve it. An approved server starts, in its own gVisor sandbox, only when a session
+          uses it, and only with the credentials of the user who runs it. You never give a server a
+          credential of your own. Anything it asks to change still asks the user first.
         </p>
         <ol>
           <li>
             <strong>Add a server</strong> below: a recommended one, or search the public registry.
           </li>
           <li>
-            <strong>Review and approve</strong> it. You see what it can do and choose which
-            credentials it gets.
+            <strong>Review and approve</strong> it. You see what it can do and which credentials
+            each user will need to supply.
           </li>
           <li>
-            <strong>Users switch it on</strong> under Settings → Tools in the chat app. Admins can
-            also do it for one user from Users → Settings.
+            <strong>Users switch it on</strong> under Settings → Tools in the chat app, after adding
+            their own credentials there or in Connections. Users can also ask you for a server from
+            the same screen.
           </li>
         </ol>
         <p className="muted">
@@ -274,6 +266,37 @@ export function McpTab() {
             ))}
           </ul>
         </Card>
+      )}
+
+      {(approved.data ?? []).some((a) => (a.shared_before ?? []).length > 0) && (
+        <Banner tone="warn">
+          <p>
+            These servers used to take a credential shared by everyone. A shared credential is no
+            longer sent to a server: each user now supplies their own, and the server stays off for
+            a user until they do.
+          </p>
+          <ul>
+            {(approved.data ?? [])
+              .filter((a) => (a.shared_before ?? []).length > 0)
+              .map((a) => (
+                <li key={a.name}>
+                  <strong>{a.name}</strong>: {(a.shared_before ?? []).join(", ")}
+                </li>
+              ))}
+          </ul>
+          <Button
+            onClick={async () => {
+              try {
+                await del("/mcp/shared-notice");
+                approved.reload();
+              } catch (x) {
+                toast(errText(x), "error");
+              }
+            }}
+          >
+            Dismiss
+          </Button>
+        </Banner>
       )}
 
       <Card title={`Approved servers${approved.data ? ` (${approved.data.length})` : ""}`}>
@@ -329,10 +352,10 @@ export function McpTab() {
         {how === "recommended" ? (
           <>
             <p className="muted">
-              First-party servers that run as a local program, set up so each user connects with
-              their own account (Settings → Connections in the chat app). GitLab and Cloudflare
-              publish only hosted servers (run by the publisher, not as a package), which Syntaxis
-              does not run: it only runs servers inside its own sandboxes.
+              First-party servers that run as a local program, set up so each user brings their own
+              account (Settings → Connections in the chat app). GitLab and Cloudflare publish only
+              hosted servers (run by the publisher, not as a package), which Syntaxis does not run:
+              it only runs servers inside its own sandboxes.
             </p>
             {!sugg.data ? (
               <Skeleton lines={2} />
@@ -408,67 +431,6 @@ export function McpTab() {
         )}
       </Card>
 
-      <Card title="Shared credentials">
-        <p className="muted">
-          Only needed when a server asks for a key and you do not want each user to bring their own.
-          A shared credential is used by everyone who switches that server on. Values are kept
-          encrypted and never shown again. You can also create one while approving a server.
-        </p>
-        {(secrets.data ?? []).length === 0 && <p className="muted">None yet.</p>}
-        <ul>
-          {(secrets.data ?? []).map((n) => (
-            <li key={n} className="row">
-              <code className="grow">{n}</code>
-              <Button
-                variant="danger"
-                onClick={async () => {
-                  try {
-                    await del(`/secrets/${n}`);
-                    secrets.reload();
-                  } catch (x) {
-                    toast(errText(x), "error");
-                  }
-                }}
-              >
-                Delete
-              </Button>
-            </li>
-          ))}
-        </ul>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            try {
-              await put(`/secrets/${newName}`, { value: newValue });
-              setNewName("");
-              setNewValue("");
-              secrets.reload();
-            } catch (x) {
-              toast(errText(x), "error");
-            }
-          }}
-        >
-          <Input
-            label="Name"
-            placeholder="DOCS_API_KEY"
-            hint="Capital letters, digits and underscores, for example DOCS_API_KEY."
-            value={newName}
-            onChange={(e) => setNewName(e.target.value.toUpperCase())}
-            required
-          />
-          <Input
-            label="Value"
-            type="password"
-            autoComplete="off"
-            placeholder="the key or token itself"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            required
-          />
-          <Button type="submit">Save credential</Button>
-        </form>
-      </Card>
-
       {review && (
         <Modal
           title={`Approve ${review.server.name}?`}
@@ -525,61 +487,31 @@ export function McpTab() {
               It cannot be approved.
             </Banner>
           )}
-          {(review.pkg.package.env ?? []).length > 0 && <h3>Credentials it takes</h3>}
+          {(review.pkg.package.env ?? []).length > 0 && (
+            <>
+              <h3>Credentials each user supplies</h3>
+              <p className="muted">
+                Every user gives the server their own value, from one of their connections or a
+                secret they add in Settings → Tools. You only choose the name it has in their vault.
+                Nothing here is shared, and you never see a value.
+              </p>
+            </>
+          )}
+          <datalist id="user-credential-names">
+            {(sugg.data?.user_credentials ?? []).map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
           {(review.pkg.package.env ?? []).map((ev) => (
             <div key={ev.name}>
-              <Select
-                label={`${ev.name}${ev.required ? " (required)" : ""}`}
-                value={map[ev.name] ?? ""}
-                onChange={(e) => {
-                  setMap({ ...map, [ev.name]: e.target.value });
-                  if (e.target.value === NEW && !fresh[ev.name])
-                    setFresh({ ...fresh, [ev.name]: { name: ev.name, value: "" } });
-                }}
-                options={[
-                  {
-                    value: "",
-                    label: ev.required ? "Choose where it comes from…" : "Leave it out",
-                  },
-                  ...(sugg.data?.user_credentials ?? []).map((n) => ({
-                    value: "user:" + n,
-                    label: `Each user's own ${n} (recommended)`,
-                  })),
-                  ...(secrets.data ?? []).map((n) => ({ value: n, label: `Shared: ${n}` })),
-                  { value: NEW, label: "A new shared credential…" },
-                ]}
+              <Input
+                label={`${ev.name}${ev.required ? " (required)" : ""}: name of the user's credential`}
+                list="user-credential-names"
+                value={map[ev.name] ?? (ev.required ? ev.name : "")}
+                placeholder={ev.required ? ev.name : "Leave empty to leave it out"}
+                onChange={(e) => setMap({ ...map, [ev.name]: e.target.value })}
               />
               {ev.description && <p className="muted">{ev.description}</p>}
-              {map[ev.name] === NEW && (
-                <div className="row">
-                  <Input
-                    label="Credential name"
-                    value={fresh[ev.name]?.name ?? ""}
-                    placeholder="DOCS_API_KEY"
-                    onChange={(e) =>
-                      setFresh({
-                        ...fresh,
-                        [ev.name]: {
-                          name: e.target.value.toUpperCase(),
-                          value: fresh[ev.name]?.value ?? "",
-                        },
-                      })
-                    }
-                  />
-                  <Input
-                    label="Value"
-                    type="password"
-                    autoComplete="off"
-                    value={fresh[ev.name]?.value ?? ""}
-                    onChange={(e) =>
-                      setFresh({
-                        ...fresh,
-                        [ev.name]: { name: fresh[ev.name]?.name ?? ev.name, value: e.target.value },
-                      })
-                    }
-                  />
-                </div>
-              )}
             </div>
           ))}
         </Modal>

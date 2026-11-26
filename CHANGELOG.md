@@ -4,6 +4,12 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **Your own model provider.** A user can add an external hosted provider (an OpenAI-compatible service) with their own API key, under Settings. Its models are visible and usable only by that user and are marked "leaves this machine". It is off until an admin switches on "Let users add their own model provider" in Policies, and can be switched per user. Admins can see (never the keys) and remove users' providers. Only public internet addresses are accepted.
+
+### Changed
+- **MCP servers use only the user's own credentials.** An approval names the credentials a server needs and each user supplies theirs under Settings → Tools (from one of their connections, or a value stored in their own vault). A server stays off for a user until all are set. The admin "Shared credentials" screen and the admin secrets routes are gone: an instance secret is never sent to an MCP server. Servers that used a shared credential need each user's own value after the update; the admin sees a notice listing them.
+
 ### Fixed
 - Cloudflare connections accept a token made under an account: enter the account ID with it. Before, only a token made under My Profile was accepted.
 - The admin users table no longer makes the page wider than a phone, and the log and command boxes on admin screens can be scrolled from the keyboard.

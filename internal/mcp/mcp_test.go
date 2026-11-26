@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -114,9 +115,12 @@ func newApprovals(t *testing.T) *Approvals {
 func TestApprovalRules(t *testing.T) {
 	a := newApprovals(t)
 	e := entries(t)[0]
-	// required credential not mapped
-	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"API_KEY": "S1"}); !errors.Is(err, ErrNotApprovable) {
-		t.Fatalf("unmapped required variable accepted: %v", err)
+	// a name that cannot be a credential, and a variable the package does not have, are refused
+	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"API_KEY": "has space"}); !errors.Is(err, ErrNotApprovable) {
+		t.Fatalf("bad credential name accepted: %v", err)
+	}
+	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"not a variable": "X"}); !errors.Is(err, ErrNotApprovable) {
+		t.Fatalf("a bad variable name was accepted: %v", err)
 	}
 	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"BUCKET": "MCP_BUCKET", "API_KEY": "MCP_KEY"}); err != nil {
 		t.Fatal(err)
@@ -255,5 +259,65 @@ func TestImageServerCanBeApprovedAndRunsFromItsTag(t *testing.T) {
 	}
 	if _, err := ContainerSpec(sandbox.DefaultConfig(), Approval{Name: "x", Package: moving.Packages[0]}, nil, Owner{UserID: 910001}); !errors.Is(err, ErrNotApprovable) {
 		t.Fatalf("a moving tag was run: %v", err)
+	}
+}
+
+// A required variable the admin leaves unmapped takes the credential of its own name: every credential
+// is a name in the running user's vault, and there is no instance-wide value to fall back on.
+func TestUnmappedRequiredVariableTakesItsOwnName(t *testing.T) {
+	a := newApprovals(t)
+	e := entries(t)[0]
+	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"API_KEY": "MY_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := a.List(ctx)
+	if got := l[0].EnvSecrets; got["API_KEY"] != "MY_KEY" || got["BUCKET"] != "BUCKET" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// Approvals saved before every credential became per-user are converted once: "user:NAME" becomes NAME
+// and a mapping to an instance secret becomes the variable's own name, with a note for the admin.
+// Approvals made afterwards, whose plain names must not be mistaken for old instance secrets, stay as they are.
+func TestOlderApprovalsBecomePerUserOnce(t *testing.T) {
+	a := newApprovals(t)
+	old := map[string]Approval{
+		"old": {Name: "old", Package: Package{RegistryType: "npm", Identifier: "x", Version: "1.0.0", Transport: "stdio"},
+			EnvSecrets: map[string]string{"TOKEN": "user:GITHUB_TOKEN", "KEY": "SHARED_ADMIN_KEY"}, Enabled: true},
+	}
+	raw, _ := json.Marshal(old)
+	if err := a.Store.SetSetting(ctx, settingKey, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	l, err := a.List(ctx)
+	if err != nil || len(l) != 1 {
+		t.Fatal(err, l)
+	}
+	got := l[0]
+	if got.EnvSecrets["TOKEN"] != "GITHUB_TOKEN" || got.EnvSecrets["KEY"] != "KEY" {
+		t.Fatalf("%v", got.EnvSecrets)
+	}
+	if strings.Join(got.SharedBefore, ",") != "KEY" {
+		t.Fatalf("the admin must be told which variable used a shared secret: %v", got.SharedBefore)
+	}
+	// a later approval with a plain credential name is not converted again
+	e := entries(t)[0]
+	if err := a.Approve(ctx, "admin:1", e, 0, map[string]string{"BUCKET": "MY_BUCKET", "API_KEY": "MY_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	l, _ = a.List(ctx)
+	for _, ap := range l {
+		if ap.Name == e.Name && (ap.EnvSecrets["API_KEY"] != "MY_KEY" || len(ap.SharedBefore) != 0) {
+			t.Fatalf("a new approval was converted: %+v", ap)
+		}
+	}
+	if err := a.ClearSharedNotice(ctx, "admin:1"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ = a.List(ctx)
+	for _, ap := range l {
+		if len(ap.SharedBefore) != 0 {
+			t.Fatalf("the note was not cleared: %+v", ap)
+		}
 	}
 }

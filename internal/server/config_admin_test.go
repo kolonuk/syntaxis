@@ -202,16 +202,11 @@ func TestMailPasswordIsWriteOnly(t *testing.T) {
 	if ct, err := e.st.GetSecret(t.Context(), "instance", 0, "SYNTAXIS_SMTP_PASSWORD"); err != nil || strings.Contains(string(ct.Ciphertext), pw) || len(ct.Ciphertext) == 0 {
 		t.Fatalf("not stored as an encrypted secret: %v", err)
 	}
-	// not offered as a credential for servers, and no way to read, replace or delete it there
-	_, _, names := adm.do("GET", "/api/secrets", nil)
-	if strings.Contains(string(names), "SYNTAXIS_SMTP_PASSWORD") {
-		t.Fatalf("the mail password is listed with the servers' credentials: %s", names)
-	}
-	if code, _, _ := adm.do("PUT", "/api/secrets/SYNTAXIS_SMTP_PASSWORD", map[string]string{"value": "x"}); code != 400 {
-		t.Fatalf("overwriting a reserved secret: %d", code)
-	}
-	if code, _, _ := adm.do("DELETE", "/api/secrets/SYNTAXIS_SMTP_PASSWORD", nil); code != 400 {
-		t.Fatalf("deleting a reserved secret: %d", code)
+	// the admin has no secrets screen or route any more: servers take only each user's own credentials
+	for _, m := range []string{"GET", "PUT", "DELETE"} {
+		if code, _, body := adm.do(m, "/api/secrets/SYNTAXIS_SMTP_PASSWORD", map[string]string{"value": "x"}); code != 404 || strings.Contains(string(body), "SYNTAXIS_SMTP_PASSWORD") {
+			t.Fatalf("%s on the admin secrets route: %d %s", m, code, body)
+		}
 	}
 	es, _ := e.st.ListAudit(t.Context(), 0)
 	for _, x := range es {

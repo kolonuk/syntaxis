@@ -77,4 +77,34 @@ describe("the chat app's title bar and new-session dialog", () => {
     expect(quant.href).toBe(MODEL_QUANT_HELP);
     expect(MODEL_NAMES_HELP.startsWith("https://")).toBe(true);
   });
+
+  it("marks a model from a user's own provider as leaving this machine", async () => {
+    serve({
+      "GET /me": me,
+      "GET /sessions": [],
+      "GET /models": [
+        { id: "prov/m1", name: "m1", provider: "prov", tools: true, recommended: false },
+        {
+          id: "@hosted/alpha",
+          name: "alpha",
+          provider: "@hosted",
+          tools: true,
+          recommended: false,
+          external: true,
+        },
+      ],
+      "GET /environments": [],
+      "GET /connections": [],
+      "GET /usage": usage,
+      "GET /parallel/capacity": { max: 1, recommended: 1, limits: [] },
+    });
+    render(<App />);
+    fireEvent.click((await screen.findAllByRole("button", { name: /New session/ }))[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New session" });
+    const options = within(dialog)
+      .getAllByRole("option")
+      .map((o) => o.textContent ?? "");
+    expect(options).toContain("@hosted/alpha (leaves this machine)");
+    expect(options).toContain("prov/m1");
+  });
 });
