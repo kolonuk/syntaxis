@@ -17,7 +17,7 @@ Nothing is faked: no pretend GitHub, model server, mail server or container engi
 
 ## Rules
 
-- A test that needs an account takes it from a `SYNTAXIS_TEST_*` variable. A wrong-credential check against the real service needs no account and should run everywhere.
+- Do not write a test that needs someone's account, token or key: it cannot run for anyone else. Test wrong credentials against the real service (no account needed), a local service in a container, or random users made for the test.
 - A change that cannot be made to happen for real (a new upstream release) is simulated by setting the stored state back, never by a fake source.
 - A real model decides for itself: ask for simple checkable results and assert on what happened in the sandbox, not on wording.
 - Say plainly in the test, with a `NOT TESTED` log or skip, what the test does not cover.

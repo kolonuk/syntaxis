@@ -31,8 +31,8 @@ Tests use no fakes for GitHub, model servers, mail servers or the container engi
 If something real is unavailable, the test skips with `NOT TESTED: <reason>`; it never passes on a stand-in. `scripts/not-tested.sh results.json` lists those from a `go test -json` run, and CI prints the list on each run.
 
 - Needs Docker and gVisor (`runsc`) and the sandbox image (`docker build -t syntaxis-sandbox:latest images/sandbox`): skips without them. The OCR tests also need an image that has poppler and Tesseract (the current Dockerfile does); to test a freshly built image without replacing the one a running instance uses, build it under another tag and set `SYNTAXIS_TEST_SANDBOX_IMAGE`.
+- Tests never use someone's account, token or key. They check wrong credentials against the real service, use a local service in a container, or create random users for the run.
 - Web search: set `SYNTAXIS_TEST_SEARXNG_URL` to a SearXNG server with the json format enabled, or the live test skips.
-- Needs an account: set `SYNTAXIS_TEST_GITHUB_TOKEN`, `SYNTAXIS_TEST_GITLAB_TOKEN`, `SYNTAXIS_TEST_CLOUDFLARE_TOKEN` (and `SYNTAXIS_TEST_CLOUDFLARE_ACCOUNT_ID` for an account-owned token), `SYNTAXIS_TEST_IFTTT_KEY`, `SYNTAXIS_TEST_AWS_ACCESS_KEY_ID` with `..._SECRET_ACCESS_KEY`, the `SYNTAXIS_TEST_AZURE_*` set, or the `SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON` with `SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT`.
 - Needs a model: set `SYNTAXIS_LIVE=1` and point `SYNTAXIS_TEST_ENV` at a file with `OLLAMA_URL`, `OLLAMA_KIND` and `MODEL_TINY`, `MODEL_SMALL`, `MODEL_MAIN` (default `~/.config/syntaxis-test/env`, outside the repository). Model tests ask for simple checkable results and assert on what happened in the sandbox.
 
 Tests that start sandboxes use user ids far above any real user's and clean up after themselves. Whole-host operations (the reaper, the kill switch) are scoped to the test's own containers, so a Syntaxis running on the same Docker host is not affected.

@@ -3,8 +3,6 @@
 package server
 
 import (
-	"context"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -84,51 +82,6 @@ func TestSessionFromARepositoryNeedsTheUsersOwnConnectionAndHost(t *testing.T) {
 	}
 	if code, m := mk(u, map[string]any{"kind": "gitea", "create": map[string]any{"name": "fresh", "private": true}}); code != 201 || m["repo"] != gs.User+"/fresh" {
 		t.Fatalf("%d %v", code, m)
-	}
-}
-
-// The clone itself, in a real gVisor sandbox from a real public repository on GitHub, as the
-// user's own connection. The run is started with a model address nothing answers on: the clone
-// happens before the first model call, and that is the part checked here.
-func TestSessionFromARepositoryClonesItOnItsOwnBranch(t *testing.T) {
-	tok := testenv.Env(t, "SYNTAXIS_TEST_GITHUB_TOKEN", "cloning from GitHub")
-	e := newEnv(t)
-	seedModel(e)
-	m := realSandbox(t, e)
-	testenv.KeepDNSVolume(t, m.Cfg.Image)
-	m.SetDNS([]string{"1.1.1.1"}) // a real resolver; the shared file is put back when the test ends
-	// its own network, outside the host firewall's rules for a running Syntaxis
-	m.Cfg.Network = "syntaxis-test-clone"
-	if err := m.RT.EnsureNetwork(context.Background(), m.Cfg.Network); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", "syntaxis-test-clone").Run() })
-	e.app.Sandbox = m
-	cleanupSandboxes(t, e)
-	e.app.RunAgent = e.app.RunAgentFunc(Wiring{})
-	u := e.userSession("a@example.com")
-	if code, _, raw := u.do("PUT", "/api/connections/github", map[string]any{"fields": map[string]string{"GITHUB_TOKEN": tok}}); code != 200 {
-		t.Fatalf("connect: %d %s", code, raw)
-	}
-	code, s, raw := u.do("POST", "/api/sessions", map[string]any{"model": "prov/m1", "autonomy": "full", "repo": map[string]any{
-		"kind": "github", "full_name": "octocat/Hello-World", "clone_url": "https://github.com/octocat/Hello-World.git", "default_branch": "master"}})
-	if code != 201 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	id := s["id"].(string)
-	u.do("POST", "/api/sessions/"+id+"/messages", map[string]string{"text": "hello"})
-	e.app.Runs.Get(id).Wait()
-	sess, _ := e.st.GetChatSession(context.Background(), id)
-	if sess.SandboxID == "" {
-		t.Fatal("no sandbox was made")
-	}
-	r, err := e.app.Sandbox.Exec(context.Background(), id, sess.SandboxID, execSpec("cd /workspace/Hello-World && git rev-parse --abbrev-ref HEAD && git config --get remote.origin.url && test -f README"))
-	if err != nil || r.ExitCode != 0 {
-		_, _, ev := u.do("GET", "/api/sessions/"+id+"/events", nil)
-		t.Fatalf("the repository was not cloned: %v %+v\nevents: %.1500s", err, r, ev)
-	}
-	if got := strings.Fields(r.Stdout); len(got) < 2 || got[0] != s["repo_branch"] || strings.Contains(r.Stdout, tok) {
-		t.Fatalf("expected the clone on branch %v without the token in its address: %q", s["repo_branch"], r.Stdout)
 	}
 }
 

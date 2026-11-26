@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -52,46 +51,11 @@ func TestGitHubRejectsAWrongTokenWithoutRepeatingIt(t *testing.T) {
 	}
 }
 
-func TestGitHubWithARealToken(t *testing.T) {
-	tok := testenv.Env(t, "SYNTAXIS_TEST_GITHUB_TOKEN", "the GitHub connection")
-	g := git(t, "github")
-	c := Creds{"GITHUB_TOKEN": tok}
-	id, err := g.Test(ctx, c)
-	if err != nil || id.Account == "" {
-		t.Fatalf("%+v %v", id, err)
-	}
-	rs, err := g.ListRepos(ctx, c, "")
-	if err != nil || len(rs) == 0 || !strings.HasPrefix(rs[0].CloneURL, "https://github.com/") {
-		t.Fatalf("%+v %v", rs, err)
-	}
-	// a real devcontainer.json from a public repository, and a real missing file
-	if b, err := g.ReadFile(ctx, c, "microsoft/vscode-remote-try-node", "", ".devcontainer/devcontainer.json"); err != nil || !strings.Contains(string(b), "postCreateCommand") {
-		t.Fatalf("%v %.80s", err, b)
-	}
-	if _, err := g.ReadFile(ctx, c, "octocat/Hello-World", "", ".devcontainer/devcontainer.json"); !errors.Is(err, ErrFileNotFound) {
-		t.Fatalf("%v", err)
-	}
-	// creating repositories and opening pull requests change a real account, so they are not run
-	t.Log("NOT TESTED: creating a GitHub repository and opening a pull request (they would change the real account)")
-}
-
 func TestGitLabRejectsAWrongToken(t *testing.T) {
 	testenv.Network(t, "gitlab.com:443")
 	_, err := svc(t, "gitlab").Test(ctx, Creds{"GITLAB_TOKEN": "glpat-0000000000000000000x"})
 	if !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("%v", err)
-	}
-}
-
-func TestGitLabWithARealToken(t *testing.T) {
-	tok := testenv.Env(t, "SYNTAXIS_TEST_GITLAB_TOKEN", "the GitLab connection")
-	g := git(t, "gitlab")
-	c := Creds{"GITLAB_TOKEN": tok}
-	if id, err := g.Test(ctx, c); err != nil || id.Account == "" {
-		t.Fatalf("%+v %v", id, err)
-	}
-	if _, err := g.ListRepos(ctx, c, ""); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -104,15 +68,6 @@ func TestCloudflareRejectsAWrongToken(t *testing.T) {
 	}
 	if !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("%v", err)
-	}
-}
-
-func TestCloudflareWithARealToken(t *testing.T) {
-	tok := testenv.Env(t, "SYNTAXIS_TEST_CLOUDFLARE_TOKEN", "the Cloudflare connection")
-	// an account-owned token verifies only through its account: set the account ID for one
-	cr := Creds{"CLOUDFLARE_API_TOKEN": tok, "CLOUDFLARE_ACCOUNT_ID": os.Getenv("SYNTAXIS_TEST_CLOUDFLARE_ACCOUNT_ID")}
-	if id, err := svc(t, "cloudflare").Test(ctx, cr); err != nil || id.Account == "" {
-		t.Fatalf("%+v %v", id, err)
 	}
 }
 
@@ -144,47 +99,11 @@ func TestIFTTTRejectsAWrongKey(t *testing.T) {
 	}
 }
 
-func TestIFTTTWithARealKey(t *testing.T) {
-	key := testenv.Env(t, "SYNTAXIS_TEST_IFTTT_KEY", "the IFTTT connection")
-	if _, err := svc(t, "ifttt").Test(ctx, Creds{"IFTTT_WEBHOOK_KEY": key}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestAWSRejectsWrongKeys(t *testing.T) {
 	testenv.Network(t, "sts.us-east-1.amazonaws.com:443")
 	_, err := svc(t, "aws").Test(ctx, Creds{"AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE", "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "AWS_DEFAULT_REGION": "us-east-1"})
 	if !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("%v", err)
-	}
-}
-
-func TestAWSWithRealKeys(t *testing.T) {
-	id := testenv.Env(t, "SYNTAXIS_TEST_AWS_ACCESS_KEY_ID", "the AWS connection")
-	secret := testenv.Env(t, "SYNTAXIS_TEST_AWS_SECRET_ACCESS_KEY", "the AWS connection")
-	got, err := svc(t, "aws").Test(ctx, Creds{"AWS_ACCESS_KEY_ID": id, "AWS_SECRET_ACCESS_KEY": secret, "AWS_DEFAULT_REGION": "us-east-1"})
-	if err != nil || got.Account == "" {
-		t.Fatalf("%+v %v", got, err)
-	}
-}
-
-func TestAzureWithRealCredentials(t *testing.T) {
-	c := Creds{}
-	for _, k := range []string{"AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID"} {
-		c[k] = testenv.Env(t, "SYNTAXIS_TEST_"+k, "the Azure connection")
-	}
-	if id, err := svc(t, "azure").Test(ctx, c); err != nil || id.Account == "" {
-		t.Fatalf("%+v %v", id, err)
-	}
-}
-
-func TestGCPWithRealCredentials(t *testing.T) {
-	c := Creds{
-		"GCP_SERVICE_ACCOUNT_JSON": testenv.Env(t, "SYNTAXIS_TEST_GCP_SERVICE_ACCOUNT_JSON", "the Google Cloud connection"),
-		"GOOGLE_CLOUD_PROJECT":     testenv.Env(t, "SYNTAXIS_TEST_GOOGLE_CLOUD_PROJECT", "the Google Cloud connection"),
-	}
-	if id, err := svc(t, "gcp").Test(ctx, c); err != nil || id.Account == "" {
-		t.Fatalf("%+v %v", id, err)
 	}
 }
 

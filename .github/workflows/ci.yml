@@ -203,7 +203,6 @@ jobs:
       - name: Every test, against real Docker, real gVisor and the real internet
         env:
           SYNTAXIS_IT_EGRESS: "1"
-          SYNTAXIS_TEST_GITHUB_TOKEN: ${{ secrets.SYNTAXIS_TEST_GITHUB_TOKEN }}
         run: go test -count=1 -timeout 30m -json ./... > results.json
       - name: Failed tests
         if: failure()

@@ -12,5 +12,5 @@ Connections live in `internal/connections`. Credentials are per user and stored 
 3. Register it in `New` (`connections.go`). Add the expected clone host in `expectedHost` (`internal/server/repos.go`) so a session can only clone from the service the user connected.
 4. **Sandbox tools**: non-secret fields (an address) are injected as plain environment; secrets are redacted from output. A new git host needs the credential helper in `images/sandbox` to know it.
 5. **UI**: the Connections page is generated from the `Kind`; check it shows a guide for a least-privilege credential.
-6. **Tests**: a wrong-credential test against the real service (no account needed), a gated test with `SYNTAXIS_TEST_<NAME>_...` variables that skips as `NOT TESTED`, and for a self-hostable git service a real container like `testenv.Gitea`.
+6. **Tests**: a wrong-credential test against the real service (no account needed), and for a self-hostable git service a real container like `testenv.Gitea`. No test uses a real account or token.
 7. **Docs**: `docs/integrations.md` (list and guide), `CHANGELOG.md`, and the `Contributing` test variable list if you added one.
