@@ -83,7 +83,7 @@ jobs:
       - name: Links in the documentation
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress --accept 200,403,429 README.md docs/*.md CHANGELOG.md
+          args: --no-progress --max-retries 3 --timeout 30 --accept 200,403,429 README.md docs/*.md CHANGELOG.md
           fail: true
 
   dependency-review:

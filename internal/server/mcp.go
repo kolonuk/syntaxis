@@ -198,8 +198,8 @@ func (a *App) adminMCPSuggestions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_credentials": creds,
 		"suggestions": []map[string]any{
-			{"title": "GitHub (official)", "description": "Read and work with repositories, issues and pull requests as each user, with their own GitHub connection.", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN"}},
-			{"title": "Microsoft Azure (official)", "description": "Look at and manage Azure resources with each user's own service principal.", "search": "com.microsoft/azure", "env_secrets": map[string]string{
+			{"title": "GitHub (official)", "description": "Read and work with repositories, issues and pull requests as each user, with their own GitHub connection.", "search": "io.github.github/github-mcp-server", "env_secrets": map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN"}}, //nolint:gosec // names of credentials, not values
+			{"title": "Microsoft Azure (official)", "description": "Look at and manage Azure resources with each user's own service principal.", "search": "com.microsoft/azure", "env_secrets": map[string]string{ //nolint:gosec // names of credentials, not values
 				"AZURE_TENANT_ID": "AZURE_TENANT_ID", "AZURE_CLIENT_ID": "AZURE_CLIENT_ID",
 				"AZURE_CLIENT_SECRET": "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID": "AZURE_SUBSCRIPTION_ID"}},
 		},
