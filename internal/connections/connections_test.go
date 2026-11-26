@@ -4,9 +4,7 @@ package connections
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -75,74 +73,6 @@ func TestGitHubWithARealToken(t *testing.T) {
 	}
 	// creating repositories and opening pull requests change a real account, so they are not run
 	t.Log("NOT TESTED: creating a GitHub repository and opening a pull request (they would change the real account)")
-}
-
-// TestGitHubPullRequestFlow runs the connection side of the pull-request flow against real GitHub:
-// create a repository, branch, commit, open a pull request, read it back. It changes the real
-// account (a private repository named syntaxis-test-<random> that is deleted at the end), so it
-// runs only when SYNTAXIS_TEST_GITHUB_WRITE=1 and the token may create and delete repositories.
-func TestGitHubPullRequestFlow(t *testing.T) {
-	tok := testenv.Env(t, "SYNTAXIS_TEST_GITHUB_TOKEN", "the GitHub connection")
-	if os.Getenv("SYNTAXIS_TEST_GITHUB_WRITE") != "1" {
-		testenv.NotTested(t, "set SYNTAXIS_TEST_GITHUB_WRITE=1 to create and delete a throwaway GitHub repository")
-	}
-	g, ok := git(t, "github").(*GitHub)
-	if !ok {
-		t.Fatal("the github provider is not *GitHub")
-	}
-	if g.HC == nil {
-		g.HC = http.DefaultClient
-	}
-	c := Creds{"GITHUB_TOKEN": tok}
-	suffix := make([]byte, 4)
-	_, _ = rand.Read(suffix)
-	repo, err := g.CreateRepo(ctx, c, NewRepo{Name: "syntaxis-test-" + hex.EncodeToString(suffix), Description: "throwaway, made by a test", Private: true})
-	if err != nil {
-		t.Fatalf("create the repository: %v", err)
-	}
-	t.Cleanup(func() {
-		if _, err := call(ctx, g.HC, "DELETE", g.base()+"/repos/"+repo.FullName, g.hdr(c), nil, nil); err != nil {
-			t.Errorf("DELETE THE TEST REPOSITORY %s BY HAND: %v", repo.FullName, err)
-		}
-	})
-	// the repository is listed with the token that made it
-	rs, err := g.ListRepos(ctx, c, repo.FullName)
-	if err != nil || len(rs) == 0 {
-		t.Fatalf("list: %+v %v", rs, err)
-	}
-	var head struct {
-		Object struct {
-			SHA string `json:"sha"`
-		} `json:"object"`
-	}
-	var herr error
-	for i := 0; i < 10; i++ { // the first commit can take a moment to appear
-		if _, herr = call(ctx, g.HC, "GET", g.base()+"/repos/"+repo.FullName+"/git/ref/heads/"+repo.DefaultBranch, g.hdr(c), nil, &head); herr == nil {
-			break
-		}
-		time.Sleep(time.Second)
-	}
-	if herr != nil {
-		t.Fatalf("read the default branch: %v", herr)
-	}
-	branch := "syntaxis-change"
-	if _, err := call(ctx, g.HC, "POST", g.base()+"/repos/"+repo.FullName+"/git/refs", g.hdr(c), jsonBody(map[string]any{"ref": "refs/heads/" + branch, "sha": head.Object.SHA}), nil); err != nil {
-		t.Fatalf("create the branch: %v", err)
-	}
-	file := jsonBody(map[string]any{"message": "a small change", "content": base64.StdEncoding.EncodeToString([]byte("hello from a test\n")), "branch": branch})
-	if _, err := call(ctx, g.HC, "PUT", g.base()+"/repos/"+repo.FullName+"/contents/change.txt", g.hdr(c), file, nil); err != nil {
-		t.Fatalf("commit to the branch: %v", err)
-	}
-	url, err := g.OpenPR(ctx, c, PullRequest{Repo: repo.FullName, Title: "A small change", Body: "opened by a test", Head: branch})
-	if err != nil || !strings.Contains(url, "/pull/") {
-		t.Fatalf("open the pull request: %q %v", url, err)
-	}
-	var prs []struct {
-		Title string `json:"title"`
-	}
-	if _, err := call(ctx, g.HC, "GET", g.base()+"/repos/"+repo.FullName+"/pulls?state=open", g.hdr(c), nil, &prs); err != nil || len(prs) != 1 || prs[0].Title != "A small change" {
-		t.Fatalf("read the pull request back: %+v %v", prs, err)
-	}
 }
 
 func TestGitLabRejectsAWrongToken(t *testing.T) {

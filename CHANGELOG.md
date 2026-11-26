@@ -10,7 +10,6 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ### Changed
 - The browser tests sign in and open every admin screen and every settings screen, in light and dark and on a phone width, checking the layout and accessibility.
-- New tests run the pull-request flow against real GitHub, from a connection and from a real sandbox, using a throwaway repository that is deleted afterwards (opt-in; see CONTRIBUTING.md).
 
 ## [0.2.2] - 2026-11-26
 
