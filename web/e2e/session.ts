@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import { request, type APIRequestContext } from "@playwright/test";
 
 export const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:8080";
 export const ADMIN_URL = process.env.ADMIN_URL ?? "http://127.0.0.1:8081";
-export const AUTH_DIR = "e2e/.auth";
-export const ADMIN_STATE = `${AUTH_DIR}/admin.json`;
-export const USER_STATE = `${AUTH_DIR}/user.json`;
+
+/** The signed-in browser state lives only in the test run's environment: nothing is written to disk. */
+export type BrowserState = Awaited<ReturnType<APIRequestContext["storageState"]>>;
+export function savedState(which: "admin" | "user"): BrowserState | undefined {
+  const raw = process.env[`E2E_${which.toUpperCase()}_STATE`];
+  return raw ? (JSON.parse(raw) as BrowserState) : undefined;
+}
 
 /** A time-based one-time code (RFC 6238: SHA-1, 30 seconds, 6 digits) for a base32 secret. */
 export function totp(secret: string, at = Date.now()): string {
@@ -58,7 +61,7 @@ async function api(
 }
 
 /** Signs in, setting up two-factor authentication the first time, and returns the browser state. */
-async function signIn(base: string, email: string, password: string, statePath: string) {
+async function signIn(base: string, email: string, password: string): Promise<BrowserState> {
   const ctx = await request.newContext({ baseURL: base });
   try {
     csrfToken = "";
@@ -67,14 +70,14 @@ async function signIn(base: string, email: string, password: string, statePath: 
     const begin = await api(ctx, base, "POST", "/2fa/begin");
     await api(ctx, base, "POST", "/2fa/confirm", { code: await freshCode(begin.secret) });
     await api(ctx, base, "GET", "/me");
-    await ctx.storageState({ path: statePath });
+    return await ctx.storageState();
   } finally {
     await ctx.dispose();
   }
 }
 
 /**
- * Makes a signed-in admin and a signed-in user for the screen tests. The admin comes from the
+ * Makes a signed-in admin and a signed-in user for the screen tests. Passwords are random, used once and never written anywhere; the session cookies stay in memory. The admin comes from the
  * installer's single-use link (E2E_SETUP_TOKEN) or from a known password (E2E_ADMIN_PASSWORD, for an
  * instance started with a bootstrap admin). Without either the screen tests are skipped.
  */
@@ -83,17 +86,17 @@ export async function prepareSessions(): Promise<boolean> {
   const token = process.env.E2E_SETUP_TOKEN;
   let password = process.env.E2E_ADMIN_PASSWORD ?? "";
   if (!token && !password) return false;
-  mkdirSync(AUTH_DIR, { recursive: true });
   if (token) {
     password = `Ee2e-${randomBytes(9).toString("base64url")}-1!`;
     const ctx = await request.newContext({ baseURL: ADMIN_URL });
     await api(ctx, ADMIN_URL, "POST", "/setup", { token, password });
     await ctx.dispose();
   }
-  await signIn(ADMIN_URL, email, password, ADMIN_STATE);
+  const adminState = await signIn(ADMIN_URL, email, password);
+  process.env.E2E_ADMIN_STATE = JSON.stringify(adminState);
 
   // a user, invited by the admin and signed in
-  const admin = await request.newContext({ baseURL: ADMIN_URL, storageState: ADMIN_STATE });
+  const admin = await request.newContext({ baseURL: ADMIN_URL, storageState: adminState });
   csrfToken = "";
   await api(admin, ADMIN_URL, "GET", "/me");
   const invite = await api(admin, ADMIN_URL, "POST", "/users", {
@@ -107,6 +110,8 @@ export async function prepareSessions(): Promise<boolean> {
   csrfToken = "";
   await api(anon, BASE_URL, "POST", "/invite/accept", { token: userToken, password: userPassword });
   await anon.dispose();
-  await signIn(BASE_URL, "e2e-user@example.com", userPassword, USER_STATE);
+  process.env.E2E_USER_STATE = JSON.stringify(
+    await signIn(BASE_URL, "e2e-user@example.com", userPassword),
+  );
   return true;
 }

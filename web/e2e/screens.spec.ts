@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync } from "node:fs";
-import { ADMIN_STATE, ADMIN_URL, BASE_URL, USER_STATE } from "./session";
+import { ADMIN_URL, BASE_URL, savedState } from "./session";
 
 // Every screen of the admin app and of the user's settings, signed in, in light and dark and on a
 // phone: it loads without a script error, fits the width, and has no serious accessibility problem.
@@ -35,8 +34,8 @@ const sizes = [
 ];
 
 test.describe("admin app screens", () => {
-  test.skip(!existsSync(ADMIN_STATE), "no signed-in admin (E2E_SETUP_TOKEN or E2E_ADMIN_PASSWORD)");
-  test.use({ storageState: ADMIN_STATE });
+  test.skip(!savedState("admin"), "no signed-in admin (E2E_SETUP_TOKEN or E2E_ADMIN_PASSWORD)");
+  test.use({ storageState: savedState("admin") });
   for (const scheme of ["light", "dark"] as const) {
     for (const size of sizes) {
       test(`every menu item opens and is accessible (${scheme}, ${size.name})`, async ({
@@ -104,8 +103,8 @@ test.describe("admin app screens", () => {
 });
 
 test.describe("user app screens", () => {
-  test.skip(!existsSync(USER_STATE), "no signed-in user (E2E_SETUP_TOKEN or E2E_ADMIN_PASSWORD)");
-  test.use({ storageState: USER_STATE });
+  test.skip(!savedState("user"), "no signed-in user (E2E_SETUP_TOKEN or E2E_ADMIN_PASSWORD)");
+  test.use({ storageState: savedState("user") });
   for (const scheme of ["light", "dark"] as const) {
     for (const size of sizes) {
       test(`the home page and every settings screen are accessible (${scheme}, ${size.name})`, async ({
